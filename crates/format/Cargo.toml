@@ -1,0 +1,16 @@
+[package]
+name = "php-format"
+description = "A PHP formatter that changes whitespace and nothing else"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+php-syntax = { version = "0.1.0", path = "../syntax" }
+
+[dev-dependencies]
+expect-test = "1.5.1"

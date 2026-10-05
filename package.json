@@ -1,0 +1,62 @@
+{
+  "name": "@adecore/php-language-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A native PHP language server over stdio, with source and pinned distribution metadata.",
+  "license": "MIT",
+  "author": "Bas Milius",
+  "type": "module",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/basmilius/adecore.git",
+    "directory": "packages/php-language-server"
+  },
+  "bugs": {
+    "url": "https://github.com/basmilius/adecore/issues"
+  },
+  "homepage": "https://adecore.dev/php-language-server/",
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rustfmt.toml",
+    "crates",
+    "scripts",
+    "native-source.json",
+    "NATIVE.md",
+    "THIRD-PARTY.md"
+  ],
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./native-source.json": {
+      "source": "./native-source.json",
+      "default": "./native-source.json"
+    },
+    "./package.json": {
+      "source": "./package.json",
+      "default": "./package.json"
+    }
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src",
+    "native:build": "cargo build --release --locked",
+    "native:check": "cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings",
+    "native:test": "cargo test --locked",
+    "native:handshake": "python3 scripts/handshake.py target/release/php-language-server",
+    "native:release-test": "python3 scripts/test-native-release.py"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^24.13.6",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,26 @@
+[package]
+name = "php-language-server"
+description = "A PHP language server over stdio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+crossbeam-channel = "0.5.17"
+lsp-server = "0.10.0"
+lsp-types = "0.97.0"
+php-analysis = { version = "0.1.0", path = "../analysis" }
+php-format = { version = "0.1.0", path = "../format" }
+php-index = { version = "0.1.0", path = "../index" }
+php-syntax = { version = "0.1.0", path = "../syntax" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+[dev-dependencies]
+php-index = { version = "0.1.0", path = "../index", features = ["testing"] }
+expect-test = "1.5.1"
+tempfile = "3.27.0"

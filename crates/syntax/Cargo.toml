@@ -1,0 +1,21 @@
+[package]
+name = "php-syntax"
+description = "Lexer, error-tolerant parser and lossless syntax tree for PHP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rowan = "0.17.0"
+
+[dev-dependencies]
+criterion = "0.7.0"
+expect-test = "1.5.1"
+
+[[bench]]
+name = "parse"
+harness = false

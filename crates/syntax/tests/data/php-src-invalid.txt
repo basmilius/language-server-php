@@ -1,0 +1,15 @@
+Zend/tests/coalesce/assign_coalesce_004.phpt
+Zend/tests/constants/halt_compiler/halt03.phpt
+Zend/tests/errmsg/errmsg_004.phpt
+Zend/tests/errmsg/errmsg_005.phpt
+Zend/tests/interface_extends_static.phpt
+Zend/tests/lsb/lsb_006.phpt
+Zend/tests/lsb/lsb_007.phpt
+Zend/tests/namespaces/ns_081.phpt
+Zend/tests/readonly_classes/gh10377_2.phpt
+Zend/tests/readonly_classes/gh10377_3.phpt
+Zend/tests/readonly_classes/gh10377_4.phpt
+Zend/tests/traits/class_uses_static.phpt
+Zend/tests/traits/static_in_trait_insteadof_list.phpt
+Zend/tests/traits/static_in_trait_insteadof_reference.phpt
+Zend/tests/unset/bug70240.phpt

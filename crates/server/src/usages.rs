@@ -1,0 +1,368 @@
+//! Find usages and document highlights, over the words of the project and its open documents.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use lsp_types::{
+    DocumentChangeOperation, DocumentChanges, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams,
+    Location, MessageType, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ReferenceParams,
+    RenameFile, RenameParams, ResourceOp, TextDocumentEdit, TextEdit, Uri, WorkspaceEdit,
+};
+use php_analysis::nav::Place;
+use php_analysis::references::{Current, FileHits, Sources, highlights_at, references_at};
+use php_analysis::refs::{Access, Hit, HitKind, Symbol};
+use php_analysis::rename::{prepare_rename, rename};
+use php_index::words::WordIndex;
+use php_index::{Origin, Span};
+
+use crate::convert::Mapper;
+use crate::features::TextCache;
+use crate::paths::{path_to_uri, uri_to_path};
+use crate::server::Server;
+
+/// The files a search reads: open documents as they are in the editor, the others from the disk,
+/// narrowed to the ones whose words say they may hold the name.
+pub(crate) struct ProjectSources<'a> {
+    open: HashMap<PathBuf, String>,
+    words: &'a WordIndex,
+}
+
+impl<'a> ProjectSources<'a> {
+    pub(crate) fn new(open: HashMap<PathBuf, String>, words: &'a WordIndex) -> ProjectSources<'a> {
+        ProjectSources { open, words }
+    }
+}
+
+impl Sources for ProjectSources<'_> {
+    fn candidates(&self, word: &str) -> Vec<PathBuf> {
+        let mut found = self.words.candidates(word);
+        for (path, text) in &self.open {
+            if text.to_ascii_lowercase().contains(word) && !found.contains(path) {
+                found.push(path.clone());
+            }
+        }
+        found.retain(|path| !self.open.contains_key(path) || self.open[path].to_ascii_lowercase().contains(word));
+        found
+    }
+
+    fn text(&self, path: &Path) -> Option<String> {
+        if let Some(text) = self.open.get(path) {
+            return Some(text.clone());
+        }
+        std::fs::read(path)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
+impl Server<'_> {
+    /// Reads the words of the project's own files, once, before the first search.
+    pub(crate) fn ensure_words(&mut self, path: &Path) {
+        let project = self.workspace.project_for_mut(path);
+        if project.words.is_built() {
+            return;
+        }
+        let paths: Vec<PathBuf> = project
+            .index
+            .files()
+            .filter(|file| file.origin == Origin::Project)
+            .map(|file| file.path.clone())
+            .collect();
+        project.words.build(paths);
+    }
+
+    pub(crate) fn references(&mut self, params: ReferenceParams) -> Option<Vec<Location>> {
+        let position = params.text_document_position;
+        let uri = position.text_document.uri;
+        let include_declaration = params.context.include_declaration;
+        let path = uri_to_path(&uri)?;
+        self.sync_symbols(&uri);
+        self.ensure_words(&path);
+        let open = self.documents.texts();
+        let encoding = self.encoding;
+        let document = self.documents.get_mut(&uri)?;
+        let root = document.parse().syntax();
+        let offset = u32::from(
+            Mapper {
+                text: &document.text,
+                index: &document.index,
+                encoding,
+            }
+            .offset(position.position),
+        );
+        let project = self.workspace.project_for(&path);
+        let sources = ProjectSources::new(open, &project.words);
+        let found = references_at(
+            &project.index,
+            &sources,
+            &Current {
+                path: &path,
+                text: &document.text,
+                root: &root,
+            },
+            offset,
+        )?;
+        let mut files = found.files;
+        if include_declaration {
+            add_foreign_declarations(&project.index, &found.symbols, &mut files);
+        } else {
+            for file in &mut files {
+                file.hits.retain(|hit| hit.kind != HitKind::Declaration);
+            }
+        }
+        let mut texts = TextCache::new(self, Some(&uri));
+        let mut locations = Vec::new();
+        for file in &files {
+            for hit in &file.hits {
+                let place = Place {
+                    path: Some(file.path.clone()),
+                    span: Span {
+                        start: u32::from(hit.range.start()),
+                        end: u32::from(hit.range.end()),
+                    },
+                };
+                if let Some(location) = texts.location(&place) {
+                    locations.push(location);
+                }
+            }
+        }
+        Some(locations)
+    }
+
+    pub(crate) fn document_highlight(&mut self, params: DocumentHighlightParams) -> Option<Vec<DocumentHighlight>> {
+        let position = params.text_document_position_params;
+        let uri = position.text_document.uri;
+        let path = uri_to_path(&uri);
+        self.sync_symbols(&uri);
+        let encoding = self.encoding;
+        let document = self.documents.get_mut(&uri)?;
+        let root = document.parse().syntax();
+        let mapper = Mapper {
+            text: &document.text,
+            index: &document.index,
+            encoding,
+        };
+        let offset = u32::from(mapper.offset(position.position));
+        let project = match &path {
+            Some(path) => self.workspace.project_for(path),
+            None => &self.workspace.loose,
+        };
+        let current_path = path.unwrap_or_default();
+        let hits = highlights_at(
+            &project.index,
+            &Current {
+                path: &current_path,
+                text: &document.text,
+                root: &root,
+            },
+            offset,
+        );
+        Some(
+            hits.iter()
+                .map(|hit| DocumentHighlight {
+                    range: mapper.range(hit.range),
+                    kind: Some(highlight_kind(hit)),
+                })
+                .collect(),
+        )
+    }
+}
+
+fn highlight_kind(hit: &Hit) -> DocumentHighlightKind {
+    match (&hit.symbol, hit.access) {
+        (Symbol::Variable { .. } | Symbol::Property { .. } | Symbol::ClassConst { .. }, Access::Write) => {
+            DocumentHighlightKind::WRITE
+        }
+        (Symbol::Variable { .. } | Symbol::Property { .. } | Symbol::ClassConst { .. }, Access::Read) => {
+            DocumentHighlightKind::READ
+        }
+        _ => DocumentHighlightKind::TEXT,
+    }
+}
+
+/// A declaration in a file the search does not read (a package, the standard library) still belongs
+/// to the answer when the client asks for it.
+fn add_foreign_declarations(index: &php_index::Index, symbols: &[Symbol], files: &mut Vec<FileHits>) {
+    for symbol in symbols {
+        let query = php_analysis::refs::Query::new(index, symbol.clone());
+        for declaration in php_analysis::decl::declarations(index, &query) {
+            if declaration.origin == Origin::Project {
+                continue;
+            }
+            let range =
+                php_syntax::TextRange::new(declaration.name_span.start.into(), declaration.name_span.end.into());
+            let hit = Hit {
+                range,
+                kind: HitKind::Declaration,
+                access: Access::Read,
+                dollar: false,
+                via_alias: false,
+                symbol: symbol.clone(),
+            };
+            match files.iter_mut().find(|file| file.path == declaration.path) {
+                Some(file) => {
+                    if !file.hits.iter().any(|existing| existing.range == range) {
+                        file.hits.push(hit);
+                    }
+                }
+                None => files.push(FileHits {
+                    path: declaration.path.clone(),
+                    hits: vec![hit],
+                }),
+            }
+        }
+    }
+}
+
+// Rename ---------------------------------------------------------------------------------------
+
+impl Server<'_> {
+    pub(crate) fn prepare_rename(
+        &mut self,
+        params: lsp_types::TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>, String> {
+        let uri = params.text_document.uri;
+        let path = uri_to_path(&uri);
+        self.sync_symbols(&uri);
+        let encoding = self.encoding;
+        let Some(document) = self.documents.get_mut(&uri) else {
+            return Ok(None);
+        };
+        let root = document.parse().syntax();
+        let mapper = Mapper {
+            text: &document.text,
+            index: &document.index,
+            encoding,
+        };
+        let offset = u32::from(mapper.offset(params.position));
+        let project = match &path {
+            Some(path) => self.workspace.project_for(path),
+            None => &self.workspace.loose,
+        };
+        let prepared = prepare_rename(&project.index, &root, &document.text, offset)?;
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: mapper.range(prepared.range),
+            placeholder: prepared.placeholder,
+        }))
+    }
+
+    // `changes` of a workspace edit is a map keyed by `Uri` in the protocol's own types.
+    #[allow(clippy::mutable_key_type)]
+    pub(crate) fn rename(&mut self, params: RenameParams) -> Result<Option<WorkspaceEdit>, String> {
+        let position = params.text_document_position;
+        let uri = position.text_document.uri;
+        let Some(path) = uri_to_path(&uri) else {
+            return Err("Only files can be renamed".to_string());
+        };
+        self.sync_symbols(&uri);
+        self.ensure_words(&path);
+        let open = self.documents.texts();
+        let encoding = self.encoding;
+        let Some(document) = self.documents.get_mut(&uri) else {
+            return Ok(None);
+        };
+        let root = document.parse().syntax();
+        let offset = u32::from(
+            Mapper {
+                text: &document.text,
+                index: &document.index,
+                encoding,
+            }
+            .offset(position.position),
+        );
+        let project = self.workspace.project_for(&path);
+        let sources = ProjectSources::new(open, &project.words);
+        let done = rename(
+            &project.index,
+            &sources,
+            &Current {
+                path: &path,
+                text: &document.text,
+                root: &root,
+            },
+            offset,
+            &params.new_name,
+        )?;
+        let file_move = done.file_rename.as_ref().filter(|moved| {
+            project.composer.as_ref().is_none_or(|composer| {
+                composer
+                    .class_candidates(&moved.class)
+                    .iter()
+                    .any(|candidate| candidate == &moved.from)
+            })
+        });
+        let file_move = file_move.cloned();
+        let mut texts = TextCache::new(self, Some(&uri));
+        let mut per_file: Vec<(Uri, Option<i32>, Vec<TextEdit>)> = Vec::new();
+        for file in &done.files {
+            let mut edits = Vec::new();
+            let mut file_uri = None;
+            for edit in &file.edits {
+                let place = Place {
+                    path: Some(file.path.clone()),
+                    span: Span {
+                        start: u32::from(edit.range.start()),
+                        end: u32::from(edit.range.end()),
+                    },
+                };
+                if let Some(location) = texts.location(&place) {
+                    file_uri = Some(location.uri);
+                    edits.push(TextEdit {
+                        range: location.range,
+                        new_text: edit.text.clone(),
+                    });
+                }
+            }
+            if let Some(file_uri) = file_uri {
+                let version = self.documents.get(&file_uri).map(|document| document.version);
+                per_file.push((file_uri, version, edits));
+            }
+        }
+        let mut notes = vec![
+            "Rename changes names in code and doc comments. Strings and other comments are not changed.".to_string(),
+        ];
+        let mut operations: Vec<DocumentChangeOperation> = Vec::new();
+        if let Some(moved) = &file_move {
+            match (path_to_uri(&moved.from), path_to_uri(&moved.to)) {
+                (Some(old_uri), Some(new_uri)) if self.rename_files && self.document_changes => {
+                    operations.push(DocumentChangeOperation::Op(ResourceOp::Rename(RenameFile {
+                        old_uri,
+                        new_uri,
+                        options: None,
+                        annotation_id: None,
+                    })));
+                }
+                _ => notes.push(format!(
+                    "The file {} follows the class name, but the client cannot rename files.",
+                    moved.from.display()
+                )),
+            }
+        }
+        for note in notes {
+            self.log(MessageType::INFO, note);
+        }
+        if self.document_changes {
+            let mut changes: Vec<DocumentChangeOperation> = per_file
+                .into_iter()
+                .map(|(uri, version, edits)| {
+                    DocumentChangeOperation::Edit(TextDocumentEdit {
+                        text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
+                        edits: edits.into_iter().map(OneOf::Left).collect(),
+                    })
+                })
+                .collect();
+            changes.extend(operations);
+            return Ok(Some(WorkspaceEdit {
+                changes: None,
+                document_changes: Some(DocumentChanges::Operations(changes)),
+                change_annotations: None,
+            }));
+        }
+        let changes: HashMap<Uri, Vec<TextEdit>> = per_file.into_iter().map(|(uri, _, edits)| (uri, edits)).collect();
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
+    }
+}
