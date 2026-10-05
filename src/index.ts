@@ -8,7 +8,7 @@ export const PHP_LANGUAGE_SERVER_METADATA = {
     sourceRevision: '9729144f0df3f25628f20cc283dee54f8d9e8162'
 } as const;
 
-export type PhpLanguageServerPlatform = 'darwin-arm64' | 'darwin-x64' | 'linux-arm64' | 'linux-x64' | 'win32-x64';
+export type PhpLanguageServerPlatform = 'darwin-arm64' | 'linux-arm64' | 'linux-x64' | 'win32-x64';
 
 export interface PhpLanguageServerAsset {
     readonly url: string;

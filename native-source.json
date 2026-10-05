@@ -9,11 +9,6 @@
       "executable": "php-language-server",
       "format": "tar.gz"
     },
-    "darwin-x64": {
-      "target": "x86_64-apple-darwin",
-      "executable": "php-language-server",
-      "format": "tar.gz"
-    },
     "linux-arm64": {
       "target": "aarch64-unknown-linux-gnu",
       "executable": "php-language-server",
