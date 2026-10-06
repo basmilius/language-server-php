@@ -259,6 +259,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         "A validation rule the validator does not have and the project does not add",
     ),
     info(
+        "unknown-serializer-group",
+        Warning,
+        true,
+        "A serialization group no property or method is in",
+    ),
+    info(
         "unknown-feature",
         Warning,
         true,

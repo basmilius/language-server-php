@@ -1632,3 +1632,71 @@ mod filament {
         assert_eq!(found, ["email"]);
     }
 }
+
+mod serializer_groups {
+    use php_index::framework::testing::SYMFONY;
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    const BOOK: &str = "<?php\nnamespace App\\Entity;\nuse Symfony\\Component\\Serializer\\Attribute\\Groups;\nclass Book {\n    #[Groups(['book:read', 'book:write'])]\n    public string $title;\n}\n";
+    const API: &str = "<?php\nnamespace App\\Controller;\nuse Symfony\\Component\\Serializer\\Normalizer\\AbstractNormalizer;\nfunction show($serializer, $book) {\n    $serializer->serialize($book, 'json', [AbstractNormalizer::GROUPS => ['book:read', 'nope']]);\n    $validator->validate($book, null, [AbstractNormalizer::GROUPS => ['strict']]);\n    return new Response(context: ['groups' => 'book:write']);\n}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = SYMFONY.to_vec();
+        files.extend_from_slice(&[
+            ("config/bundles.php", "<?php return [];"),
+            (
+                "vendor/symfony/Groups.php",
+                "<?php\nnamespace Symfony\\Component\\Serializer\\Attribute;\n#[\\Attribute]\nclass Groups { public function __construct(string|array $groups) {} }\n",
+            ),
+            ("src/Entity/Book.php", BOOK),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_group_of_a_context_leads_to_the_groups_attributes_and_completes() {
+        let fixture = fixture();
+        let code = API.replacen("'book:read'", "'book:re$0ad'", 1);
+        let (_, root, offset) = split_cursor(&code);
+        let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
+            .collect();
+        assert_eq!(found, ["/project/src/Entity/Book.php"]);
+        let code = "<?php\nfunction f($s, $b) { $s->normalize($b, null, ['groups' => ['$0']]); }\n";
+        let offset = code.find(CURSOR).expect("a cursor") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(labels, ["book:read", "book:write"]);
+    }
+
+    #[test]
+    fn a_group_nothing_is_in_is_reported_and_validation_groups_are_left_alone() {
+        let fixture = fixture();
+        let root = php_syntax::parse(API).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: API,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-serializer-group")
+        .map(|finding| finding.diagnostic.message)
+        .collect();
+        assert_eq!(found, ["No property or method is in the group 'nope'"]);
+    }
+}

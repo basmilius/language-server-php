@@ -1080,3 +1080,32 @@ fn a_filament_column_leads_to_the_column_of_the_resource_model() {
     );
     client.shutdown();
 }
+
+#[test]
+fn a_serialization_group_leads_to_the_properties_in_it() {
+    let disk = symfony();
+    disk.write(
+        "project/vendor/symfony/serializer/Groups.php",
+        "<?php\nnamespace Symfony\\Component\\Serializer\\Attribute;\n\n#[\\Attribute]\nclass Groups\n{\n    public function __construct(string|array $groups) {}\n}\n",
+    );
+    disk.write(
+        "project/src/Entity/Book.php",
+        "<?php\nnamespace App\\Entity;\n\nuse Symfony\\Component\\Serializer\\Attribute\\Groups;\n\nclass Book\n{\n    #[Groups(['book:read'])]\n    public string $title = '';\n}\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/src/Controller/BookController.php");
+    client.open(
+        &uri,
+        "<?php\nnamespace App\\Controller;\n\nfunction show($serializer, $book)\n{\n    return $serializer->serialize($book, 'json', ['groups' => ['book:read', 'book:gone']]);\n}\n",
+    );
+    let found = client.at("textDocument/definition", &uri, 5, 64);
+    assert_eq!(found[0]["uri"], disk.uri("project/src/Entity/Book.php"), "{found}");
+    assert_eq!(found[0]["range"]["start"]["line"], 7, "{found}");
+    let diagnostics = client.diagnostics(&uri);
+    let unknown: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "unknown-serializer-group")
+        .collect();
+    assert_eq!(unknown.len(), 1, "{diagnostics:?}");
+    client.shutdown();
+}

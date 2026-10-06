@@ -251,6 +251,26 @@ namespace Symfony\Bundle\FrameworkBundle\Controller {
 
 }
 
+namespace Symfony\Component\Serializer\Attribute {
+
+class Groups
+{
+    /** @key serializer-group */
+    public function __construct(string|array $groups) {}
+}
+
+}
+
+namespace Symfony\Component\Serializer\Annotation {
+
+class Groups
+{
+    /** @key serializer-group */
+    public function __construct(string|array $groups) {}
+}
+
+}
+
 namespace Doctrine\ORM {
 
 interface EntityManagerInterface

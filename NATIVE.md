@@ -646,6 +646,8 @@ Names in a doc comment lead somewhere now: a class in a type, `Class::member()` 
 
 **Filament.** The name of a column, a field or an entry (`TextColumn::make('title')`, `TextInput::make()`, `TextEntry::make()`, marked `@key filament-field` on `Column`, `Field` and `Entry`) is an attribute of the model the class around works on (`framework/filament.rs`): a resource's `$model`, or `App\Models\{Name}` after a `{Name}Resource` without one, the classes a resource calls statically (`ArticlesTable::configure()`, as Filament 4 lays a resource out) and the pages whose `$resource` names it. `author.name` follows the relation `author` to its model, and the last segment is a column of that model's table: definition goes to the column in its migration or schema dump, completion offers the columns, and the column's usages list the string. A class two resources call stands for neither model. Nothing is reported, since a column may also be an accessor, a count or a JSON path. On `laravelio/laravel.io` the column strings found grow from 27 names in 53 places to 33 in 78, and the survey reports what it did before.
 
+**Serialization groups (Symfony's serializer and API Platform).** A group is declared by the `#[Groups]` on a property, a method or a class (`framework/symfony/serializer.rs`), whose strings are a key of their own through a marker on the attribute's constructor. A context names one under `AbstractNormalizer::GROUPS` or `'groups'`, in an argument named `normalizationContext`, `denormalizationContext`, `serializationContext` or `context` (API Platform's `#[ApiResource]` and operations, `#[MapRequestPayload]`, a controller's `json()`), or in an argument of `serialize()`, `deserialize()`, `normalize()`, `denormalize()` and `json()`. Definition lists every `#[Groups]` that names the group, completion offers the groups, find usages lists both, and `unknown-serializer-group` (warning) reports a group no attribute declares, never `Default`, and not in a project that maps groups in `config/serializer` or `config/api_platform`. A validation context uses the same key for validation groups and is left alone: the first version read every `GROUPS` key and reported the two validation groups of `api-platform/demo`, which is why the argument decides. On that demo 11 groups are named in 58 places and nothing is reported.
+
 ### Corpus
 
 ```sh
@@ -698,5 +700,5 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Other frameworks and packages in the same overlay format (API Platform, Symfony Messenger and Workflow).
+- Other frameworks and packages in the same overlay format (Symfony Messenger and Workflow).
 - A PHP 8.6 level, when its syntax exists.

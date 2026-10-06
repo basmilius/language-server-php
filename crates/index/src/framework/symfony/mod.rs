@@ -4,6 +4,7 @@
 pub mod doctrine;
 pub mod events;
 pub mod routes;
+pub mod serializer;
 pub mod services;
 pub mod templates;
 pub mod translations;

@@ -65,6 +65,8 @@ pub enum KeyKind {
     InertiaPage,
     /// A Pennant feature.
     Feature,
+    /// A group of Symfony's serializer.
+    SerializerGroup,
 }
 
 impl KeyKind {
@@ -90,6 +92,7 @@ impl KeyKind {
             "livewire" => KeyKind::Livewire,
             "inertia-page" => KeyKind::InertiaPage,
             "feature" => KeyKind::Feature,
+            "serializer-group" => KeyKind::SerializerGroup,
             _ => return None,
         })
     }
@@ -120,6 +123,7 @@ impl KeyKind {
             KeyKind::Livewire => "Livewire component",
             KeyKind::InertiaPage => "Inertia page",
             KeyKind::Feature => "feature",
+            KeyKind::SerializerGroup => "serialization group",
         }
     }
 
@@ -133,6 +137,7 @@ impl KeyKind {
             KeyKind::Template => Some("unknown-template"),
             KeyKind::InertiaPage => Some("unknown-inertia-page"),
             KeyKind::Feature => Some("unknown-feature"),
+            KeyKind::SerializerGroup => Some("unknown-serializer-group"),
             _ => None,
         }
     }
@@ -395,6 +400,13 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 .features
                 .iter()
                 .map(|feature| candidate(&feature.name, None)),
+        ),
+        KeyKind::SerializerGroup => out.extend(
+            index
+                .section::<super::symfony::serializer::SerializerGroups>()
+                .names()
+                .into_iter()
+                .map(|name| candidate(name, None)),
         ),
     }
     out
@@ -735,6 +747,14 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                 .filter(|feature| feature.name == key)
                 .map(|feature| definition(&feature.path, feature.span, "")),
         ),
+        KeyKind::SerializerGroup => out.extend(
+            index
+                .section::<super::symfony::serializer::SerializerGroups>()
+                .places
+                .iter()
+                .filter(|place| place.name == key)
+                .map(|place| definition(&place.path, place.span, "")),
+        ),
     }
     out
 }
@@ -811,6 +831,12 @@ pub fn is_missing(index: &Index, kind: KeyKind, key: &str) -> bool {
         KeyKind::Translation => frameworks.laravel && index.section::<Translations>().is_missing(key),
         KeyKind::InertiaPage => frameworks.laravel && index.section::<super::inertia::InertiaPages>().is_missing(key),
         KeyKind::Feature => frameworks.laravel && index.section::<super::pennant::Features>().is_missing(key),
+        KeyKind::SerializerGroup => {
+            frameworks.symfony
+                && index
+                    .section::<super::symfony::serializer::SerializerGroups>()
+                    .is_missing(key)
+        }
         _ => false,
     }
 }

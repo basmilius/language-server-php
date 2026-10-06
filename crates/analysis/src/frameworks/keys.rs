@@ -143,7 +143,8 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
     let (value, span) = php_index::test_facts::string_value(literal)?;
     let Some((argument, place)) = argument_of(literal) else {
         return event_key(analyzer, literal, &value, span)
-            .or_else(|| super::casts::cast_key(analyzer, literal, &value, span));
+            .or_else(|| super::casts::cast_key(analyzer, literal, &value, span))
+            .or_else(|| context_group(analyzer, literal, &value, span));
     };
     let named = argument
         .children_with_tokens()
@@ -208,7 +209,7 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             };
             let fits = match kind {
                 KeyKind::EntityField => place == Place::Key,
-                KeyKind::Relation | KeyKind::Column | KeyKind::Feature => true,
+                KeyKind::Relation | KeyKind::Column | KeyKind::Feature | KeyKind::SerializerGroup => true,
                 _ => place == Place::Argument,
             };
             if !fits {
@@ -357,6 +358,87 @@ pub(crate) fn is_rules_argument(analyzer: &Analyzer<'_>, array: &SyntaxNode) -> 
         )
         .into_iter()
         .any(|marker| matches!(marker, Marker::Rules { position: wanted } if Some(wanted) == index_of))
+    })
+}
+
+/// A group a serialization context names: `[AbstractNormalizer::GROUPS => ['book:read']]` or
+/// `['groups' => [...]]` in an argument named `normalizationContext`, `denormalizationContext`,
+/// `serializationContext` or `context`, or in an argument of `serialize()`, `normalize()` and their
+/// kin. A validation context uses the same key for validation groups, which are no serializer's.
+fn context_group(
+    analyzer: &Analyzer<'_>,
+    literal: &SyntaxNode,
+    value: &str,
+    span: php_index::Span,
+) -> Option<KeyString> {
+    if !analyzer.index.frameworks().symfony {
+        return None;
+    }
+    let item = literal.parent().filter(|node| node.kind() == ARRAY_ITEM)?;
+    // Either a group of a list under the key, or the one group the key holds.
+    let keyed = match item.children().collect::<Vec<_>>().as_slice() {
+        [only] if only == literal => item
+            .parent()
+            .filter(|node| node.kind() == ARRAY_EXPR)?
+            .parent()
+            .filter(|node| node.kind() == ARRAY_ITEM)?,
+        [_, value_node] if value_node == literal => item.clone(),
+        _ => return None,
+    };
+    let key = keyed.children().next()?;
+    let is_groups_key = key.kind() == SCOPED_ACCESS_EXPR
+        && key
+            .children()
+            .filter(|child| child.kind() == NAME)
+            .last()
+            .is_some_and(|name| name.text() == "GROUPS")
+        || php_index::test_facts::string_value(&key).is_some_and(|(text, _)| text == "groups");
+    if !is_groups_key {
+        return None;
+    }
+    let argument = keyed
+        .parent()
+        .filter(|node| node.kind() == ARRAY_EXPR)?
+        .parent()
+        .filter(|node| node.kind() == ARGUMENT)?;
+    let named = argument
+        .children_with_tokens()
+        .any(|element| element.kind() == COLON)
+        .then(|| {
+            argument
+                .children_with_tokens()
+                .filter_map(|element| element.into_token())
+                .find(|token| !token.kind().is_trivia())
+                .map(|token| token.text().to_string())
+        })
+        .flatten();
+    let serializes = match named.as_deref() {
+        Some(name) => matches!(
+            name,
+            "normalizationContext" | "denormalizationContext" | "serializationContext" | "context"
+        ),
+        None => argument
+            .parent()
+            .and_then(|list| list.parent())
+            .filter(|call| call.kind() == CALL_EXPR)
+            .and_then(|call| call.children().next())
+            .and_then(|callee| callee.children().filter(|child| child.kind() == NAME).last())
+            .is_some_and(|name| {
+                matches!(
+                    name.text().to_string().as_str(),
+                    "serialize" | "deserialize" | "normalize" | "denormalize" | "json"
+                )
+            }),
+    };
+    if !serializes {
+        return None;
+    }
+    Some(KeyString {
+        kind: KeyKind::SerializerGroup,
+        value: value.to_string(),
+        range: range_of(span.start, span.end),
+        scope: None,
+        guarded: value == "Default",
     })
 }
 
