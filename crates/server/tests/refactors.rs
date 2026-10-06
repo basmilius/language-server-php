@@ -318,3 +318,54 @@ fn the_editorconfig_of_a_project_sets_the_indent_and_the_line_length() {
     );
     client.shutdown();
 }
+
+#[test]
+fn extracts_an_interface_into_a_file_of_its_own() {
+    let disk = project_with_classes();
+    let capabilities = json!({
+        "window": { "workDoneProgress": true },
+        "textDocument": { "codeAction": { "resolveSupport": { "properties": ["edit"] } } },
+        "workspace": { "workspaceEdit": { "documentChanges": true, "resourceOperations": ["create", "rename"] } }
+    });
+    let (mut client, _) = Client::start_in(capabilities, disk.options(), json!(disk.uri("project")));
+    client.wait_for_indexing();
+    let user = disk.uri("project/src/Models/User.php");
+    let text = std::fs::read_to_string(disk.path("project/src/Models/User.php")).expect("the class");
+    client.open(&user, &text);
+    client.diagnostics(&user);
+    let actions = client.request(
+        "textDocument/codeAction",
+        json!({ "textDocument": { "uri": user }, "range": range_at(4, 8, 8), "context": { "diagnostics": [], "only": ["refactor.extract"] } }),
+    );
+    let action = action(&actions, "Extract interface UserInterface").clone();
+    let resolved = if action["edit"].is_null() {
+        client.request("codeAction/resolve", action)
+    } else {
+        action
+    };
+    let changes = resolved["documentChanges"]
+        .as_array()
+        .or(resolved["edit"]["documentChanges"].as_array())
+        .unwrap_or_else(|| panic!("{resolved}"));
+    let interface = disk.uri("project/src/Models/UserInterface.php");
+    let create = changes
+        .iter()
+        .position(|change| change["kind"] == "create")
+        .expect("the file is made");
+    assert_eq!(changes[create]["uri"], interface);
+    let written = &changes[create + 1];
+    assert_eq!(written["textDocument"]["uri"], interface);
+    let body = written["edits"][0]["newText"].as_str().expect("the interface");
+    assert!(body.contains("interface UserInterface\n{\n    /** Finds a user. */\n    public static function find(int $id): ?static;\n\n    public function posts(): array;\n}\n"), "{body}");
+    let own = changes
+        .iter()
+        .find(|change| change["textDocument"]["uri"] == user)
+        .expect("the class implements it");
+    assert!(
+        own["edits"][0]["newText"]
+            .as_str()
+            .is_some_and(|text| text.contains("implements UserInterface")),
+        "{own}"
+    );
+    client.shutdown();
+}

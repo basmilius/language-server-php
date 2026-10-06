@@ -10,7 +10,7 @@ use php_index::UseKind;
 use php_syntax::{TextRange, parse};
 
 use super::diff::hunks;
-use super::{Change, Edit, FileChange, FileMove, Focus, RefactorEnv};
+use super::{Change, Edit, FileChange, FileCreate, FileMove, Focus, RefactorEnv};
 use crate::actions::edits::{apply, line_end, line_start};
 use crate::actions::imports::remove_import;
 use crate::completion::TextEdit;
@@ -32,6 +32,7 @@ pub(crate) struct Draft<'a> {
     renv: &'a RefactorEnv<'a>,
     files: BTreeMap<PathBuf, Vec<TextEdit>>,
     moves: Vec<FileMove>,
+    creates: Vec<FileCreate>,
 }
 
 impl<'a> Draft<'a> {
@@ -40,7 +41,12 @@ impl<'a> Draft<'a> {
             renv,
             files: BTreeMap::new(),
             moves: Vec::new(),
+            creates: Vec::new(),
         }
+    }
+
+    pub(crate) fn create_file(&mut self, path: PathBuf, text: String) {
+        self.creates.push(FileCreate { path, text });
     }
 
     pub(crate) fn edit(&mut self, path: &Path, edit: TextEdit) {
@@ -79,6 +85,7 @@ impl<'a> Draft<'a> {
             renv,
             files: drafted,
             moves,
+            creates,
         } = self;
         let mut files = Vec::new();
         let mut found_focus = None;
@@ -152,12 +159,13 @@ impl<'a> Draft<'a> {
                 files.push(FileChange { path, edits: list });
             }
         }
-        if files.is_empty() && moves.is_empty() {
+        if files.is_empty() && moves.is_empty() && creates.is_empty() {
             return Err("There is nothing to change".to_string());
         }
         Ok(Change {
             files,
             moves,
+            creates,
             focus: found_focus,
         })
     }

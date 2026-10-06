@@ -131,6 +131,8 @@ pub(crate) struct Server<'a> {
     pub(crate) document_changes: bool,
     /// The client can rename files as part of a workspace edit.
     pub(crate) rename_files: bool,
+    /// The client can make files as part of a workspace edit.
+    pub(crate) create_files: bool,
     /// The client can ask for the edit of a code action after the list is shown.
     pub(crate) code_action_resolve: bool,
     /// The client takes snippet text edits in a workspace edit.
@@ -245,6 +247,9 @@ impl<'a> Server<'a> {
             rename_files: workspace_edit
                 .and_then(|edit| edit.resource_operations.as_ref())
                 .is_some_and(|operations| operations.contains(&lsp_types::ResourceOperationKind::Rename)),
+            create_files: workspace_edit
+                .and_then(|edit| edit.resource_operations.as_ref())
+                .is_some_and(|operations| operations.contains(&lsp_types::ResourceOperationKind::Create)),
             code_action_resolve: text_document
                 .and_then(|text_document| text_document.code_action.as_ref())
                 .and_then(|actions| actions.resolve_support.as_ref())

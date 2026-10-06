@@ -14,6 +14,7 @@ use crate::inspections::tests::index_with;
 use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
 use crate::references::Sources;
 
+mod extract_interface;
 mod extract_member;
 mod extract_method;
 mod extract_variable;
@@ -226,6 +227,9 @@ pub(super) fn outcome_of(setup: &Setup, texts: &HashMap<PathBuf, String>, clean:
             .collect();
         files_after.insert(name_of(&file.path), crate::actions::apply(&before, &edits));
     }
+    for created in &change.creates {
+        files_after.insert(name_of(&created.path), created.text.clone());
+    }
     let text = files_after
         .get(setup.current)
         .cloned()
@@ -304,6 +308,9 @@ fn check_result(setup: &Setup, files: &[(&str, &str)], source: &str, done: &Done
     for (path, text) in &before_files {
         let text = done.files.get(path).cloned().unwrap_or_else(|| text.clone());
         after_files.push((moved_to(path).unwrap_or_else(|| path.clone()), text));
+    }
+    for created in &done.change.creates {
+        after_files.push((name_of(&created.path), created.text.clone()));
     }
     let after_current_name = moved_to(setup.current).unwrap_or_else(|| setup.current.to_string());
     let before_renamed: Vec<(String, String)> = before

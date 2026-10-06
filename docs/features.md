@@ -25,7 +25,7 @@ Rename checks the new name and conflicts, follows methods and properties through
 
 Find usages also works on the strings a framework reads as names: from `route('home')`, `@include('partials.nav')` or `__('auth.failed')`, or from the place that declares the name, such as `->name('home')` or a key of a config file, it lists every call and Blade directive that names the same thing. With `usages.packages` on, find usages and incoming calls also search the installed packages. Rename does not change these strings.
 
-Code actions offer quick fixes of inspections and imports, and refactors: extract variable, constant, field, method and parameter, inline variable and method, move a class, change signature, pull up, push down and rewrite intentions. Expensive refactors are worked out on `codeAction/resolve`, where an unsafe one returns an error with the reason. Introducing an interface from a class and a preview of a rename that moves a namespace are not done.
+Code actions offer quick fixes of inspections and imports, and refactors: extract variable, constant, field, method, parameter and interface, inline variable and method, move a class, change signature, pull up, push down and rewrite intentions. Expensive refactors are worked out on `codeAction/resolve`, where an unsafe one returns an error with the reason. Extract interface writes a new file, which needs a client that can create files in a workspace edit. A preview of a rename that moves a namespace is not done.
 
 ## Formatting
 

@@ -375,6 +375,10 @@ fn main() {
                         inspect_paths.push((moved.from.clone(), moved.to.clone()));
                     }
                 }
+                for created in &change.creates {
+                    originals.push((created.path.clone(), String::new(), created.text.clone()));
+                    inspect_paths.push((created.path.clone(), created.path.clone()));
+                }
                 let broken: Vec<String> = originals
                     .iter()
                     .filter(|(_, before, after)| parse(after).errors().len() > parse(before).errors().len())
@@ -440,6 +444,10 @@ fn main() {
                         .map_or(file.clone(), |(_, to)| to.clone());
                     if target != *file {
                         project.index.remove_file(&target);
+                    }
+                    if change.creates.iter().any(|created| created.path == *file) {
+                        project.index.remove_file(file);
+                        continue;
                     }
                     let symbols = Arc::new(extract(&parse(before).syntax(), ExtractOptions::default()));
                     project.index.set_file(file.clone(), Origin::Project, symbols);

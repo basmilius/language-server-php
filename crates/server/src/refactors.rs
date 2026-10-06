@@ -230,6 +230,22 @@ impl Server<'_> {
         let mut changes = serde_json::Map::new();
         let mut command = None;
         let snippets = self.snippet_edits && self.document_changes;
+        if !change.creates.is_empty() {
+            if !(self.create_files && self.document_changes) {
+                return Err("The client cannot make files, so this refactor cannot be applied".to_string());
+            }
+            for created in &change.creates {
+                let uri = path_to_uri(&created.path).ok_or("A file to make has no URI")?;
+                documents.push(json!({ "kind": "create", "uri": uri.as_str(), "options": { "overwrite": false, "ignoreIfExists": false } }));
+                documents.push(json!({
+                    "textDocument": { "uri": uri.as_str(), "version": null },
+                    "edits": [{
+                        "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } },
+                        "newText": created.text,
+                    }],
+                }));
+            }
+        }
         for file in &change.files {
             let (uri, edits, rename_at) = self.file_edits(file, change, snippets)?;
             if self.document_changes {

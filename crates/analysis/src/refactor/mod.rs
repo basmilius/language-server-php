@@ -6,6 +6,7 @@
 mod diff;
 mod draft;
 mod exprs;
+mod extract_interface;
 mod extract_member;
 mod extract_method;
 mod extract_variable;
@@ -75,6 +76,13 @@ pub struct FileMove {
     pub to: PathBuf,
 }
 
+/// A file a refactor makes, with its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileCreate {
+    pub path: PathBuf,
+    pub text: String,
+}
+
 /// The name a person is expected to change next, as a range of the file once the edits are applied.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Focus {
@@ -83,11 +91,14 @@ pub struct Focus {
     pub end: u32,
 }
 
-/// What a refactor changes: the text of files, and files that move after the edits are applied.
+/// What a refactor changes: the text of files, files it makes, and files that move after the edits
+/// are applied.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Change {
     pub files: Vec<FileChange>,
     pub moves: Vec<FileMove>,
+    /// Made before the edits of the other files are applied.
+    pub creates: Vec<FileCreate>,
     pub focus: Option<Focus>,
 }
 
@@ -153,6 +164,7 @@ pub fn with_refactors<R>(renv: &RefactorEnv<'_>, range: TextRange, run: impl FnO
     extract_member::offer(&rcx, &mut out);
     inline_method::offer(&rcx, &mut out);
     signature::offer(&rcx, &mut out);
+    extract_interface::offer(&rcx, &mut out);
     move_class::offer(&rcx, &mut out);
     pull_push::offer(&rcx, &mut out);
     rewrite::offer(&rcx, &mut out);
