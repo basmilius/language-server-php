@@ -26,6 +26,7 @@ pub struct DeclRef {
     pub path: PathBuf,
     /// The offset of the name in the declaration.
     pub name_start: u32,
+    pub name: String,
 }
 
 /// A function or method a call resolves to, with what its types need to be read from the call site.
@@ -211,6 +212,7 @@ impl Analyzer<'_> {
                         decl: (function.file.origin != Origin::Stub).then(|| DeclRef {
                             path: function.file.path.clone(),
                             name_start: function.decl.name_span.start,
+                            name: crate::short(&function.decl.name).to_string(),
                         }),
                     }],
                     None => Vec::new(),
@@ -298,6 +300,7 @@ impl Analyzer<'_> {
                     decl: (found.class.file.origin != Origin::Stub).then(|| DeclRef {
                         path: found.class.file.path.clone(),
                         name_start: found.member.name_span.start,
+                        name: found.member.name.clone(),
                     }),
                 });
             }

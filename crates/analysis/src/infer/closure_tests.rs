@@ -289,3 +289,14 @@ function f() {
     assert_eq!(var(&fixture, code, "made"), "User");
     assert_eq!(var(&fixture, code, "built"), "Post");
 }
+
+#[test]
+fn a_body_in_another_file_is_never_one_of_this_file_at_the_same_place() {
+    // `run` of the page starts where `run` of the query does, so only the file tells them apart.
+    let other = "<?php\nclass Query { public function run() { return 1; } }\n";
+    let page = "<?php\nclass Page  { public function run() { return 'x'; } }\nfunction f(Query $query) { $value = $query->run(); $0 }\n";
+    assert_eq!(other.find("run"), page.find("run"));
+    let fixture = Fixture::on_disk(&[("Query.php", other)], &[]);
+    let _document = crate::document::enter(Some(std::path::Path::new("/elsewhere/page.php")));
+    assert_eq!(var(&fixture, page, "value"), "int");
+}

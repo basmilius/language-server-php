@@ -232,6 +232,7 @@ fn provider_rows(cx: &Cx, class: &str, name: &str) -> Option<Vec<Option<usize>>>
     let decl = DeclRef {
         path: found.class.file.path.clone(),
         name_start: found.member.name_span.start,
+        name: found.member.name.clone(),
     };
     let analyzer = cx.file.analyzer(&cx.root);
     let (_, function) = analyzer.read_declaration(&decl)?;

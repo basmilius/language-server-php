@@ -58,11 +58,12 @@ impl Analyzer<'_> {
     /// The declaration node at a place: in the tree this analyzer works on when the name is there,
     /// else in the file on disk.
     pub(crate) fn read_declaration(&self, decl: &DeclRef) -> Option<(SyntaxNode, SyntaxNode)> {
-        if let Some(function) = declaration_at(&self.root, decl.name_start) {
+        let same_file = crate::document::current().is_none_or(|current| current == decl.path);
+        if let Some(function) = declaration_at(&self.root, decl).filter(|_| same_file) {
             return Some((self.root.clone(), function));
         }
         let root = self.parse_file(&decl.path)?;
-        let function = declaration_at(&root, decl.name_start)?;
+        let function = declaration_at(&root, decl)?;
         Some((root, function))
     }
 
@@ -164,11 +165,17 @@ impl Analyzer<'_> {
 }
 
 /// The method or function declaration whose name starts at an offset.
-fn declaration_at(root: &SyntaxNode, name_start: u32) -> Option<SyntaxNode> {
-    let node = node_at(root, name_start + 1);
+/// The declaration whose name is at the place and is the one asked for. A tree of another file can
+/// have a declaration at the same offset, which the name tells apart.
+fn declaration_at(root: &SyntaxNode, decl: &DeclRef) -> Option<SyntaxNode> {
+    let node = node_at(root, decl.name_start + 1);
     node.ancestors()
         .find(|ancestor| matches!(ancestor.kind(), METHOD_DECLARATION | FUNCTION_DECLARATION))
-        .filter(|declaration| child_of(declaration, NAME).is_some_and(|name| start(&name) == name_start))
+        .filter(|declaration| {
+            child_of(declaration, NAME).is_some_and(|name| {
+                start(&name) == decl.name_start && name.text().to_string().eq_ignore_ascii_case(&decl.name)
+            })
+        })
 }
 
 /// The `return` statements and the `yield` expressions of a function's own body, not those of the
