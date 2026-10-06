@@ -1349,9 +1349,9 @@ mod columns {
                 .collect()
         };
         let migration = format!("/project/{MIGRATION}");
-        assert_eq!(at("where('email'", "where('em$0ail'"), [migration.clone()]);
-        assert_eq!(at("'users.email'", "'users.em$0ail'"), [migration.clone()]);
-        assert_eq!(at("['email' =>", "['em$0ail' =>"), [migration.clone()]);
+        assert_eq!(at("where('email'", "where('em$0ail'"), std::slice::from_ref(&migration));
+        assert_eq!(at("'users.email'", "'users.em$0ail'"), std::slice::from_ref(&migration));
+        assert_eq!(at("['email' =>", "['em$0ail' =>"), std::slice::from_ref(&migration));
         assert_eq!(at("'email as", "'em$0ail as"), [migration]);
         assert_eq!(at("'nope'", "'no$0pe'"), Vec::<String>::new());
     }
