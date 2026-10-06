@@ -255,10 +255,20 @@ fn check_types(
         let Some(wanted) = param.native_type(level) else {
             continue;
         };
+        // A default of `null` makes the type nullable, as `array $mapping = null` is.
+        let wanted = if param
+            .default
+            .as_deref()
+            .is_some_and(|default| default.trim().eq_ignore_ascii_case("null"))
+        {
+            php_index::Type::union([wanted.clone(), php_index::Type::Null])
+        } else {
+            wanted.clone()
+        };
         let Some(given) = sure_type(cx, analyzer, env, expr) else {
             continue;
         };
-        if cx.type_mismatch(&given, wanted, internal) {
+        if cx.type_mismatch(&given, &wanted, internal) {
             cx.report(
                 "argument-type-mismatch",
                 expr.text_range(),

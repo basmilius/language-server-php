@@ -539,6 +539,16 @@ fn strict_files_do_not_convert_scalars() {
 }
 
 #[test]
+fn a_default_of_null_makes_a_parameter_nullable() {
+    let files = [(
+        "A.php",
+        "<?php\nfunction takesArray(array $x = null) {}\nfunction strict(array $x) {}\n",
+    )];
+    let source = "<?php\ntakesArray(null);\nstrict(null);\n";
+    assert_eq!(only_in(&files, "argument-type-mismatch", source), ["null"]);
+}
+
+#[test]
 fn reports_code_after_a_statement_that_always_leaves() {
     let source = "<?php\nfunction a() {\n    return 1;\n    echo 'never';\n}\nfunction b($x) {\n    if ($x) { return 1; } else { throw new Exception(); }\n    echo 'never';\n}\nfunction c($x) {\n    if ($x) { return 1; }\n    echo 'fine';\n}\nfunction d($x) {\n    switch ($x) {\n        case 1:\n            return 1;\n            break;\n        default:\n            return 2;\n    }\n}\nfunction e() {\n    while (true) { }\n    echo 'never';\n}\nfunction f($items) {\n    foreach ($items as $item) { continue; echo 'never'; }\n}\nfunction g() {\n    return 1;\n    function hoisted() {}\n}\nfunction h() {\n    exit(1);\n    echo 'never';\n}\n";
     assert_eq!(
