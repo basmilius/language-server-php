@@ -10,9 +10,15 @@ pub(super) fn run(cx: &Cx) {
     if !cx.ready || !cx.index.frameworks().any() {
         return;
     }
-    let wanted = [KeyKind::Config, KeyKind::Route, KeyKind::View, KeyKind::Translation]
-        .iter()
-        .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
+    let wanted = [
+        KeyKind::Config,
+        KeyKind::Route,
+        KeyKind::View,
+        KeyKind::Translation,
+        KeyKind::InertiaPage,
+    ]
+    .iter()
+    .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
         || cx.on("unknown-relation")
         || cx.on("unknown-validation-rule")
         || cx.on("unknown-cast")
@@ -68,6 +74,7 @@ pub(super) fn run(cx: &Cx) {
             KeyKind::Route => format!("No route is named '{}'", key.value),
             KeyKind::View => format!("The view '{}' does not exist", key.value),
             KeyKind::Template => format!("The template '{}' does not exist", key.value),
+            KeyKind::InertiaPage => format!("No page component is named '{}'", key.value),
             _ => format!("The translation '{}' is not in the language files", key.value),
         };
         cx.report(code, key.range, message, super::Fix::None);

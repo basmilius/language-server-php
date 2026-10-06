@@ -217,6 +217,34 @@ function env($key, $default = null) {}
 function app($abstract = null, array $parameters = []) {}
 /** @container */
 function resolve($name, array $parameters = []) {}
+/** @key inertia-page */
+function inertia($component = null, $props = []) {}
+
+}
+
+namespace Inertia {
+
+class Inertia
+{
+    /** @key inertia-page */
+    public static function render($component, $props = []) {}
+}
+
+class ResponseFactory
+{
+    /** @key inertia-page */
+    public function render($component, $props = []) {}
+}
+
+}
+
+namespace Inertia\Testing {
+
+class AssertableInertia
+{
+    /** @key inertia-page */
+    public function component($value = null, $shouldExist = null) {}
+}
 
 }
 
@@ -298,6 +326,8 @@ class Route
     public static function has($name) {}
     /** @key view 1 */
     public static function view($uri, $view, $data = [], $status = 200, array $headers = []) {}
+    /** @key inertia-page 1 */
+    public static function inertia($uri, $component, $props = []) {}
 }
 
 class Redirect
@@ -414,6 +444,8 @@ class Router
     public function has($name) {}
     /** @key view 1 */
     public function view($uri, $view, $data = [], $status = 200, array $headers = []) {}
+    /** @key inertia-page 1 */
+    public function inertia($uri, $component, $props = []) {}
 }
 
 }

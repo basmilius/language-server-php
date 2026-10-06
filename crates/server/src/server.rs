@@ -53,7 +53,7 @@ use crate::workspace::{FolderChange, Internal, Workspace};
 /// How many files read from the cache file stay in memory, the most recently used ones.
 /// What the server asks the client to watch: the PHP files and Composer's, and the files of the
 /// frameworks that are not PHP and that names in strings are read from.
-const WATCHED_FILES: [&str; 12] = [
+const WATCHED_FILES: [&str; 13] = [
     "**/*.php",
     "**/composer.json",
     "**/vendor/composer/installed.json",
@@ -66,6 +66,7 @@ const WATCHED_FILES: [&str; 12] = [
     "**/config/**/*.yml",
     "**/config/**/*.xml",
     "**/database/schema/*.sql",
+    "**/resources/{js,ts}/{Pages,pages}/**",
 ];
 
 const KEEP_LOADED_FILES: usize = 1500;

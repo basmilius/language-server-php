@@ -10,7 +10,7 @@ The server knows nothing of the editor that starts it. Everything it can do depe
 
 ## Files on disk
 
-- Support dynamic registration of `workspace/didChangeWatchedFiles` and send the changes the server registers for: PHP files, `composer.json`, `vendor/composer/installed.json`, `vendor/composer/autoload_classmap.php` (it matches `**/*.php`), `.env` files, `lang`, `translations`, `templates`, YAML and XML under `config`, and `database/schema` dumps.
+- Support dynamic registration of `workspace/didChangeWatchedFiles` and send the changes the server registers for: PHP files, `composer.json`, `vendor/composer/installed.json`, `vendor/composer/autoload_classmap.php` (it matches `**/*.php`), `.env` files, `lang`, `translations`, `templates`, YAML and XML under `config`, `database/schema` dumps, and the Inertia pages under `resources/js` or `resources/ts` (`Pages` or `pages`).
 - `.inc` files that Composer's class map names are read at startup and when the project is read again. Their changes are not watched.
 
 ## Workspace edits

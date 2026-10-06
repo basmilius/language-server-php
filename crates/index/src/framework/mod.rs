@@ -22,6 +22,7 @@ pub mod container;
 pub mod eloquent;
 pub mod env;
 pub mod facade;
+pub mod inertia;
 pub mod inflect;
 pub mod keys;
 pub mod keytree;

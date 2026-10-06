@@ -1440,3 +1440,70 @@ mod columns {
         assert_eq!(in_page, ["email", "email", "email", "email"]);
     }
 }
+
+mod inertia {
+    use php_index::framework::testing::HELPERS;
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    const CONTROLLER: &str = "<?php\nuse Inertia\\Inertia;\nfunction index() {\n    Inertia::render('Users/Index', []);\n    inertia('Users/Edit');\n    Inertia::render('Users/Gone');\n}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(&[
+            (
+                "vendor/inertia/Inertia.php",
+                "<?php\nnamespace Inertia;\nclass Inertia { public static function render($component, $props = []) {} }\nfunction inertia($component = null, $props = []) {}\n",
+            ),
+            ("resources/js/Pages/Users/Index.vue", "<template></template>"),
+            ("resources/js/Pages/Users/Edit.tsx", "export default 1"),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_page_name_leads_to_its_file_and_completes() {
+        let fixture = fixture();
+        let code = CONTROLLER.replace("'Users/Index'", "'Users/In$0dex'");
+        let (_, root, offset) = split_cursor(&code);
+        let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
+            .collect();
+        assert_eq!(found, ["/project/resources/js/Pages/Users/Index.vue"]);
+        let code = "<?php\nInertia\\Inertia::render('Users/$0');\n";
+        let offset = code.find(CURSOR).expect("a cursor") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(labels, ["Users/Edit", "Users/Index"]);
+    }
+
+    #[test]
+    fn a_page_the_folder_lacks_is_reported() {
+        let fixture = fixture();
+        let root = php_syntax::parse(CONTROLLER).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: CONTROLLER,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-inertia-page")
+        .map(|finding| finding.diagnostic.message)
+        .collect();
+        assert_eq!(found, ["No page component is named 'Users/Gone'"]);
+    }
+}

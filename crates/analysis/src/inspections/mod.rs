@@ -259,6 +259,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         "A validation rule the validator does not have and the project does not add",
     ),
     info(
+        "unknown-inertia-page",
+        Warning,
+        true,
+        "An Inertia page the pages folder does not have",
+    ),
+    info(
         "unknown-cast",
         Warning,
         true,

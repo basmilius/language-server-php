@@ -987,3 +987,35 @@ fn livewire_tags_and_wire_attributes_lead_to_the_component() {
     assert_eq!(found[0]["range"]["start"]["line"], 9, "{found}");
     client.shutdown();
 }
+
+#[test]
+fn an_inertia_page_leads_to_its_component_and_a_missing_one_is_reported() {
+    let disk = laravel();
+    disk.write(
+        "project/vendor/laravel/inertia/Inertia.php",
+        "<?php\nnamespace Inertia;\n\nclass Inertia\n{\n    public static function render($component, $props = []) {}\n}\n",
+    );
+    disk.write(
+        "project/resources/js/Pages/Users/Index.vue",
+        "<template><div /></template>\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Users.php");
+    client.open(
+        &uri,
+        "<?php\nuse Inertia\\Inertia;\nfunction users() {\n    Inertia::render('Users/Index');\n    return Inertia::render('Users/Gone');\n}\n",
+    );
+    let found = client.at("textDocument/definition", &uri, 3, 23);
+    assert_eq!(
+        found[0]["uri"],
+        disk.uri("project/resources/js/Pages/Users/Index.vue"),
+        "{found}"
+    );
+    let diagnostics = client.diagnostics(&uri);
+    let missing: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "unknown-inertia-page")
+        .collect();
+    assert_eq!(missing.len(), 1, "{diagnostics:?}");
+    client.shutdown();
+}

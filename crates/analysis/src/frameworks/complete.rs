@@ -20,7 +20,7 @@ fn item_kind(kind: KeyKind) -> ItemKind {
         KeyKind::Component | KeyKind::Livewire => ItemKind::Class,
         KeyKind::Service => ItemKind::Class,
         KeyKind::Parameter => ItemKind::Constant,
-        KeyKind::Template => ItemKind::Module,
+        KeyKind::Template | KeyKind::InertiaPage => ItemKind::Module,
         KeyKind::Event => ItemKind::Constant,
         KeyKind::EntityField => ItemKind::Property,
         KeyKind::Section | KeyKind::Stack | KeyKind::Block => ItemKind::Module,

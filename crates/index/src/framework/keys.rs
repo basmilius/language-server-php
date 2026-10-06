@@ -61,6 +61,8 @@ pub enum KeyKind {
     Column,
     /// A Livewire component, by the name a template writes it under.
     Livewire,
+    /// An Inertia page component, by its path below the pages folder.
+    InertiaPage,
 }
 
 impl KeyKind {
@@ -84,6 +86,7 @@ impl KeyKind {
             "relation" => KeyKind::Relation,
             "column" => KeyKind::Column,
             "livewire" => KeyKind::Livewire,
+            "inertia-page" => KeyKind::InertiaPage,
             _ => return None,
         })
     }
@@ -112,6 +115,7 @@ impl KeyKind {
             KeyKind::Table => "table",
             KeyKind::Column => "column",
             KeyKind::Livewire => "Livewire component",
+            KeyKind::InertiaPage => "Inertia page",
         }
     }
 
@@ -123,6 +127,7 @@ impl KeyKind {
             KeyKind::View => Some("unknown-view"),
             KeyKind::Translation => Some("unknown-translation"),
             KeyKind::Template => Some("unknown-template"),
+            KeyKind::InertiaPage => Some("unknown-inertia-page"),
             _ => None,
         }
     }
@@ -371,6 +376,13 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 .components
                 .iter()
                 .map(|component| candidate(&component.name, Some(component.class.clone()))),
+        ),
+        KeyKind::InertiaPage => out.extend(
+            index
+                .section::<super::inertia::InertiaPages>()
+                .pages
+                .iter()
+                .map(|page| candidate(&page.name, None)),
         ),
     }
     out
@@ -697,6 +709,12 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                 .find(key)
                 .map(|component| definition(&component.path, component.name_span, component.class.clone())),
         ),
+        KeyKind::InertiaPage => out.extend(
+            index
+                .section::<super::inertia::InertiaPages>()
+                .find(key)
+                .map(|page| definition(&page.path, Span::default(), "")),
+        ),
     }
     out
 }
@@ -771,6 +789,7 @@ pub fn is_missing(index: &Index, kind: KeyKind, key: &str) -> bool {
         KeyKind::View => frameworks.laravel && index.section::<Views>().is_missing(key),
         KeyKind::Template => frameworks.symfony && index.section::<Templates>().is_missing(key),
         KeyKind::Translation => frameworks.laravel && index.section::<Translations>().is_missing(key),
+        KeyKind::InertiaPage => frameworks.laravel && index.section::<super::inertia::InertiaPages>().is_missing(key),
         _ => false,
     }
 }
