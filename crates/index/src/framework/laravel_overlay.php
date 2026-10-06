@@ -20,6 +20,7 @@
 //   @user                   the call gives the user that is logged in, an instance of the model
 //                           `config/auth.php` names
 //   @forwards <class>       on a class: what it does not declare it passes on to this class
+//   @rules [position]       the argument is an array of validation rules by field
 // A method is matched by the class that declares it or any class below it.
 
 namespace Illuminate\Database\Schema {
@@ -201,6 +202,8 @@ function route($name, $parameters = [], $absolute = true) {}
 function to_route($route, $parameters = [], $status = 302, $headers = []) {}
 /** @key view */
 function view($view = null, $data = [], $mergeData = []) {}
+/** @rules 1 */
+function validator(array $data = [], array $rules = [], array $messages = [], array $attributes = []) {}
 /** @key translation */
 function trans($key = null, $replace = [], $locale = null) {}
 /** @key translation */
@@ -245,6 +248,14 @@ interface Repository
 }
 
 namespace Illuminate\Support\Facades {
+
+class Validator
+{
+    /** @rules 1 */
+    public static function make(array $data, array $rules, array $messages = [], array $attributes = []) {}
+    /** @rules 1 */
+    public static function validate(array $data, array $rules, array $messages = [], array $attributes = []) {}
+}
 
 class Config
 {
@@ -632,14 +643,6 @@ class Model
     public function loadMax($relations, $column) {}
     /** @key relation */
     public function loadExists($relations) {}
-    /** @key relation */
-    public function relationLoaded($key) {}
-    /** @key relation */
-    public function getRelation($relation) {}
-    /** @key relation */
-    public function unsetRelation($relation) {}
-    /** @key relation */
-    public function setRelation($relation, $value) {}
 }
 
 class Collection
@@ -712,6 +715,40 @@ class Relation
     public function withExists($relation) {}
     /** @key relation */
     public function withAggregate($relations, $column, $function = null) {}
+}
+
+}
+
+namespace Illuminate\Validation {
+
+class Factory
+{
+    /** @rules 1 */
+    public function make(array $data, array $rules, array $messages = [], array $attributes = []) {}
+    /** @rules 1 */
+    public function validate(array $data, array $rules, array $messages = [], array $attributes = []) {}
+}
+
+}
+
+namespace Illuminate\Contracts\Validation {
+
+interface Factory
+{
+    /** @rules 1 */
+    public function make(array $data, array $rules, array $messages = [], array $attributes = []);
+}
+
+}
+
+namespace Illuminate\Foundation\Validation {
+
+trait ValidatesRequests
+{
+    /** @rules 1 */
+    public function validate($request, array $rules, array $messages = [], array $attributes = []) {}
+    /** @rules 2 */
+    public function validateWithBag($errorBag, $request, array $rules, array $messages = [], array $attributes = []) {}
 }
 
 }
@@ -830,6 +867,10 @@ class Request
 {
     /** @user */
     public function user($guard = null) {}
+    /** @rules */
+    public function validate(array $rules, ...$params) {}
+    /** @rules 1 */
+    public function validateWithBag(string $errorBag, array $rules, ...$params) {}
 }
 
 }

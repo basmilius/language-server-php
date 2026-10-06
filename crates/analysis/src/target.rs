@@ -112,6 +112,9 @@ impl Analyzer<'_> {
                 range: key.range,
             }];
         }
+        if let Some(found) = self.rule_target_at(offset) {
+            return found;
+        }
         let Some(token) = token_at(&self.root, offset) else {
             return Vec::new();
         };
@@ -120,6 +123,39 @@ impl Analyzer<'_> {
             .into_iter()
             .map(|target| Found { target, range })
             .collect()
+    }
+
+    /// What a validation rule string names under an offset: the method a rule is checked with, a
+    /// table, a column.
+    fn rule_target_at(&self, offset: u32) -> Option<Vec<Found>> {
+        if !self.index.frameworks().laravel {
+            return None;
+        }
+        let ctx = crate::context::FileContext::new(self.index, &self.root);
+        let (part, _) = crate::frameworks::rules::part_at(&ctx, offset)?;
+        use crate::frameworks::rules::Part;
+        use php_index::framework::keys::KeyKind;
+        let target = match &part {
+            Part::Rule { name, .. } => {
+                let (receiver, name) = crate::frameworks::rules::rule_target(self, name)?;
+                Target::Method { receiver, name }
+            }
+            Part::Table { name, .. } => Target::Key {
+                kind: KeyKind::Table,
+                name: name.clone(),
+                scope: None,
+            },
+            Part::Column { table, name, .. } => Target::Key {
+                kind: KeyKind::Column,
+                name: name.clone(),
+                scope: Some(table.clone()),
+            },
+            Part::Field { .. } => return None,
+        };
+        Some(vec![Found {
+            target,
+            range: part.range(),
+        }])
     }
 
     /// The method or function a string of a test names, with the range of the text in the quotes.

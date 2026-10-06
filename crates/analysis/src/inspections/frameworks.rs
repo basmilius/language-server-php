@@ -13,9 +13,28 @@ pub(super) fn run(cx: &Cx) {
     let wanted = [KeyKind::Config, KeyKind::Route, KeyKind::View, KeyKind::Translation]
         .iter()
         .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
-        || cx.on("unknown-relation");
+        || cx.on("unknown-relation")
+        || cx.on("unknown-validation-rule");
     if !wanted {
         return;
+    }
+    if cx.on("unknown-validation-rule") && cx.index.frameworks().laravel {
+        for set in crate::frameworks::rules::rule_sets(&cx.file) {
+            for part in &set.parts {
+                let crate::frameworks::rules::Part::Rule { name, range } = part else {
+                    continue;
+                };
+                let analyzer = cx.file.analyzer(&cx.file.root);
+                if crate::frameworks::rules::is_unknown_rule(&analyzer, name) {
+                    cx.report(
+                        "unknown-validation-rule",
+                        *range,
+                        format!("The validator has no rule '{name}'"),
+                        super::Fix::None,
+                    );
+                }
+            }
+        }
     }
     let relations = cx.on("unknown-relation")
         && cx.index.frameworks().eloquent
@@ -56,6 +75,15 @@ fn unknown_relations(cx: &Cx, key: &crate::frameworks::keys::KeyString) {
         }
         let model = php_index::Type::class(segment.model.clone());
         if cx.index.find_method(&model, &segment.name).is_some() {
+            continue;
+        }
+        // A query of a parent model may run for a child that declares the relation.
+        let in_a_child = cx.index.all_subtypes(&segment.model).iter().any(|child| {
+            cx.index
+                .find_method(&php_index::Type::class(child.decl.name.clone()), &segment.name)
+                .is_some()
+        });
+        if in_a_child {
             continue;
         }
         cx.report(

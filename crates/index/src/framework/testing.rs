@@ -360,3 +360,31 @@ pub const TWIG: &[(&str, &str)] = &[
         "<?php\nnamespace Symfony\\Bridge\\Twig\\Extension;\nuse Twig\\Extension\\AbstractExtension;\nuse Twig\\TwigFilter;\nfinal class TranslationExtension extends AbstractExtension {\n    public function getFilters(): array { return [new TwigFilter('trans', [$this, 'trans'])]; }\n    public function trans($message, $arguments = [], ?string $domain = null): string {}\n}\n",
     ),
 ];
+
+/// Enough of Laravel's validator for rule strings: the rules, a form request and the helper.
+pub const VALIDATION: &[(&str, &str)] = &[
+    (
+        "vendor/laravel/Validator.php",
+        "<?php\nnamespace Illuminate\\Validation;\nuse Illuminate\\Validation\\Concerns\\ValidatesAttributes;\nclass Validator { use ValidatesAttributes; }\n",
+    ),
+    (
+        "vendor/laravel/ValidatesAttributes.php",
+        "<?php\nnamespace Illuminate\\Validation\\Concerns;\ntrait ValidatesAttributes {\n    /** Validate that a required attribute exists. */\n    public function validateRequired($attribute, $value) {}\n    public function validateRequiredIf($attribute, $value, $parameters) {}\n    public function validateEmail($attribute, $value, $parameters) {}\n    public function validateMax($attribute, $value, $parameters) {}\n    public function validateInteger($attribute, $value) {}\n    public function validateUnique($attribute, $value, $parameters) {}\n    public function validateExists($attribute, $value, $parameters) {}\n    public function validateNullable() {}\n}\n",
+    ),
+    (
+        "vendor/laravel/Request.php",
+        "<?php\nnamespace Illuminate\\Http;\n/**\n * @method array validate(array $rules, ...$params)\n */\nclass Request {}\n",
+    ),
+    (
+        "vendor/laravel/FormRequest.php",
+        "<?php\nnamespace Illuminate\\Foundation\\Http;\nuse Illuminate\\Http\\Request;\nclass FormRequest extends Request {}\n",
+    ),
+    (
+        "vendor/laravel/validator-helper.php",
+        "<?php\nfunction validator(array $data = [], array $rules = [], array $messages = [], array $attributes = []) {}\n",
+    ),
+    (
+        "database/migrations/2020_01_01_000000_create_users_table.php",
+        "<?php\nreturn new class {\n    public function up() {\n        Schema::create('users', function (Blueprint $table) {\n            $table->id();\n            $table->string('email');\n        });\n    }\n};\n",
+    ),
+];

@@ -1014,3 +1014,104 @@ mod relation_strings {
         );
     }
 }
+
+mod validation_rules {
+    use php_index::framework::testing::{HELPERS, VALIDATION};
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    fn fixture() -> Fixture {
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(VALIDATION);
+        files.push(("app/Http/Requests/StoreUser.php", REQUEST));
+        Fixture::framework(&files)
+    }
+
+    const REQUEST: &str = "<?php\nnamespace App\\Http\\Requests;\nuse Illuminate\\Foundation\\Http\\FormRequest;\nclass StoreUser extends FormRequest {\n    public function rules(): array {\n        return [\n            'email' => 'required|email|unique:users,email',\n            'age' => ['nullable', 'int', 'max:120'],\n            'name' => 'required_if:email,x|nope',\n        ];\n    }\n}\n";
+
+    #[test]
+    fn a_rule_leads_to_the_method_that_checks_it() {
+        let fixture = fixture();
+        let places = |code: &str| -> Vec<String> {
+            let (text, root, offset) = split_cursor(code);
+            let source = text.clone();
+            Analyzer::new(&fixture.index, &root, offset)
+                .definitions(offset)
+                .into_iter()
+                .map(|place| match place.path {
+                    Some(path) => {
+                        let file = fixture.sources.get(&path).cloned().unwrap_or_default();
+                        format!(
+                            "{}: {}",
+                            path.file_name().expect("a name").to_string_lossy(),
+                            &file[place.span.start as usize..place.span.end as usize]
+                        )
+                    }
+                    None => format!("here: {}", &source[place.span.start as usize..place.span.end as usize]),
+                })
+                .collect()
+        };
+        let code = REQUEST.replace("'required|email|", "'required|em$0ail|");
+        assert_eq!(places(&code), ["ValidatesAttributes.php: validateEmail"]);
+        let code = REQUEST.replace("'nullable', 'int'", "'nullable', 'i$0nt'");
+        assert_eq!(places(&code), ["ValidatesAttributes.php: validateInteger"]);
+        let code = REQUEST.replace("unique:users,email'", "unique:us$0ers,email'");
+        assert_eq!(places(&code), ["2020_01_01_000000_create_users_table.php: email"]);
+        let code = REQUEST.replace("unique:users,email'", "unique:users,em$0ail'");
+        assert_eq!(places(&code), ["2020_01_01_000000_create_users_table.php: email"]);
+        let code = "<?php\nfunction f($request) { validator([], ['a' => 'requ$0ired']); }\n";
+        assert_eq!(places(code), ["ValidatesAttributes.php: validateRequired"]);
+    }
+
+    #[test]
+    fn rules_tables_columns_and_fields_complete() {
+        let fixture = fixture();
+        let complete = |code: &str| -> Vec<String> {
+            let offset = code.find(CURSOR).expect("a cursor") as u32;
+            let text = code.replacen(CURSOR, "", 1);
+            complete(&fixture.index, &text, offset, CompletionOptions::default())
+                .items
+                .into_iter()
+                .map(|item| item.label)
+                .collect()
+        };
+        let rules = complete("<?php\nvalidator([], ['a' => 'required|em$0']);\n");
+        assert_eq!(rules, ["email"]);
+        assert_eq!(complete("<?php\nvalidator([], ['a' => 'exists:$0']);\n"), ["users"]);
+        assert_eq!(
+            complete("<?php\nvalidator([], ['a' => 'exists:users,$0']);\n"),
+            ["email", "id"]
+        );
+        assert_eq!(
+            complete("<?php\nvalidator([], ['a' => 'x', 'b' => 'same:$0']);\n"),
+            ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn a_rule_the_validator_lacks_is_reported() {
+        let fixture = fixture();
+        let root = php_syntax::parse(REQUEST).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: REQUEST,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-validation-rule")
+        .map(|finding| {
+            REQUEST[usize::from(finding.diagnostic.range.start())..usize::from(finding.diagnostic.range.end())]
+                .to_string()
+        })
+        .collect();
+        assert_eq!(found, ["nope"]);
+    }
+}

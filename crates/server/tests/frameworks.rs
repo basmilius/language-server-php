@@ -827,3 +827,30 @@ fn a_relation_string_leads_to_its_method_and_is_one_of_its_usages() {
     assert_eq!(places(&usages), ["Feed.php:3"], "{usages}");
     client.shutdown();
 }
+
+#[test]
+fn a_validation_rule_leads_to_its_method_and_completes() {
+    let disk = laravel();
+    for (path, text) in php_index::framework::testing::VALIDATION {
+        if path.starts_with("vendor/") {
+            disk.write(&format!("project/{path}"), text);
+        }
+    }
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Signup.php");
+    client.open(
+        &uri,
+        "<?php\nfunction signup(array $data) {\n    return validator($data, ['email' => 'required|email|nope']);\n}\n",
+    );
+    let found = client.at("textDocument/definition", &uri, 2, 45);
+    assert!(
+        found[0]["uri"].as_str().is_some_and(|uri| uri.ends_with("ValidatesAttributes.php")),
+        "{found}"
+    );
+    let diagnostics = client.diagnostics(&uri);
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic["code"] == "unknown-validation-rule"),
+        "{diagnostics:?}"
+    );
+    client.shutdown();
+}

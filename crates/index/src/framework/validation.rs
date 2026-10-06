@@ -97,3 +97,127 @@ mod tests {
         assert_eq!(names("App\\Http\\Requests\\UpdateUserRequest"), ["nickname"]);
     }
 }
+
+/// The validation rules a project or a package adds with `Validator::extend('name', ...)` and its
+/// kin. `unknown` is set when one is added under a name that is not written out.
+#[derive(Default)]
+pub struct CustomRules {
+    pub names: Vec<String>,
+    pub unknown: bool,
+}
+
+impl super::Section for CustomRules {
+    fn build(index: &Index) -> Self {
+        let mut rules = CustomRules::default();
+        for file in index.files() {
+            let read = match file.origin {
+                crate::index::Origin::Project => true,
+                crate::index::Origin::Vendor => file.summary().classes.iter().any(|class| {
+                    class
+                        .parents
+                        .iter()
+                        .any(|parent| parent.eq_ignore_ascii_case("Illuminate\\Support\\ServiceProvider"))
+                }),
+                crate::index::Origin::Stub => false,
+            };
+            if !read {
+                continue;
+            }
+            let Some(text) = index.read_text(&file.path) else {
+                continue;
+            };
+            if text.contains("extend") {
+                rules.scan(&text);
+            }
+        }
+        rules
+    }
+
+    // Read once: it reads every file of the project.
+    fn depends_on(_: &std::path::Path, _: &std::path::Path) -> bool {
+        false
+    }
+}
+
+impl CustomRules {
+    fn scan(&mut self, text: &str) {
+        for call in ["extend(", "extendImplicit(", "extendDependent("] {
+            let mut rest = text;
+            while let Some(at) = rest.find(call) {
+                let line_start = rest[..at].rfind('\n').map_or(0, |found| found + 1);
+                let line = &rest[line_start..at];
+                rest = &rest[at + call.len()..];
+                let argument = rest.trim_start();
+                match argument.chars().next() {
+                    Some(quote @ ('\'' | '"')) => {
+                        if let Some(end) = argument[1..].find(quote) {
+                            let name = argument[1..1 + end].to_string();
+                            if !self.names.contains(&name) {
+                                self.names.push(name);
+                            }
+                        }
+                    }
+                    _ if line.to_ascii_lowercase().contains("validator") => self.unknown = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// `required_if` is the rule the validator checks with `validateRequiredIf()`.
+pub fn rule_method(name: &str) -> String {
+    let studly: String = name
+        .trim()
+        .split(['_', '-', ' '])
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        })
+        .collect();
+    let studly = match studly.as_str() {
+        "Int" => "Integer".to_string(),
+        "Bool" => "Boolean".to_string(),
+        _ => studly,
+    };
+    format!("validate{studly}")
+}
+
+/// `validateRequiredIf` is the rule `required_if`.
+pub fn rule_name(method: &str) -> Option<String> {
+    let rest = method.strip_prefix("validate")?;
+    let mut out = String::new();
+    for character in rest.chars() {
+        if character.is_uppercase() {
+            if !out.is_empty() {
+                out.push('_');
+            }
+            out.extend(character.to_lowercase());
+        } else {
+            out.push(character);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+#[cfg(test)]
+mod rule_tests {
+    use super::*;
+
+    #[test]
+    fn rule_names_and_methods() {
+        assert_eq!(rule_method("required_if"), "validateRequiredIf");
+        assert_eq!(rule_method("int"), "validateInteger");
+        assert_eq!(rule_name("validateDateFormat").as_deref(), Some("date_format"));
+        let mut rules = CustomRules::default();
+        rules.scan("Validator::extend('phone', fn () => true); Auth::extend('jwt', $x); $v->extendImplicit(\"filled_if\", $f);");
+        assert_eq!(rules.names, ["phone", "jwt", "filled_if"]);
+        assert!(!rules.unknown);
+        rules.scan("Validator::extend($name, $callback);");
+        assert!(rules.unknown);
+    }
+}

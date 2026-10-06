@@ -59,6 +59,8 @@ pub enum Marker {
     ClassArgument { base: String, position: usize },
     /// The keys of the array a method returns name something, as the events a subscriber lists.
     ReturnKeys { kind: String },
+    /// The argument at `position` is an array of validation rules by field.
+    Rules { position: usize },
 }
 
 struct Entry {
@@ -110,6 +112,9 @@ fn markers() -> &'static HashMap<String, Vec<Entry>> {
                         Marker::ReturnKeys { kind: kind.to_string() }
                     }
                     "container" => Marker::Container {
+                        position: words.next().and_then(|word| word.parse().ok()).unwrap_or(0),
+                    },
+                    "rules" => Marker::Rules {
                         position: words.next().and_then(|word| word.parse().ok()).unwrap_or(0),
                     },
                     _ => continue,

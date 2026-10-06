@@ -55,6 +55,10 @@ pub enum KeyKind {
     Block,
     /// A relation of the Eloquent model the scope names.
     Relation,
+    /// A table the migrations create.
+    Table,
+    /// A column of the table the scope names.
+    Column,
 }
 
 impl KeyKind {
@@ -101,6 +105,8 @@ impl KeyKind {
             KeyKind::Attribute => "component attribute",
             KeyKind::Block => "block",
             KeyKind::Relation => "relation",
+            KeyKind::Table => "table",
+            KeyKind::Column => "column",
         }
     }
 
@@ -305,6 +311,18 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         KeyKind::Slot => {
             if let Some(text) = scope.and_then(|tag| component_text(index, tag)) {
                 out.extend(slots_of(&text).iter().map(|(name, _)| candidate(name, None)));
+            }
+        }
+        KeyKind::Table => {
+            let tables = index.section::<super::migrations::Tables>();
+            let mut names: Vec<&String> = tables.names().collect();
+            names.sort();
+            out.extend(names.into_iter().map(|name| candidate(name, None)));
+        }
+        KeyKind::Column => {
+            let tables = index.section::<super::migrations::Tables>();
+            if let Some(table) = scope.and_then(|table| tables.table(table)) {
+                out.extend(table.columns.iter().map(|column| candidate(&column.name, None)));
             }
         }
         KeyKind::Relation => {
@@ -584,6 +602,25 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                             .map(|(_, span)| definition(&path, span, "")),
                     );
                 }
+            }
+        }
+        KeyKind::Table => {
+            let tables = index.section::<super::migrations::Tables>();
+            // The first column that names itself, in the migration that creates the table.
+            if let Some(first) = tables
+                .table(key)
+                .and_then(|table| table.columns.iter().find(|column| column.span.end > column.span.start))
+            {
+                out.push(definition(&first.path, first.span, ""));
+            }
+        }
+        KeyKind::Column => {
+            let tables = index.section::<super::migrations::Tables>();
+            if let Some(column) = scope
+                .and_then(|table| tables.table(table))
+                .and_then(|table| table.column(key))
+            {
+                out.push(definition(&column.path, column.span, ""));
             }
         }
         KeyKind::Relation => {

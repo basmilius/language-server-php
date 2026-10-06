@@ -7,6 +7,7 @@ pub(crate) mod complete;
 mod container;
 pub mod keys;
 pub mod relations;
+pub mod rules;
 
 pub use complete::complete_key;
 

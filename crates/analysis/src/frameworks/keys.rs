@@ -237,6 +237,54 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
     None
 }
 
+/// Whether an array is the argument a callee reads as validation rules by field.
+pub(crate) fn is_rules_argument(analyzer: &Analyzer<'_>, array: &SyntaxNode) -> bool {
+    let Some(argument) = array.parent().filter(|node| node.kind() == ARGUMENT) else {
+        return false;
+    };
+    let Some(list) = argument.parent().filter(|node| node.kind() == ARGUMENT_LIST) else {
+        return false;
+    };
+    let Some(owner) = list
+        .parent()
+        .filter(|owner| matches!(owner.kind(), CALL_EXPR | NEW_EXPR))
+    else {
+        return false;
+    };
+    let Some(position) = list
+        .children()
+        .filter(|child| child.kind() == ARGUMENT)
+        .position(|child| child == argument)
+    else {
+        return false;
+    };
+    let named = argument
+        .children_with_tokens()
+        .any(|element| element.kind() == COLON)
+        .then(|| {
+            argument
+                .children_with_tokens()
+                .filter_map(|element| element.into_token())
+                .find(|token| !token.kind().is_trivia())
+                .map(|token| token.text().to_string())
+        })
+        .flatten();
+    callees_of(analyzer, &owner).into_iter().any(|callee| {
+        let index_of = match &named {
+            Some(name) => callee.params.iter().position(|param| param == name),
+            None => Some(position),
+        };
+        markers_for(
+            analyzer.index,
+            callee.declaring.as_deref(),
+            callee.receiver.as_deref(),
+            &callee.method,
+        )
+        .into_iter()
+        .any(|marker| matches!(marker, Marker::Rules { position: wanted } if Some(wanted) == index_of))
+    })
+}
+
 /// A key of the array a subscriber returns, which names the event it listens to.
 fn event_key(analyzer: &Analyzer<'_>, literal: &SyntaxNode, value: &str, span: php_index::Span) -> Option<KeyString> {
     let item = literal.parent().filter(|node| node.kind() == ARRAY_ITEM)?;

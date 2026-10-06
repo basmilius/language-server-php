@@ -253,6 +253,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
     ),
     info("unknown-view", Warning, true, "A view that has no template"),
     info(
+        "unknown-validation-rule",
+        Warning,
+        true,
+        "A validation rule the validator does not have and the project does not add",
+    ),
+    info(
         "unknown-relation",
         Warning,
         true,
