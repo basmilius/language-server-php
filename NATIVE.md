@@ -650,6 +650,8 @@ Names in a doc comment lead somewhere now: a class in a type, `Class::member()` 
 
 **Symfony Messenger.** The handlers of each message are read from the project (`framework/symfony/messenger.rs`): a class marked `#[AsMessageHandler]` (its `__invoke`, or the `method:` the attribute names), a method marked so, and a class that implements `MessageHandlerInterface`; the message is the attribute's `handles:`, else the class of the method's first parameter. Go to implementation on a message class, where it is declared or in `$bus->dispatch(new Ping())`, lists its handlers next to its subclasses. Handlers configured in YAML are not read, and nothing is reported about a message without one, which another application may handle. None of the projects at hand uses Messenger, so this rests on the tests.
 
+**Symfony Workflow.** The workflows and state machines of `framework.workflows` in the YAML of `config/` (also under `when@dev`), with their places (a list or a map) and transitions (keys, or the `name:` of a list), are read in `framework/symfony/workflow.rs`. The transition of `apply()`, `can()`, `getEnabledTransition()` and `buildTransitionBlockerList()` on a `WorkflowInterface`, the workflow of the `Registry`'s `get()` and `has()`, the `workflow:` and `transition:` or `place:` of the listener attributes (`#[AsGuardListener]`, `#[AsTransitionListener]`, `#[AsEnteredListener]` and the rest), and the arguments of `workflow_can()`, `workflow_has_marked_place()` and their kin in Twig (the Twig extension carries the same markers, which no test covers yet) are keys: definition goes to the line of the configuration, completion offers the names of every workflow, and `unknown-workflow-name` (warning) reports a name no workflow has, not when a PHP file of `config/` configures workflows. A transition is looked up in every workflow, since which one an injected `WorkflowInterface` is depends on its argument's name. None of the projects at hand uses workflows; the survey of Kimai, symfony-demo and the API Platform demo reports what it did before.
+
 ### Corpus
 
 ```sh
@@ -702,5 +704,4 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Other frameworks and packages in the same overlay format (Symfony Workflow).
 - A PHP 8.6 level, when its syntax exists.

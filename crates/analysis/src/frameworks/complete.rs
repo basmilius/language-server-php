@@ -16,6 +16,7 @@ fn item_kind(kind: KeyKind) -> ItemKind {
         KeyKind::Translation => ItemKind::Constant,
         KeyKind::Env => ItemKind::Variable,
         KeyKind::Ability | KeyKind::Feature | KeyKind::SerializerGroup => ItemKind::Keyword,
+        KeyKind::Workflow | KeyKind::WorkflowTransition | KeyKind::WorkflowPlace => ItemKind::EnumMember,
         KeyKind::Field => ItemKind::Property,
         KeyKind::Component | KeyKind::Livewire => ItemKind::Class,
         KeyKind::Service => ItemKind::Class,

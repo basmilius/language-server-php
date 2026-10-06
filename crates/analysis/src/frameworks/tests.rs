@@ -1746,3 +1746,88 @@ mod messenger {
         assert_eq!(found, ["__invoke", "record"]);
     }
 }
+
+mod workflow {
+    use php_index::framework::testing::SYMFONY;
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    const CONFIG: &str = "framework:\n    workflows:\n        blog_publishing:\n            type: workflow\n            places: [draft, reviewed, published]\n            transitions:\n                to_review:\n                    from: draft\n                    to: reviewed\n                publish:\n                    from: reviewed\n                    to: published\n";
+    const CODE: &str = "<?php\nuse Symfony\\Component\\Workflow\\WorkflowInterface;\nuse Symfony\\Component\\Workflow\\Registry;\nuse Symfony\\Component\\Workflow\\Attribute\\AsGuardListener;\nfunction review(WorkflowInterface $workflow, Registry $registry, $post) {\n    $workflow->apply($post, 'publish');\n    $workflow->can($post, 'archive');\n    $registry->get($post, 'blog_publishing');\n}\n#[AsGuardListener(workflow: 'blog_publishing', transition: 'to_review')]\nfunction guard() {}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = SYMFONY.to_vec();
+        files.extend_from_slice(&[
+            ("config/bundles.php", "<?php return [];"),
+            ("config/packages/workflow.yaml", CONFIG),
+            (
+                "vendor/symfony/workflow.php",
+                "<?php\nnamespace Symfony\\Component\\Workflow {\n    interface WorkflowInterface { public function can(object $subject, string $transitionName): bool; public function apply(object $subject, string $transitionName, array $context = []); }\n    class Registry { public function get(object $subject, ?string $workflowName = null) {} }\n}\nnamespace Symfony\\Component\\Workflow\\Attribute {\n    #[\\Attribute] class AsGuardListener { public function __construct(?string $workflow = null, ?string $transition = null, int $priority = 0) {} }\n}\n",
+            ),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    fn places(fixture: &Fixture, from: &str, to: &str) -> Vec<String> {
+        let code = CODE.replacen(from, to, 1);
+        let (_, root, offset) = split_cursor(&code);
+        Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+                text[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn transitions_and_workflows_lead_to_their_configuration() {
+        let fixture = fixture();
+        assert_eq!(places(&fixture, "'publish'", "'pub$0lish'"), ["publish"]);
+        assert_eq!(
+            places(
+                &fixture,
+                "get($post, 'blog_publishing')",
+                "get($post, 'blog_pub$0lishing')"
+            ),
+            ["blog_publishing"]
+        );
+        assert_eq!(places(&fixture, "'to_review'", "'to_re$0view'"), ["to_review"]);
+        let code =
+            "<?php\nfunction f(\\Symfony\\Component\\Workflow\\WorkflowInterface $w, $p) { $w->apply($p, '$0'); }\n";
+        let offset = code.find(CURSOR).expect("a cursor") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(labels, ["publish", "to_review"]);
+    }
+
+    #[test]
+    fn a_transition_no_workflow_has_is_reported() {
+        let fixture = fixture();
+        let root = php_syntax::parse(CODE).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: CODE,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-workflow-name")
+        .map(|finding| finding.diagnostic.message)
+        .collect();
+        assert_eq!(found, ["No workflow has the transition 'archive'"]);
+    }
+}

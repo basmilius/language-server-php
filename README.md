@@ -32,7 +32,7 @@ php-language-server --stdio
 ## Limits
 
 - Twig templates follow their templates, blocks, functions, filters, the routes and translations they name and the variables controllers pass, with diagnostics. Blade templates are read as a whole: scope, `@foreach`, `@props`, the variables controllers, includes and components pass, sections, stacks, slots, usages, rename and diagnostics.
-- Framework strings and templates are read where a framework gives them meaning: Inertia page names, Pennant features, Filament columns, Livewire components and their `wire:` attributes, Eloquent relation and column strings, validation rules, casts, DQL and the Doctrine query builder, and serialization groups. Other packages are not modeled.
+- Framework strings and templates are read where a framework gives them meaning: Inertia page names, Pennant features, Filament columns, Livewire components and their `wire:` attributes, Eloquent relation and column strings, validation rules, casts, DQL and the Doctrine query builder, serialization groups and workflow names. Other packages are not modeled.
 - Usages are found in the project, and in installed packages when `usages.packages` asks for them. Strings count when they name a route, a config key, a view, a translation or another name a framework declares, in PHP and Blade; ordinary strings and comments, Twig and YAML do not.
 - Dynamic code, such as variable variables and members made at run time, gives `mixed`.
 

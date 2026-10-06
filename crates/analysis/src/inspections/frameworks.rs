@@ -18,6 +18,7 @@ pub(super) fn run(cx: &Cx) {
         KeyKind::InertiaPage,
         KeyKind::Feature,
         KeyKind::SerializerGroup,
+        KeyKind::Workflow,
     ]
     .iter()
     .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
@@ -79,6 +80,9 @@ pub(super) fn run(cx: &Cx) {
             KeyKind::InertiaPage => format!("No page component is named '{}'", key.value),
             KeyKind::Feature => format!("No feature is defined as '{}'", key.value),
             KeyKind::SerializerGroup => format!("No property or method is in the group '{}'", key.value),
+            KeyKind::Workflow => format!("No workflow is named '{}'", key.value),
+            KeyKind::WorkflowTransition => format!("No workflow has the transition '{}'", key.value),
+            KeyKind::WorkflowPlace => format!("No workflow has the place '{}'", key.value),
             _ => format!("The translation '{}' is not in the language files", key.value),
         };
         cx.report(code, key.range, message, super::Fix::None);

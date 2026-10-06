@@ -85,6 +85,30 @@ class Template
 
 namespace Symfony\Bridge\Twig\Extension {
 
+class WorkflowExtension
+{
+    /**
+     * @key workflow-transition 1
+     * @key workflow $name
+     */
+    public function canTransition(object $subject, string $transitionName, ?string $name = null) {}
+    /**
+     * @key workflow-place 1
+     * @key workflow $name
+     */
+    public function hasMarkedPlace(object $subject, string $placeName, ?string $name = null) {}
+    /**
+     * @key workflow-transition 1
+     * @key workflow $name
+     */
+    public function buildTransitionBlockerList(object $subject, string $transitionName, ?string $name = null) {}
+    /**
+     * @key workflow-transition 1
+     * @key workflow $name
+     */
+    public function getEnabledTransition(object $subject, string $transition, ?string $name = null) {}
+}
+
 class RoutingExtension
 {
     /** @key route */
@@ -248,6 +272,97 @@ interface FormFactoryInterface
 }
 
 namespace Symfony\Bundle\FrameworkBundle\Controller {
+
+}
+
+namespace Symfony\Component\Workflow {
+
+interface WorkflowInterface
+{
+    /** @key workflow-transition 1 */
+    public function can(object $subject, string $transitionName) {}
+    /** @key workflow-transition 1 */
+    public function apply(object $subject, string $transitionName, array $context = []) {}
+    /** @key workflow-transition 1 */
+    public function getEnabledTransition(object $subject, string $name) {}
+    /** @key workflow-transition 1 */
+    public function buildTransitionBlockerList(object $subject, string $transitionName) {}
+}
+
+class Registry
+{
+    /** @key workflow 1 */
+    public function get(object $subject, ?string $workflowName = null) {}
+    /** @key workflow 1 */
+    public function has(object $subject, ?string $workflowName = null) {}
+}
+
+}
+
+namespace Symfony\Component\Workflow\Attribute {
+
+class AsTransitionListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-transition $transition
+     */
+    public function __construct(?string $workflow = null, ?string $transition = null, int $priority = 0) {}
+}
+
+class AsGuardListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-transition $transition
+     */
+    public function __construct(?string $workflow = null, ?string $transition = null, int $priority = 0) {}
+}
+
+class AsAnnounceListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-transition $transition
+     */
+    public function __construct(?string $workflow = null, ?string $transition = null, int $priority = 0) {}
+}
+
+class AsCompletedListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-transition $transition
+     */
+    public function __construct(?string $workflow = null, ?string $transition = null, int $priority = 0) {}
+}
+
+class AsEnterListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-place $place
+     */
+    public function __construct(?string $workflow = null, ?string $place = null, int $priority = 0) {}
+}
+
+class AsEnteredListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-place $place
+     */
+    public function __construct(?string $workflow = null, ?string $place = null, int $priority = 0) {}
+}
+
+class AsLeaveListener
+{
+    /**
+     * @key workflow $workflow
+     * @key workflow-place $place
+     */
+    public function __construct(?string $workflow = null, ?string $place = null, int $priority = 0) {}
+}
 
 }
 

@@ -1142,3 +1142,36 @@ fn a_message_s_implementations_are_its_handlers() {
     );
     client.shutdown();
 }
+
+#[test]
+fn a_workflow_transition_leads_to_its_configuration() {
+    let disk = symfony();
+    disk.write(
+        "project/config/packages/workflow.yaml",
+        "framework:\n    workflows:\n        blog_publishing:\n            places: [draft, published]\n            transitions:\n                publish:\n                    from: draft\n                    to: published\n",
+    );
+    disk.write(
+        "project/vendor/symfony/workflow/WorkflowInterface.php",
+        "<?php\nnamespace Symfony\\Component\\Workflow;\n\ninterface WorkflowInterface\n{\n    public function apply(object $subject, string $transitionName, array $context = []);\n}\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/src/Service/Publisher.php");
+    client.open(
+        &uri,
+        "<?php\nnamespace App\\Service;\n\nuse Symfony\\Component\\Workflow\\WorkflowInterface;\n\nfunction publish(WorkflowInterface $workflow, object $post)\n{\n    $workflow->apply($post, 'publish');\n    $workflow->apply($post, 'archive');\n}\n",
+    );
+    let found = client.at("textDocument/definition", &uri, 7, 30);
+    assert_eq!(
+        found[0]["uri"],
+        disk.uri("project/config/packages/workflow.yaml"),
+        "{found}"
+    );
+    assert_eq!(found[0]["range"]["start"]["line"], 5, "{found}");
+    let diagnostics = client.diagnostics(&uri);
+    let unknown: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "unknown-workflow-name")
+        .collect();
+    assert_eq!(unknown.len(), 1, "{diagnostics:?}");
+    client.shutdown();
+}

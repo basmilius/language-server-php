@@ -67,6 +67,24 @@ pub enum KeyKind {
     Feature,
     /// A group of Symfony's serializer.
     SerializerGroup,
+    /// A Symfony workflow or state machine.
+    Workflow,
+    /// A transition of a Symfony workflow.
+    WorkflowTransition,
+    /// A place of a Symfony workflow.
+    WorkflowPlace,
+}
+
+impl KeyKind {
+    fn workflow_part(self) -> Option<super::symfony::workflow::WorkflowPart> {
+        use super::symfony::workflow::WorkflowPart;
+        match self {
+            KeyKind::Workflow => Some(WorkflowPart::Workflow),
+            KeyKind::WorkflowTransition => Some(WorkflowPart::Transition),
+            KeyKind::WorkflowPlace => Some(WorkflowPart::Place),
+            _ => None,
+        }
+    }
 }
 
 impl KeyKind {
@@ -93,6 +111,9 @@ impl KeyKind {
             "inertia-page" => KeyKind::InertiaPage,
             "feature" => KeyKind::Feature,
             "serializer-group" => KeyKind::SerializerGroup,
+            "workflow" => KeyKind::Workflow,
+            "workflow-transition" => KeyKind::WorkflowTransition,
+            "workflow-place" => KeyKind::WorkflowPlace,
             _ => return None,
         })
     }
@@ -124,6 +145,9 @@ impl KeyKind {
             KeyKind::InertiaPage => "Inertia page",
             KeyKind::Feature => "feature",
             KeyKind::SerializerGroup => "serialization group",
+            KeyKind::Workflow => "workflow",
+            KeyKind::WorkflowTransition => "workflow transition",
+            KeyKind::WorkflowPlace => "workflow place",
         }
     }
 
@@ -138,6 +162,7 @@ impl KeyKind {
             KeyKind::InertiaPage => Some("unknown-inertia-page"),
             KeyKind::Feature => Some("unknown-feature"),
             KeyKind::SerializerGroup => Some("unknown-serializer-group"),
+            KeyKind::Workflow | KeyKind::WorkflowTransition | KeyKind::WorkflowPlace => Some("unknown-workflow-name"),
             _ => None,
         }
     }
@@ -408,6 +433,17 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 .into_iter()
                 .map(|name| candidate(name, None)),
         ),
+        KeyKind::Workflow | KeyKind::WorkflowTransition | KeyKind::WorkflowPlace => {
+            if let Some(part) = kind.workflow_part() {
+                out.extend(
+                    index
+                        .section::<super::symfony::workflow::Workflows>()
+                        .names(part)
+                        .into_iter()
+                        .map(|name| candidate(name, None)),
+                );
+            }
+        }
     }
     out
 }
@@ -755,6 +791,16 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                 .filter(|place| place.name == key)
                 .map(|place| definition(&place.path, place.span, "")),
         ),
+        KeyKind::Workflow | KeyKind::WorkflowTransition | KeyKind::WorkflowPlace => {
+            if let Some(part) = kind.workflow_part() {
+                out.extend(
+                    index
+                        .section::<super::symfony::workflow::Workflows>()
+                        .named(part, key)
+                        .map(|declared| definition(&declared.path, declared.span, declared.workflow.clone())),
+                );
+            }
+        }
     }
     out
 }
@@ -836,6 +882,14 @@ pub fn is_missing(index: &Index, kind: KeyKind, key: &str) -> bool {
                 && index
                     .section::<super::symfony::serializer::SerializerGroups>()
                     .is_missing(key)
+        }
+        KeyKind::Workflow | KeyKind::WorkflowTransition | KeyKind::WorkflowPlace => {
+            frameworks.symfony
+                && kind.workflow_part().is_some_and(|part| {
+                    index
+                        .section::<super::symfony::workflow::Workflows>()
+                        .is_missing(part, key)
+                })
         }
         _ => false,
     }

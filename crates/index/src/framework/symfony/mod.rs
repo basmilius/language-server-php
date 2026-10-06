@@ -9,6 +9,7 @@ pub mod serializer;
 pub mod services;
 pub mod templates;
 pub mod translations;
+pub mod workflow;
 
 use std::path::{Path, PathBuf};
 
