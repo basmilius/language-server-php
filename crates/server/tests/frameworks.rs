@@ -701,3 +701,37 @@ fn a_twig_template_follows_its_names_and_is_found_from_php() {
     assert_eq!(places(&found), ["index.html.twig:1"], "{found}");
     client.shutdown();
 }
+
+#[test]
+fn a_twig_template_knows_what_its_controller_passes() {
+    let disk = symfony();
+    for (path, text) in php_index::framework::testing::TWIG {
+        disk.write(&format!("project/{path}"), text);
+    }
+    disk.write(
+        "project/src/Entity/Article.php",
+        "<?php\nnamespace App\\Entity;\n\nclass Article\n{\n    public function getTitle(): string {}\n}\n",
+    );
+    disk.write(
+        "project/src/Controller/ArticleController.php",
+        "<?php\nnamespace App\\Controller;\n\nuse App\\Entity\\Article;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\n\nclass ArticleController extends AbstractController\n{\n    public function show(Article $article)\n    {\n        return $this->render('article/show.html.twig', ['article' => $article]);\n    }\n}\n",
+    );
+    let page = "<h1>{{ article.title }}</h1>\n";
+    disk.write("project/templates/article/show.html.twig", page);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/templates/article/show.html.twig");
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "twig", "version": 1, "text": page } }),
+    );
+    let hover = client.at("textDocument/hover", &uri, 0, 17);
+    assert!(
+        hover["contents"]["value"]
+            .as_str()
+            .is_some_and(|text| text.contains("getTitle")),
+        "{hover}"
+    );
+    let items = complete_at(&mut client, &uri, 0, 15);
+    assert!(items.contains(&"title".to_string()), "{items:?}");
+    client.shutdown();
+}

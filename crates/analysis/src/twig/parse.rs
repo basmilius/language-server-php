@@ -603,13 +603,14 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek_text() {
                 Some("." | "?.") => {
+                    let dot_end = self.peek().map_or(self.end, |token| token.end);
                     self.at += 1;
                     let (name, start, end) = match self.peek() {
-                        Some(token) if matches!(token.kind, Kind::Name | Kind::Number) => {
+                        Some(token) if matches!(token.kind, Kind::Name | Kind::Number) && token.start == dot_end => {
                             self.at += 1;
                             (token.text(self.source).to_string(), token.start, token.end)
                         }
-                        _ => (String::new(), self.here(), self.here()),
+                        _ => (String::new(), dot_end, dot_end),
                     };
                     let args = (self.peek_text() == Some("(")).then(|| self.arguments());
                     expr = Expr::Attribute {
@@ -637,8 +638,9 @@ impl<'a> Parser<'a> {
                     };
                 }
                 Some("|") => {
+                    let bar_end = self.peek().map_or(self.end, |token| token.end);
                     self.at += 1;
-                    let (name, start, end) = self.name().unwrap_or_else(|| (String::new(), self.here(), self.here()));
+                    let (name, start, end) = self.name().unwrap_or((String::new(), bar_end, bar_end));
                     let args = if self.peek_text() == Some("(") {
                         self.arguments()
                     } else {

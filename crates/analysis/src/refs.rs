@@ -155,6 +155,15 @@ impl Query {
                 );
                 words
             }
+            // Twig reads `getTitle()` as `post.title`.
+            Symbol::Method { name, .. } if index.frameworks().symfony || index.frameworks().twig => {
+                let twig = crate::twig::types::twig_name(name).to_ascii_lowercase();
+                if twig == name.to_ascii_lowercase() {
+                    Vec::new()
+                } else {
+                    vec![twig]
+                }
+            }
             _ => Vec::new(),
         };
         Query {

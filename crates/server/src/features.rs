@@ -216,7 +216,7 @@ impl Server<'_> {
             None => &self.workspace.loose,
         };
         let hover = if document.twig {
-            php_analysis::twig::hover_at(&project.index, path.as_deref(), &document.text, offset)?
+            php_analysis::twig::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
         };
@@ -245,7 +245,7 @@ impl Server<'_> {
             None => &self.workspace.loose,
         };
         let places = if document.twig {
-            php_analysis::twig::definitions_at(&project.index, path.as_deref(), &document.text, offset)
+            php_analysis::twig::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
         } else {
             php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
         };
@@ -399,6 +399,7 @@ impl Server<'_> {
                 &project.index,
                 path.as_deref(),
                 &document.text,
+                &given,
                 offset,
                 CompletionOptions::default(),
             )

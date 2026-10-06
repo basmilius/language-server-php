@@ -95,7 +95,11 @@ impl Server<'_> {
         let Some(path) = uri_to_path(uri) else {
             return Vec::new();
         };
-        if !self.documents.get(uri).is_some_and(|document| document.blade) {
+        let Some(document) = self.documents.get(uri) else {
+            return Vec::new();
+        };
+        let twig = document.twig;
+        if !document.blade && !twig {
             return Vec::new();
         }
         if let Some(given) = self.given_cache.get(&path) {
@@ -105,7 +109,11 @@ impl Server<'_> {
         let open = self.documents.texts();
         let project = self.workspace.project_for(&path);
         let sources = ProjectSources::new(open, &project.words);
-        let given = php_analysis::blade::data::given(&project.index, &sources, &path);
+        let given = if twig {
+            php_analysis::twig::data::given(&project.index, &sources, &path)
+        } else {
+            php_analysis::blade::data::given(&project.index, &sources, &path)
+        };
         self.given_cache.insert(path, given.clone());
         given
     }

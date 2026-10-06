@@ -73,6 +73,16 @@ class CoreExtension
 
 }
 
+namespace Symfony\Bridge\Twig\Attribute {
+
+class Template
+{
+    /** @key template */
+    public function __construct(string $template, ?array $vars = null, bool $stream = false, ?string $block = null) {}
+}
+
+}
+
 namespace Symfony\Bridge\Twig\Extension {
 
 class RoutingExtension

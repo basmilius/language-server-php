@@ -4,8 +4,10 @@
 //! (`path('blog_index')`, `'post.title'|trans`), followed through the overlay as in PHP. Functions,
 //! filters and tests are the ones the Twig extensions of the project and its packages declare.
 
+pub mod data;
 pub mod lex;
 pub mod parse;
+pub mod types;
 
 use std::path::Path;
 
@@ -55,7 +57,12 @@ pub struct CallRef {
 pub enum TagBody {
     /// `extends`, `include`, `embed`, `use`, `import`, `from` and the like: the template they name,
     /// and what they pass.
-    Templates { template: Expr, with: Option<Expr> },
+    Templates {
+        template: Expr,
+        with: Option<Expr>,
+        /// `only`: the template gets nothing of the context.
+        only: bool,
+    },
     Block {
         name: (String, u32, u32),
         short: Option<Expr>,
@@ -250,7 +257,7 @@ impl Template {
 /// The expressions a tag holds.
 pub fn tag_exprs(body: &TagBody) -> Vec<&Expr> {
     match body {
-        TagBody::Templates { template, with } => std::iter::once(template).chain(with).collect(),
+        TagBody::Templates { template, with, .. } => std::iter::once(template).chain(with).collect(),
         TagBody::Block { short, .. } => short.iter().collect(),
         TagBody::For {
             iterable, condition, ..
@@ -399,8 +406,19 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<Tag> {
     let body = match name.as_str() {
         name if TEMPLATE_TAGS.contains(&name) => {
             let template = parser.expression();
-            let with = parser.eat("with").then(|| parser.expression());
-            TagBody::Templates { template, with }
+            let (mut with, mut only) = (None, false);
+            loop {
+                if parser.eat("ignore") {
+                    parser.eat("missing");
+                } else if parser.eat("with") {
+                    with = Some(parser.expression());
+                } else if parser.eat("only") {
+                    only = true;
+                } else {
+                    break;
+                }
+            }
+            TagBody::Templates { template, with, only }
         }
         "block" => {
             let block = parser.name().unwrap_or((String::new(), first.end, first.end));
@@ -558,7 +576,13 @@ fn kind_label(kind: TwigKind) -> &'static str {
 }
 
 /// Where the name under an offset of a template is declared.
-pub fn definitions_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Vec<Place> {
+pub fn definitions_at(
+    index: &Index,
+    path: Option<&Path>,
+    text: &str,
+    given: &[(String, Type)],
+    offset: u32,
+) -> Vec<Place> {
     let template = Template::read(index, path, text);
     if let Some(name) = template.name_at(offset) {
         return definitions(index, name.kind, &name.value, name.scope.as_deref())
@@ -575,11 +599,27 @@ pub fn definitions_at(index: &Index, path: Option<&Path>, text: &str, offset: u3
             .filter_map(|description| description.place)
             .collect();
     }
-    Vec::new()
+    match spot_at(index, &template, given, offset) {
+        Some(Spot::Attribute {
+            object,
+            member: Some(member),
+            ..
+        }) => describe_member(index, &object, &member)
+            .into_iter()
+            .filter_map(|description| description.place)
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// What the name under an offset of a template is.
-pub fn hover_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Option<HoverResult> {
+pub fn hover_at(
+    index: &Index,
+    path: Option<&Path>,
+    text: &str,
+    given: &[(String, Type)],
+    offset: u32,
+) -> Option<HoverResult> {
     let template = Template::read(index, path, text);
     if let Some(name) = template.name_at(offset) {
         let sections: Vec<String> =
@@ -592,12 +632,141 @@ pub fn hover_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> 
             range: range_of(name.start, name.end),
         });
     }
-    let call = template.call_at(offset)?;
-    let sections: Vec<String> = describe_call(index, call).iter().map(hover_markdown).collect();
-    (!sections.is_empty()).then(|| HoverResult {
-        markdown: sections.join("\n\n---\n\n"),
-        range: range_of(call.start, call.end),
+    if let Some(call) = template.call_at(offset) {
+        let sections: Vec<String> = describe_call(index, call).iter().map(hover_markdown).collect();
+        return (!sections.is_empty()).then(|| HoverResult {
+            markdown: sections.join("\n\n---\n\n"),
+            range: range_of(call.start, call.end),
+        });
+    }
+    match spot_at(index, &template, given, offset)? {
+        Spot::Variable { name, start, end, ty } => (!matches!(ty, Type::Unknown)).then(|| HoverResult {
+            markdown: format!("```php\n{} ${name}\n```", ty.display(true)),
+            range: range_of(start, end),
+        }),
+        Spot::Attribute {
+            object,
+            member,
+            name,
+            start,
+            end,
+            ty,
+        } => {
+            let sections: Vec<String> = member
+                .map(|member| describe_member(index, &object, &member))
+                .unwrap_or_default()
+                .iter()
+                .map(hover_markdown)
+                .collect();
+            if !sections.is_empty() {
+                return Some(HoverResult {
+                    markdown: sections.join("\n\n---\n\n"),
+                    range: range_of(start, end),
+                });
+            }
+            (!matches!(ty, Type::Unknown)).then(|| HoverResult {
+                markdown: format!("```php\n{} {name}\n```", ty.display(true)),
+                range: range_of(start, end),
+            })
+        }
+    }
+}
+
+/// What the cursor is on, with the types the variables in force give it.
+enum Spot {
+    Variable {
+        name: String,
+        start: u32,
+        end: u32,
+        ty: Type,
+    },
+    Attribute {
+        object: Type,
+        member: Option<types::Member>,
+        name: String,
+        start: u32,
+        end: u32,
+        ty: Type,
+    },
+}
+
+fn spot_at(index: &Index, template: &Template, given: &[(String, Type)], offset: u32) -> Option<Spot> {
+    let typer = types::Typer::new(index);
+    let mut spot = None;
+    types::walk(&typer, template, given, Some(offset), &mut |expr, env| {
+        expr.walk(&mut |inner| match inner {
+            Expr::Name { name, start, end } if *start <= offset && offset <= *end => {
+                spot = Some(Spot::Variable {
+                    name: name.clone(),
+                    start: *start,
+                    end: *end,
+                    ty: env.get(name).cloned().unwrap_or(Type::Unknown),
+                });
+            }
+            Expr::Attribute {
+                object,
+                name,
+                start,
+                end,
+                args,
+            } if *start <= offset && offset <= *end => {
+                let object = typer.type_of(object, env);
+                let (ty, member) = typer.attribute(&object, name, args.is_some());
+                spot = Some(Spot::Attribute {
+                    object,
+                    member,
+                    name: name.clone(),
+                    start: *start,
+                    end: *end,
+                    ty,
+                });
+            }
+            _ => {}
+        });
+    });
+    spot
+}
+
+/// The variables in force at an offset.
+fn env_at(index: &Index, template: &Template, given: &[(String, Type)], offset: u32) -> crate::infer::Env {
+    let typer = types::Typer::new(index);
+    let mut found = None;
+    types::walk(&typer, template, given, Some(offset), &mut |_, env| {
+        found = Some(env.clone())
+    });
+    found.unwrap_or_else(|| {
+        let mut env = crate::infer::Env::default();
+        for (name, ty) in types::globals(index).into_iter().chain(given.iter().cloned()) {
+            env.set(name, ty);
+        }
+        env
     })
+}
+
+fn describe_member(index: &Index, object: &Type, member: &types::Member) -> Vec<crate::nav::Description> {
+    let root = php_syntax::parse("<?php ").syntax();
+    let analyzer = Analyzer::new(index, &root, 0);
+    let target = match member {
+        types::Member::Property { class, name } => Target::Property {
+            receiver: object
+                .members()
+                .iter()
+                .find(|ty| matches!(ty, Type::Class { .. }))
+                .cloned()
+                .unwrap_or_else(|| Type::class(class.clone())),
+            name: name.clone(),
+        },
+        types::Member::Method { class, name } => Target::Method {
+            receiver: object
+                .members()
+                .iter()
+                .find(|ty| matches!(ty, Type::Class { .. }))
+                .cloned()
+                .unwrap_or_else(|| Type::class(class.clone())),
+            name: name.clone(),
+        },
+    };
+    analyzer.describe(&target)
 }
 
 /// What can be typed at an offset of a template.
@@ -605,6 +774,7 @@ pub fn complete_at(
     index: &Index,
     path: Option<&Path>,
     text: &str,
+    given: &[(String, Type)],
     offset: u32,
     options: CompletionOptions,
 ) -> Option<CompletionList> {
@@ -624,13 +794,87 @@ pub fn complete_at(
         let typed = text.get(call.start as usize..offset as usize)?;
         return Some(callable_items(index, call.kind, typed, (call.start, call.end), options));
     }
+    if let Some(Spot::Attribute { object, start, end, .. }) = spot_at(index, &template, given, offset) {
+        let typed = text.get(start as usize..offset as usize)?;
+        let typer = types::Typer::new(index);
+        let items = typer
+            .attributes_of(&object)
+            .into_iter()
+            .filter_map(|(name, detail)| {
+                let score = match_score(&name, typed)?;
+                Some((
+                    score,
+                    CompletionItem {
+                        label: name.clone(),
+                        kind: ItemKind::Property,
+                        detail,
+                        description: None,
+                        edit: TextEdit {
+                            start,
+                            end,
+                            new_text: name.clone(),
+                        },
+                        additional_edits: Vec::new(),
+                        sort_text: name.clone(),
+                        filter_text: Some(name),
+                        deprecated: false,
+                        data: None,
+                    },
+                ))
+            })
+            .collect();
+        return Some(finish(items, options));
+    }
     let (start, end) = template
         .bare
         .iter()
         .copied()
         .find(|(start, end)| *start <= offset && offset <= *end)?;
     let typed = text.get(start as usize..offset as usize)?;
-    Some(callable_items(index, TwigKind::Function, typed, (start, end), options))
+    let mut list = callable_items(index, TwigKind::Function, typed, (start, end), options);
+    let env = env_at(index, &template, given, offset);
+    let mut variables: Vec<(u8, CompletionItem)> = env
+        .vars
+        .iter()
+        .filter_map(|(name, ty)| {
+            let score = match_score(name, typed)?;
+            Some((
+                score,
+                CompletionItem {
+                    label: name.clone(),
+                    kind: ItemKind::Variable,
+                    detail: (!matches!(ty, Type::Unknown)).then(|| ty.display(true)),
+                    description: None,
+                    edit: TextEdit {
+                        start,
+                        end,
+                        new_text: name.clone(),
+                    },
+                    additional_edits: Vec::new(),
+                    sort_text: format!("0{name}"),
+                    filter_text: Some(name.clone()),
+                    deprecated: false,
+                    data: None,
+                },
+            ))
+        })
+        .collect();
+    variables.extend(list.items.drain(..).map(|item| (1, item)));
+    list = finish(variables, options);
+    Some(list)
+}
+
+fn finish(mut items: Vec<(u8, CompletionItem)>, options: CompletionOptions) -> CompletionList {
+    items.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.sort_text.cmp(&right.1.sort_text))
+    });
+    let incomplete = items.len() > options.limit;
+    CompletionList {
+        items: items.into_iter().take(options.limit).map(|(_, item)| item).collect(),
+        incomplete,
+    }
 }
 
 /// The functions, filters or tests that fit what was typed.
@@ -701,7 +945,10 @@ pub fn symbols_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -
 }
 
 /// The places of a template that name what a query asks for.
-pub fn hits(index: &Index, path: Option<&Path>, text: &str, query: &Query) -> Vec<Hit> {
+pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Type)], query: &Query) -> Vec<Hit> {
+    if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
+        return member_hits(index, path, text, given, query);
+    }
     if !matches!(query.symbol, Symbol::Key { .. }) {
         return Vec::new();
     }
@@ -729,6 +976,47 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, query: &Query) -> Ve
             })
         })
         .collect()
+}
+
+/// The attributes of a template that read a property or call a method, through the types of the
+/// variables the template is given.
+fn member_hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Type)], query: &Query) -> Vec<Hit> {
+    let template = Template::read(index, path, text);
+    let typer = types::Typer::new(index);
+    let mut out = Vec::new();
+    types::walk(&typer, &template, given, None, &mut |expr, env| {
+        expr.walk(&mut |inner| {
+            let Expr::Attribute {
+                object,
+                name,
+                start,
+                end,
+                args,
+            } = inner
+            else {
+                return;
+            };
+            let object = typer.type_of(object, env);
+            let (_, Some(member)) = typer.attribute(&object, name, args.is_some()) else {
+                return;
+            };
+            let symbol = match member {
+                types::Member::Property { class, name } => Symbol::Property { class, name },
+                types::Member::Method { class, name } => Symbol::Method { class, name },
+            };
+            if query.matches(&symbol) {
+                out.push(Hit {
+                    range: range_of(*start, *end),
+                    kind: HitKind::Reference,
+                    access: Access::Read,
+                    dollar: false,
+                    via_alias: false,
+                    symbol,
+                });
+            }
+        });
+    });
+    out
 }
 
 /// Whether a block name is the one a `{% block %}` tag gives.

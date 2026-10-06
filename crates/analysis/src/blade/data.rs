@@ -33,10 +33,10 @@ const RENDERERS: &[&str] = &[
 ];
 
 #[derive(Default)]
-struct Found(BTreeMap<String, Vec<Type>>);
+pub(crate) struct Found(BTreeMap<String, Vec<Type>>);
 
 impl Found {
-    fn add(&mut self, name: &str, ty: Type) {
+    pub(crate) fn add(&mut self, name: &str, ty: Type) {
         if matches!(ty, Type::Unknown | Type::Mixed) || !is_variable_name(name) {
             self.0.entry(name.to_string()).or_default();
             return;
@@ -47,7 +47,7 @@ impl Found {
         }
     }
 
-    fn into_given(self) -> Vec<(String, Type)> {
+    pub(crate) fn into_given(self) -> Vec<(String, Type)> {
         self.0
             .into_iter()
             .filter(|(_, types)| !types.is_empty())
@@ -217,7 +217,9 @@ fn arguments(owner: &SyntaxNode) -> Vec<(Option<String>, SyntaxNode)> {
 }
 
 /// The calls of a PHP file that render the view at each of the offsets.
-fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Found) {
+/// The calls of a PHP file that render the template named at each of the offsets: the data after
+/// the name, and for an attribute such as Symfony's `#[Template]` the arrays the method returns.
+pub(crate) fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Found) {
     let root = parse(text).syntax();
     let ctx = FileContext::new(index, &root);
     for start in starts {
@@ -233,14 +235,26 @@ fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Found) {
         let Some(owner) = argument
             .parent()
             .and_then(|list| list.parent())
-            .filter(|owner| matches!(owner.kind(), CALL_EXPR | NEW_EXPR))
+            .filter(|owner| matches!(owner.kind(), CALL_EXPR | NEW_EXPR | ATTRIBUTE))
         else {
             continue;
         };
+        if owner.kind() == ATTRIBUTE {
+            let method = owner.ancestors().find(|node| node.kind() == METHOD_DECLARATION);
+            for returned in method
+                .iter()
+                .flat_map(|method| method.descendants())
+                .filter(|node| node.kind() == RETURN_STATEMENT)
+                .filter_map(|statement| statement.children().next())
+            {
+                data_of(&ctx, &returned, found);
+            }
+            continue;
+        }
         let all = arguments(&owner);
         let named_data = all
             .iter()
-            .find(|(name, _)| matches!(name.as_deref(), Some("with" | "data")))
+            .find(|(name, _)| matches!(name.as_deref(), Some("with" | "data" | "parameters" | "context")))
             .map(|(_, value)| value.clone());
         let data = named_data.or_else(|| {
             let position = all.iter().position(|(_, value)| value == &literal)?;

@@ -167,7 +167,12 @@ fn hits_in_text(
     query: &Query,
 ) -> Vec<Hit> {
     if crate::twig::is_template(path) {
-        return crate::twig::hits(index, Some(path), text, query);
+        let given = if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
+            crate::twig::data::given(index, sources, path)
+        } else {
+            Vec::new()
+        };
+        return crate::twig::hits(index, Some(path), text, &given, query);
     }
     if crate::blade::is_template(path) {
         let typed = matches!(

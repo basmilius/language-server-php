@@ -35,7 +35,7 @@ fn split(template: &str) -> (String, u32) {
 fn places(template: &str) -> Vec<String> {
     let (text, offset) = split(template);
     let fixture = fixture();
-    definitions_at(&fixture.index, Some(Path::new(PAGE)), &text, offset)
+    definitions_at(&fixture.index, Some(Path::new(PAGE)), &text, &[], offset)
         .into_iter()
         .map(|place| {
             let path = place.path.expect("a file");
@@ -55,6 +55,7 @@ fn completions(template: &str) -> Vec<String> {
         &fixture().index,
         Some(Path::new(PAGE)),
         &text,
+        &[],
         offset,
         CompletionOptions::default(),
     )
@@ -110,7 +111,7 @@ fn functions_filters_and_tests_come_from_the_extensions() {
         ["vendor/symfony/twig/CoreExtension.php: length"]
     );
     let (text, offset) = split("{{ items|len$0gth }}");
-    let hover = hover_at(&fixture().index, Some(Path::new(PAGE)), &text, offset).expect("a hover");
+    let hover = hover_at(&fixture().index, Some(Path::new(PAGE)), &text, &[], offset).expect("a hover");
     assert!(hover.markdown.contains("Twig filter 'length'"), "{}", hover.markdown);
     assert!(hover.markdown.contains("Counts."), "{}", hover.markdown);
 }
@@ -123,9 +124,169 @@ fn no_prefix_of_a_template_breaks_the_reading() {
         let text = &template[..end];
         for offset in (0..=text.len()).filter(|offset| text.is_char_boundary(*offset)) {
             let path = Some(Path::new(PAGE));
-            let _ = definitions_at(&fixture.index, path, text, offset as u32);
-            let _ = hover_at(&fixture.index, path, text, offset as u32);
-            let _ = complete_at(&fixture.index, path, text, offset as u32, CompletionOptions::default());
+            let _ = definitions_at(&fixture.index, path, text, &[], offset as u32);
+            let _ = hover_at(&fixture.index, path, text, &[], offset as u32);
+            let _ = complete_at(
+                &fixture.index,
+                path,
+                text,
+                &[],
+                offset as u32,
+                CompletionOptions::default(),
+            );
         }
+    }
+}
+
+mod variables {
+    use php_index::framework::testing::{SYMFONY, TWIG as TWIG_LIBRARY};
+
+    use super::super::*;
+    use crate::references::{Current, references_at};
+    use crate::testing::{CURSOR, Files, Fixture};
+
+    const POST: &str = "<?php\nnamespace App\\Entity;\nclass Post {\n    public string $slug = '';\n    public function getTitle(): string {}\n    public function isPublished(): bool {}\n    public function author(): User {}\n}\nclass User { public function getName(): string {} }\n";
+    const CONTROLLER: &str = "<?php\nnamespace App\\Controller;\nuse App\\Entity\\Post;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nclass PostController extends AbstractController {\n    public function show(Post $post) {\n        return $this->render('blog/post.html.twig', ['post' => $post, 'posts' => [$post]]);\n    }\n}\n";
+    const VIEW: &str = "{{ post.title }}{% for item in posts %}{{ item.author.name }}{{ loop.index }}{% endfor %}{% set first = post %}{{ first.slug }}";
+
+    fn fixture() -> Fixture {
+        let mut files = SYMFONY.to_vec();
+        files.extend_from_slice(TWIG_LIBRARY);
+        files.extend_from_slice(&[
+            ("src/Entity/Post.php", POST),
+            ("src/Controller/PostController.php", CONTROLLER),
+            ("templates/blog/post.html.twig", VIEW),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    const PATH: &str = "/project/templates/blog/post.html.twig";
+
+    fn given(fixture: &Fixture) -> Vec<(String, Type)> {
+        data::given(&fixture.index, &Files(fixture.sources.clone()), Path::new(PATH))
+    }
+
+    #[test]
+    fn a_controller_gives_its_template_variables() {
+        let fixture = fixture();
+        let shown: Vec<String> = given(&fixture)
+            .into_iter()
+            .map(|(name, ty)| format!("{name}: {}", ty.display(true)))
+            .collect();
+        assert_eq!(shown, ["post: Post", "posts: list<Post>"]);
+    }
+
+    fn at(template: &str) -> (String, u32) {
+        let offset = template.find(CURSOR).expect("a cursor") as u32;
+        (template.replacen(CURSOR, "", 1), offset)
+    }
+
+    #[test]
+    fn attributes_are_the_properties_and_getters_twig_reads() {
+        let fixture = fixture();
+        let given = given(&fixture);
+        let path = Some(Path::new(PATH));
+        let hover = |template: &str| {
+            let (text, offset) = at(template);
+            hover_at(&fixture.index, path, &text, &given, offset)
+                .map(|hover| hover.markdown)
+                .unwrap_or_default()
+        };
+        assert!(
+            hover("{{ post.ti$0tle }}").contains("getTitle"),
+            "{}",
+            hover("{{ post.ti$0tle }}")
+        );
+        assert!(hover("{% for item in posts %}{{ item.author.na$0me }}{% endfor %}").contains("getName"));
+        assert!(hover("{% set first = post %}{{ fi$0rst }}").contains("Post"));
+        let complete = |template: &str| -> Vec<String> {
+            let (text, offset) = at(template);
+            let mut items: Vec<String> = complete_at(
+                &fixture.index,
+                path,
+                &text,
+                &given,
+                offset,
+                CompletionOptions::default(),
+            )
+            .map(|list| list.items.into_iter().map(|item| item.label).collect())
+            .unwrap_or_default();
+            items.sort();
+            items
+        };
+        assert_eq!(complete("{{ post.$0 }}"), ["author", "published", "slug", "title"]);
+        assert_eq!(
+            complete("{% for item in posts %}{{ loop.$0 }}{% endfor %}"),
+            [
+                "first",
+                "index",
+                "index0",
+                "last",
+                "length",
+                "parent",
+                "revindex",
+                "revindex0"
+            ]
+        );
+        assert!(complete("{{ po$0 }}").contains(&"post".to_string()));
+        let (text, offset) = at("{{ post.ti$0tle }}");
+        let places = definitions_at(&fixture.index, path, &text, &given, offset);
+        assert_eq!(places.len(), 1);
+        assert!(places[0].path.as_ref().is_some_and(|path| path.ends_with("Post.php")));
+    }
+
+    #[test]
+    fn usages_of_a_getter_reach_the_template() {
+        let fixture = fixture();
+        let path = std::path::PathBuf::from("/project/src/Entity/Post.php");
+        let root = php_syntax::parse(POST).syntax();
+        let offset = POST.find("getTitle").expect("the getter") as u32 + 1;
+        let found = references_at(
+            &fixture.index,
+            &Files(fixture.sources.clone()),
+            &Current {
+                path: &path,
+                text: POST,
+                root: &root,
+            },
+            offset,
+        )
+        .expect("usages");
+        let in_view: Vec<&str> = found
+            .files
+            .iter()
+            .filter(|file| file.path.ends_with("post.html.twig"))
+            .flat_map(|file| file.hits.iter())
+            .map(|hit| &VIEW[usize::from(hit.range.start())..usize::from(hit.range.end())])
+            .collect();
+        assert_eq!(in_view, ["title"]);
+    }
+
+    #[test]
+    fn a_form_is_its_view_with_its_children() {
+        let mut files = SYMFONY.to_vec();
+        files.extend_from_slice(TWIG_LIBRARY);
+        files.extend_from_slice(&[
+            ("vendor/php/ArrayAccess.php", "<?php interface ArrayAccess { public function offsetGet(mixed $offset): mixed; }"),
+            (
+                "vendor/symfony/Form.php",
+                "<?php namespace Symfony\\Component\\Form; interface FormInterface {} class FormView implements \\ArrayAccess { public array $vars = []; public function offsetGet(mixed $name): self {} }",
+            ),
+            (
+                "src/Controller/FormController.php",
+                "<?php\nnamespace App\\Controller;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nuse Symfony\\Component\\Form\\FormInterface;\nclass FormController extends AbstractController {\n    public function edit(FormInterface $form) { return $this->render('form.html.twig', ['form' => $form]); }\n}\n",
+            ),
+            ("templates/form.html.twig", "{{ form.title.vars }}"),
+        ]);
+        let fixture = Fixture::framework(&files);
+        let path = Path::new("/project/templates/form.html.twig");
+        let given = data::given(&fixture.index, &Files(fixture.sources.clone()), path);
+        assert_eq!(given.len(), 1);
+        assert_eq!(given[0].1.display(true), "FormView");
+        let text = "{{ form.title.va$0rs }}";
+        let offset = text.find(CURSOR).expect("a cursor") as u32;
+        let text = text.replacen(CURSOR, "", 1);
+        let hover = hover_at(&fixture.index, Some(path), &text, &given, offset).expect("a hover");
+        assert!(hover.markdown.contains("vars"), "{}", hover.markdown);
     }
 }

@@ -13,8 +13,25 @@ use php_analysis::twig::{self, Template};
 use php_index::framework::symfony::templates::Templates;
 use php_index::framework::twig::TwigExtensions;
 use php_index::indexer::{self, IndexEvent};
+use php_index::words::WordIndex;
 use php_index::{Project, StubFile};
 use php_syntax::PhpVersion;
+
+struct Disk<'a> {
+    words: &'a WordIndex,
+}
+
+impl php_analysis::references::Sources for Disk<'_> {
+    fn candidates(&self, word: &str) -> Vec<std::path::PathBuf> {
+        self.words.candidates(word)
+    }
+
+    fn text(&self, path: &Path) -> Option<String> {
+        std::fs::read(path)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -72,6 +89,18 @@ fn main() {
     let mut unknown: BTreeMap<String, usize> = BTreeMap::new();
     let (mut requests, mut total, mut slowest, mut panics) = (0usize, Duration::ZERO, Duration::ZERO, 0usize);
     let mut read_time = Duration::ZERO;
+    let mut paths: Vec<std::path::PathBuf> = index
+        .files()
+        .filter(|file| file.origin == php_index::Origin::Project)
+        .map(|file| file.path.clone())
+        .collect();
+    paths.extend(templates.iter().cloned());
+    let mut words = WordIndex::default();
+    words.build(paths, None);
+    let sources = Disk { words: &words };
+    let (mut attributes, mut resolved, mut given_count) = (0usize, 0usize, 0usize);
+    let mut given_time = Duration::ZERO;
+    let typer = twig::types::Typer::new(index);
     for path in &templates {
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
@@ -80,6 +109,26 @@ fn main() {
         let template = Template::read(index, Some(path), &text);
         read_time += began.elapsed();
         names += template.names.len();
+        let began = Instant::now();
+        let given = twig::data::given(index, &sources, path);
+        given_time += began.elapsed();
+        given_count += given.len();
+        twig::types::walk(&typer, &template, &given, None, &mut |expr, env| {
+            expr.walk(&mut |inner| {
+                if let twig::parse::Expr::Attribute { object, name, args, .. } = inner {
+                    attributes += 1;
+                    let object = typer.type_of(object, env);
+                    if !matches!(
+                        typer.attribute(&object, name, args.is_some()).0,
+                        php_index::Type::Unknown
+                    ) {
+                        resolved += 1;
+                    } else if std::env::var("TWIG_UNTYPED").is_ok() {
+                        eprintln!("untyped .{name} on {}", object.display(true));
+                    }
+                }
+            });
+        });
         for call in &template.calls {
             calls += 1;
             if extensions.find(call.kind, &call.name).is_none() {
@@ -93,9 +142,9 @@ fn main() {
             let offset = offset as u32;
             let began = Instant::now();
             let outcome = std::panic::catch_unwind(|| {
-                let _ = twig::hover_at(index, Some(path), &text, offset);
-                let _ = twig::definitions_at(index, Some(path), &text, offset);
-                let _ = twig::complete_at(index, Some(path), &text, offset, CompletionOptions::default());
+                let _ = twig::hover_at(index, Some(path), &text, &[], offset);
+                let _ = twig::definitions_at(index, Some(path), &text, &[], offset);
+                let _ = twig::complete_at(index, Some(path), &text, &[], offset, CompletionOptions::default());
             });
             let took = began.elapsed();
             if outcome.is_err() {
@@ -108,6 +157,7 @@ fn main() {
         }
     }
     println!("{} templates read in {read_time:?}", templates.len());
+    println!("given: {given_count} variables in {given_time:?}; {resolved} of {attributes} attributes have a type");
     println!("{requests} requests in {total:?}, the slowest three at one offset {slowest:?}, {panics} panics");
     println!(
         "{names} names, {calls} calls of functions, filters and tests, {} not declared:",
