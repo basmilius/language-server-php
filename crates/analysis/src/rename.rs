@@ -173,6 +173,16 @@ pub fn prepare_rename(index: &Index, root: &SyntaxNode, text: &str, offset: u32)
             kind: kind_of(primary_symbol(&symbols)),
         });
     }
+    if let Some(segment) =
+        crate::frameworks::raxos::route_segment_at(&crate::infer::Analyzer::new(index, root, offset), offset)
+    {
+        let range = range_of(u32::from(segment.range.start()) + 1, u32::from(segment.range.end()));
+        return Ok(Prepared {
+            placeholder: segment.name,
+            range,
+            kind: RenameKind::Variable,
+        });
+    }
     let Some(token) = token_at(root, offset) else {
         return Err("There is no name to rename here".to_string());
     };

@@ -61,7 +61,7 @@ Support turns on by the packages Composer installed: `laravel/framework` or `ill
 - Every relation is also a method that gives its query, so `$order->buyer()->` completes without an `@method` line. An `@method` that says the same is marked as redundant and can be removed; one for a property that is no relation, or with another model, is reported.
 - Column keys in `Model::col('created_on')`, property names in `only()`, `makeVisible()`, `makeHidden()` and `#[Visible]`, and relation names in `eagerLoad()` and `#[MapModelRelation]` complete, lead to their property and are reported when the model lacks them. A nested array below a relation key is read against the related model.
 - A `#[Macro]` callable that does not take the model or gives a class the property cannot hold, a `#[Caster]` that is no caster and a `#[Handler]` that does not handle its message are reported.
-- Hover on `#[Get]`, `#[Post]` or `#[Controller]` shows the whole path, with the prefixes of the parent controllers. A `$name` in a path that no parameter fills, a `#[MapModelRelation]` parent no controller provides and a route without a return type are reported.
+- Hover on `#[Get]`, `#[Post]` or `#[Controller]` shows the whole path, with the prefixes of the parent controllers. A `$name` in a path is the parameter it fills: it is colored as one, hover shows its type and doc, definition leads to it, and renaming the parameter renames the segment too. A `$name` in a path that no parameter fills, a `#[MapModelRelation]` parent no controller provides and a route without a return type are reported.
 
 ### Templates
 

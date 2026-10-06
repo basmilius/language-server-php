@@ -95,6 +95,15 @@ impl Analyzer<'_> {
         if let Some(found) = self.test_string_target(offset) {
             return vec![found];
         }
+        if let Some(segment) = crate::frameworks::raxos::route_segment_at(self, offset) {
+            return vec![Found {
+                target: Target::Parameter {
+                    callee: segment.callee,
+                    name: segment.name,
+                },
+                range: segment.range,
+            }];
+        }
         if let Some(key) = crate::frameworks::keys::key_at(self, offset) {
             if let Some(segment) = crate::frameworks::relations::segment_at(self.index, &key, offset) {
                 if let Some(relation) = segment.relation {

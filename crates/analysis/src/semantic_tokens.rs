@@ -106,6 +106,7 @@ pub fn semantic_tokens(index: &Index, root: &SyntaxNode, range: Option<TextRange
                 match token.kind() {
                     DOC_COMMENT => doc_tokens(&ctx, &token, &mut out),
                     VARIABLE => variable_token(&ctx, &token, &mut out),
+                    STRING_LITERAL if token.text().contains('$') => route_path_tokens(&ctx, &token, &mut out),
                     kind if is_name_token(&token, kind) => {
                         name_token(&ctx, &token, &mut out);
                     }
@@ -116,6 +117,17 @@ pub fn semantic_tokens(index: &Index, root: &SyntaxNode, range: Option<TextRange
     }
     out.sort_by_key(|token| token.start);
     out
+}
+
+/// The `$name` segments of a Raxos route path, as the parameters they are.
+fn route_path_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToken>) {
+    let Some(literal) = token.parent().filter(|node| node.kind() == LITERAL) else {
+        return;
+    };
+    let analyzer = ctx.analyzer(&literal);
+    for segment in crate::frameworks::raxos::route_segments(&analyzer, &literal) {
+        push(out, segment.range, Kind::Parameter, 0);
+    }
 }
 
 fn push(out: &mut Vec<SemanticToken>, range: TextRange, kind: Kind, modifiers: u32) {

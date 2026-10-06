@@ -111,3 +111,99 @@ pub fn route_hover(analyzer: &Analyzer<'_>, offset: u32) -> Option<(String, php_
     }
     Some((format!("```\n{}\n```", paths.join("\n")), attribute.text_range()))
 }
+
+/// A `$name` of a Raxos route or controller path, with the function whose parameter of that name
+/// the router puts there.
+pub struct RouteSegment {
+    pub name: String,
+    /// The `$` and the name.
+    pub range: php_syntax::TextRange,
+    pub callee: crate::target::Callee,
+}
+
+/// The `$name` segments of a path literal of `#[Controller(prefix:)]` or a route attribute that
+/// name a parameter: of the constructor for a prefix, of the method for a route.
+pub fn route_segments(analyzer: &Analyzer<'_>, literal: &SyntaxNode) -> Vec<RouteSegment> {
+    route_segments_of(analyzer, literal).unwrap_or_default()
+}
+
+fn route_segments_of(analyzer: &Analyzer<'_>, literal: &SyntaxNode) -> Option<Vec<RouteSegment>> {
+    use php_index::framework::raxos::router::{CONTROLLER, path_parameters, route_verb};
+    if !analyzer.index.frameworks().raxos || !literal.text().to_string().contains('$') {
+        return None;
+    }
+    let argument = literal.parent().filter(|node| node.kind() == ARGUMENT)?;
+    let list = argument.parent().filter(|node| node.kind() == ARGUMENT_LIST)?;
+    let attribute = list.parent().filter(|node| node.kind() == ATTRIBUTE)?;
+    let resolved = analyzer
+        .resolver
+        .resolve_class(&ast::text_of(&ast::child_of(&attribute, NAME)?));
+    let (wanted, method) = if resolved.eq_ignore_ascii_case(CONTROLLER) {
+        ("prefix", "__construct".to_string())
+    } else {
+        route_verb(&resolved)?;
+        let method = attribute
+            .ancestors()
+            .find(|node| node.kind() == METHOD_DECLARATION)
+            .and_then(|method| ast::child_of(&method, NAME))?;
+        ("path", ast::text_of(&method))
+    };
+    let named = argument
+        .children_with_tokens()
+        .any(|element| element.kind() == COLON)
+        .then(|| {
+            argument
+                .children_with_tokens()
+                .filter_map(|element| element.into_token())
+                .find(|token| !token.kind().is_trivia())
+                .map(|token| token.text().to_string())
+        })
+        .flatten();
+    let first = list.children().find(|child| child.kind() == ARGUMENT).as_ref() == Some(&argument);
+    match named {
+        Some(name) if name != wanted => return None,
+        None if !first => return None,
+        _ => {}
+    }
+    let class = analyzer.class.as_ref()?.name.clone();
+    let params: Vec<String> = analyzer
+        .index
+        .class(&class)?
+        .decl
+        .method(&method)?
+        .callable
+        .params
+        .iter()
+        .map(|param| param.name.clone())
+        .collect();
+    let (value, span) = php_index::test_facts::string_value(literal)?;
+    Some(
+        path_parameters(&value)
+            .into_iter()
+            .filter(|(_, name)| params.iter().any(|param| param == name))
+            .map(|(at, name)| {
+                let start = span.start + at as u32;
+                RouteSegment {
+                    name: name.to_string(),
+                    range: ast::range_of(start, start + 1 + name.len() as u32),
+                    callee: crate::target::Callee::Method {
+                        class: class.clone(),
+                        name: method.clone(),
+                    },
+                }
+            })
+            .collect(),
+    )
+}
+
+/// The route segment under an offset.
+pub fn route_segment_at(analyzer: &Analyzer<'_>, offset: u32) -> Option<RouteSegment> {
+    let token = analyzer
+        .root
+        .token_at_offset(php_syntax::TextSize::from(offset))
+        .find(|token| token.kind() == STRING_LITERAL)?;
+    let literal = token.parent().filter(|node| node.kind() == LITERAL)?;
+    route_segments(analyzer, &literal)
+        .into_iter()
+        .find(|segment| u32::from(segment.range.start()) <= offset && offset <= u32::from(segment.range.end()))
+}

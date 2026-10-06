@@ -2208,4 +2208,108 @@ mod raxos {
             ]
         );
     }
+
+    const SEGMENTS: &str = "<?php\nnamespace App;\nuse Raxos\\Router\\Attribute\\{Controller, Get};\n#[Controller(prefix: 'stats/$merchant')]\nclass StatsController {\n    public function __construct(public Merchant $merchant) {}\n    /** @param int $from The first day */\n    #[Get('conversion/$from/$to')]\n    public function conversion(int $from, string $to): Order {}\n}\n";
+
+    #[test]
+    fn a_path_segment_is_the_parameter_it_fills() {
+        let code = SEGMENTS.replace("conversion/$from", "conversion/$fr$0om");
+        let fixture = router_project(&code);
+        let (_, root, offset) = split_cursor(&code);
+        let analyzer = Analyzer::new(&fixture.index, &root, offset);
+        let markdown = analyzer.hover(offset).map(|hover| hover.markdown).unwrap_or_default();
+        assert!(markdown.contains("int $from"), "{markdown}");
+        assert!(markdown.contains("The first day"), "{markdown}");
+        let found: Vec<String> = analyzer
+            .definitions(offset)
+            .into_iter()
+            .map(|place| code.replace("$0", "")[place.span.start as usize..place.span.end as usize].to_string())
+            .collect();
+        assert_eq!(found, ["int $from"]);
+    }
+
+    #[test]
+    fn renaming_a_parameter_renames_its_path_segment() {
+        use crate::references::{Current, Sources};
+        use std::collections::HashMap;
+        use std::path::{Path, PathBuf};
+
+        struct Files(HashMap<PathBuf, String>);
+        impl Sources for Files {
+            fn candidates(&self, word: &str) -> Vec<PathBuf> {
+                self.0
+                    .iter()
+                    .filter(|(_, text)| text.to_ascii_lowercase().contains(word))
+                    .map(|(path, _)| path.clone())
+                    .collect()
+            }
+            fn text(&self, path: &Path) -> Option<String> {
+                self.0.get(path).cloned()
+            }
+        }
+
+        for (from, to) in [
+            ("conversion/$fr$0om", "conversion/$from"),
+            ("(int $fr$0om", "(int $from"),
+        ] {
+            let code = SEGMENTS.replacen(to, from, 1);
+            let fixture = router_project(&code);
+            let (text, root, offset) = split_cursor(&code);
+            let path = PathBuf::from("/project/current.php");
+            let done = crate::rename::rename(
+                &fixture.index,
+                &Files(fixture.sources.clone()),
+                &Current {
+                    path: &path,
+                    text: &text,
+                    root: &root,
+                },
+                offset,
+                "start",
+            )
+            .expect("renamed");
+            let mut out = text.clone();
+            let mut edits: Vec<_> = done
+                .files
+                .iter()
+                .filter(|file| file.path == path)
+                .flat_map(|file| file.edits.clone())
+                .collect();
+            edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start()));
+            for edit in edits {
+                out.replace_range(
+                    usize::from(edit.range.start())..usize::from(edit.range.end()),
+                    &edit.text,
+                );
+            }
+            assert_eq!(
+                out,
+                SEGMENTS.replace("$from/", "$start/").replace("int $from", "int $start")
+            );
+        }
+    }
+
+    #[test]
+    fn path_segments_are_colored_as_parameters() {
+        let fixture = router_project(SEGMENTS);
+        let root = php_syntax::parse(SEGMENTS).syntax();
+        let strings: Vec<(usize, usize)> = ["'stats/$merchant'", "'conversion/$from/$to'"]
+            .iter()
+            .map(|string| {
+                let start = SEGMENTS.find(string).expect("the string");
+                (start, start + string.len())
+            })
+            .collect();
+        let parameters: Vec<&str> = crate::semantic_tokens::semantic_tokens(&fixture.index, &root, None)
+            .into_iter()
+            .filter(|token| crate::semantic_tokens::TOKEN_TYPES[token.ty as usize] == "parameter")
+            .filter(|token| {
+                strings
+                    .iter()
+                    .any(|(start, end)| (*start..*end).contains(&(token.start as usize)))
+            })
+            .map(|token| &SEGMENTS[token.start as usize..token.end as usize])
+            .collect();
+        assert_eq!(parameters, ["$merchant", "$from", "$to"]);
+    }
 }

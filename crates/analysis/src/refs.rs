@@ -774,12 +774,41 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
             dql_hits(ctx, name, query, &mut hits);
         }
     }
+    if let Symbol::Parameter { callee, name } = &query.symbol {
+        if ctx.index.frameworks().raxos {
+            route_path_hits(ctx, callee, name, query, &mut hits);
+        }
+    }
     if matches!(query.symbol, Symbol::Class(_) | Symbol::Method { .. }) {
         class_string_hits(ctx, &word, query, &mut hits);
     }
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits
+}
+
+/// The `$name` of a Raxos route path is a usage of the parameter the router puts there.
+fn route_path_hits(ctx: &FileContext, callee: &Callee, name: &str, query: &Query, hits: &mut Vec<Hit>) {
+    let written = format!("${name}");
+    for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
+        if !node.text().to_string().contains(&written) {
+            continue;
+        }
+        let analyzer = ctx.analyzer(&node);
+        for segment in crate::frameworks::raxos::route_segments(&analyzer, &node) {
+            if segment.name != name || !same_callee(&segment.callee, callee) {
+                continue;
+            }
+            hits.push(Hit {
+                range: segment.range,
+                kind: HitKind::Reference,
+                access: Access::Read,
+                dollar: true,
+                via_alias: false,
+                symbol: query.symbol.clone(),
+            });
+        }
+    }
 }
 
 /// The strings that name a relation: each segment of `with('posts.comments')` is a usage of the
