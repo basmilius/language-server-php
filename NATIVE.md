@@ -644,6 +644,8 @@ Names in a doc comment lead somewhere now: a class in a type, `Class::member()` 
 
 **Pennant.** The feature of `Feature::active('new-api')` and its kin (`inactive`, `value`, `when`, `unless`, `activate`, `someAreActive([...])` and the rest, on the facade, on `Feature::for($user)` and on a store), and of `@feature` and `@featureany` in Blade, is a key of its own (`framework/pennant.rs`). A feature is defined by `Feature::define('new-api', ...)` in a file of `app/`, or is a class in `app/Features`, named by its `$name` or by the class. Definition goes to the `define()` or the class, completion offers the features, find usages lists the strings, and `unknown-feature` (warning) reports a name nothing defines, only when the project defines at least one feature and no `define()` takes a name the code works out or a class by hand. A class named by `::class` is a class and needs nothing of this. No public application with Pennant was at hand to measure on; on the projects without it nothing changed.
 
+**Filament.** The name of a column, a field or an entry (`TextColumn::make('title')`, `TextInput::make()`, `TextEntry::make()`, marked `@key filament-field` on `Column`, `Field` and `Entry`) is an attribute of the model the class around works on (`framework/filament.rs`): a resource's `$model`, or `App\Models\{Name}` after a `{Name}Resource` without one, the classes a resource calls statically (`ArticlesTable::configure()`, as Filament 4 lays a resource out) and the pages whose `$resource` names it. `author.name` follows the relation `author` to its model, and the last segment is a column of that model's table: definition goes to the column in its migration or schema dump, completion offers the columns, and the column's usages list the string. A class two resources call stands for neither model. Nothing is reported, since a column may also be an accessor, a count or a JSON path. On `laravelio/laravel.io` the column strings found grow from 27 names in 53 places to 33 in 78, and the survey reports what it did before.
+
 ### Corpus
 
 ```sh
@@ -696,5 +698,5 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Other frameworks and packages in the same overlay format (Filament, API Platform, Symfony Messenger and Workflow).
+- Other frameworks and packages in the same overlay format (API Platform, Symfony Messenger and Workflow).
 - A PHP 8.6 level, when its syntax exists.

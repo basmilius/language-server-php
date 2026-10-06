@@ -200,6 +200,9 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             if kind == "expression" {
                 return placeholder_at(&value, span.start, at?);
             }
+            if kind == "filament-field" && place == Place::Argument {
+                return filament_field(analyzer, &value, span);
+            }
             let Some(kind) = KeyKind::parse(&kind) else {
                 continue;
             };
@@ -272,6 +275,38 @@ fn column_key(analyzer: &Analyzer<'_>, callee: &Callee, value: &str, span: php_i
         kind: KeyKind::Column,
         value: column.to_string(),
         range: range_of(start, start + column.len() as u32),
+        scope: Some(table),
+        guarded: true,
+    })
+}
+
+/// The name of a Filament column, field or entry: an attribute of the model the class around works
+/// on, `author.name` one of the model `author` leads to. Only the last segment is a column.
+fn filament_field(analyzer: &Analyzer<'_>, value: &str, span: php_index::Span) -> Option<KeyString> {
+    let class = analyzer.class.as_ref()?;
+    let models = analyzer
+        .index
+        .section::<php_index::framework::filament::FilamentModels>();
+    let mut model = models.model_of(&class.name)?.clone();
+    let mut at = span.start;
+    let segments: Vec<&str> = value.split('.').collect();
+    let (last, path) = segments.split_last()?;
+    for segment in path {
+        let relations = php_index::framework::eloquent::relations(analyzer.index, &model)?;
+        model = relations
+            .into_iter()
+            .find(|relation| relation.name == *segment)?
+            .related?;
+        at += segment.len() as u32 + 1;
+    }
+    if !last.chars().all(|char| char.is_ascii_alphanumeric() || char == '_') {
+        return None;
+    }
+    let table = php_index::framework::eloquent::table(analyzer.index, &model)?;
+    Some(KeyString {
+        kind: KeyKind::Column,
+        value: last.to_string(),
+        range: range_of(at, at + last.len() as u32),
         scope: Some(table),
         guarded: true,
     })

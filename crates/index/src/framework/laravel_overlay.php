@@ -350,6 +350,37 @@ class Decorator
 
 }
 
+namespace Filament\Tables\Columns {
+
+// The name of a column, field or entry is an attribute of the model the panel's class works on.
+class Column
+{
+    /** @key filament-field */
+    public static function make($name = null) {}
+}
+
+}
+
+namespace Filament\Forms\Components {
+
+class Field
+{
+    /** @key filament-field */
+    public static function make($name = null) {}
+}
+
+}
+
+namespace Filament\Infolists\Components {
+
+class Entry
+{
+    /** @key filament-field */
+    public static function make($name = null) {}
+}
+
+}
+
 namespace Inertia {
 
 class Inertia

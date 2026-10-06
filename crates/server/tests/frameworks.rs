@@ -1054,3 +1054,29 @@ fn a_pennant_feature_leads_to_its_definition_from_php_and_blade() {
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_filament_column_leads_to_the_column_of_the_resource_model() {
+    let disk = laravel();
+    disk.write(
+        "project/vendor/laravel/filament/classes.php",
+        "<?php\nnamespace Filament\\Resources {\n    abstract class Resource {}\n}\nnamespace Filament\\Tables\\Columns {\n    class Column\n    {\n        public static function make(?string $name = null): static {}\n    }\n    class TextColumn extends Column {}\n}\n",
+    );
+    disk.write(
+        "project/app/Filament/Resources/UserResource.php",
+        "<?php\nnamespace App\\Filament\\Resources;\n\nuse App\\Models\\User;\nuse Filament\\Resources\\Resource;\n\nclass UserResource extends Resource\n{\n    protected static ?string $model = User::class;\n}\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Filament/Resources/UserResource.php");
+    client.open(
+        &uri,
+        "<?php\nnamespace App\\Filament\\Resources;\n\nuse App\\Models\\User;\nuse Filament\\Resources\\Resource;\nuse Filament\\Tables\\Columns\\TextColumn;\n\nclass UserResource extends Resource\n{\n    protected static ?string $model = User::class;\n\n    public static function columns(): array\n    {\n        return [TextColumn::make('email')];\n    }\n}\n",
+    );
+    let found = client.at("textDocument/definition", &uri, 13, 35);
+    assert_eq!(
+        found[0]["uri"],
+        disk.uri("project/database/migrations/2020_01_01_000000_create_users_table.php"),
+        "{found}"
+    );
+    client.shutdown();
+}

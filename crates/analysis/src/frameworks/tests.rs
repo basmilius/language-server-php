@@ -1589,3 +1589,46 @@ mod pennant {
         assert_eq!(found, ["No feature is defined as 'nope'"]);
     }
 }
+
+mod filament {
+    use php_index::framework::testing::{ELOQUENT, VALIDATION};
+
+    use crate::infer::Analyzer;
+    use crate::testing::{Fixture, split_cursor};
+
+    const VENDOR: &str = "<?php\nnamespace Filament\\Resources { abstract class Resource { protected static ?string $model = null; } }\nnamespace Filament\\Tables\\Columns { class Column { public static function make(?string $name = null): static {} } class TextColumn extends Column {} }\n";
+    const RESOURCE: &str = "<?php\nnamespace App\\Filament\\Resources;\nuse App\\Models\\User;\nuse Filament\\Resources\\Resource;\nclass UserResource extends Resource {\n    protected static ?string $model = User::class;\n    public static function table($table) { return UsersTable::configure($table); }\n}\n";
+    const TABLE: &str = "<?php\nnamespace App\\Filament\\Resources;\nuse Filament\\Tables\\Columns\\TextColumn;\nclass UsersTable {\n    public static function configure($table) {\n        return [TextColumn::make('email'), TextColumn::make('id')];\n    }\n}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = ELOQUENT.to_vec();
+        files.extend(VALIDATION.iter().filter(|(path, _)| path.contains("migrations")));
+        files.extend_from_slice(&[
+            ("vendor/filament/classes.php", VENDOR),
+            (
+                "app/Models/User.php",
+                "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass User extends Model {}\n",
+            ),
+            ("app/Filament/Resources/UserResource.php", RESOURCE),
+            ("app/Filament/Resources/UsersTable.php", TABLE),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_column_of_a_table_the_resource_calls_is_a_column_of_its_model() {
+        let fixture = fixture();
+        let code = TABLE.replace("make('email')", "make('em$0ail')");
+        let (_, root, offset) = split_cursor(&code);
+        let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+                text[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect();
+        assert_eq!(found, ["email"]);
+    }
+}
