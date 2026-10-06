@@ -652,6 +652,10 @@ Names in a doc comment lead somewhere now: a class in a type, `Class::member()` 
 
 **Symfony Workflow.** The workflows and state machines of `framework.workflows` in the YAML of `config/` (also under `when@dev`), with their places (a list or a map) and transitions (keys, or the `name:` of a list), are read in `framework/symfony/workflow.rs`. The transition of `apply()`, `can()`, `getEnabledTransition()` and `buildTransitionBlockerList()` on a `WorkflowInterface`, the workflow of the `Registry`'s `get()` and `has()`, the `workflow:` and `transition:` or `place:` of the listener attributes (`#[AsGuardListener]`, `#[AsTransitionListener]`, `#[AsEnteredListener]` and the rest), and the arguments of `workflow_can()`, `workflow_has_marked_place()` and their kin in Twig (the Twig extension carries the same markers) are keys: definition goes to the line of the configuration, completion offers the names of every workflow, and `unknown-workflow-name` (warning) reports a name no workflow has, not when a PHP file of `config/` configures workflows. A transition is looked up in every workflow, since which one an injected `WorkflowInterface` is depends on its argument's name. None of the projects at hand uses workflows; the survey of Kimai, symfony-demo and the API Platform demo reports what it did before.
 
+### PHP 8.6
+
+PHP 8.6 has branched (`PHP-8.6` in php-src is `8.6.0-dev`, master is 8.7) and its RFCs are in, so the parser knows its one new piece of syntax: partial function application, `str_replace('a', ?, ...)`, with `?` and `name: ?` placeholders and a `...` that spreads nothing, in a call, a `new` and `clone(?)`. `PhpVersion::V8_6` is the newest level the parser knows (`LATEST`), and the table has five rows for it: partial application, a default value of a readonly property (or of any property of a readonly class), a write to a property of an object in a constant (`FOO->bar = 1`), `#[\Override]` on a class constant or an enum case, and `__debugInfo()` on an enum, each reported at a lower level as only available since 8.6. A project that names no level stays at 8.5 (`PhpVersion::DEFAULT`) until 8.6 is released in November 2026, so 8.6 syntax there is an error rather than silently allowed; `phpVersion: "8.6"` or Composer's `require.php` turns it on. A partial application is typed `Closure`, is not counted for its arguments, and makes change signature refuse, since it binds arguments by position. The parser reads the 8.5 test corpus of php-src exactly as before, and of the 184 tests of the 8.6 branch about partial application, readonly defaults, `#[\Override]` on constants and `__debugInfo()`, it parses all but the one PHP itself rejects (`g(foo: ...)`).
+
 ### Corpus
 
 ```sh
@@ -704,4 +708,3 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- A PHP 8.6 level, when its syntax exists.

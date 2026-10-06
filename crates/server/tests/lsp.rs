@@ -118,6 +118,23 @@ fn reports_syntax_newer_than_the_language_level() {
 }
 
 #[test]
+fn php_8_6_syntax_needs_the_8_6_level_until_it_is_released() {
+    let text = "<?php\n$pad = str_pad(?, 10);\n";
+    let (mut client, _) = Client::start(json!({}), Value::Null);
+    client.open(URI, text);
+    assert_eq!(
+        messages(&client.diagnostics(URI)),
+        ["Partial function application is only available since PHP 8.6"]
+    );
+    client.shutdown();
+
+    let (mut client, _) = Client::start(json!({}), json!({ "phpVersion": "8.6" }));
+    client.open(URI, text);
+    assert!(client.diagnostics(URI).is_empty());
+    client.shutdown();
+}
+
+#[test]
 fn a_pushed_setting_changes_the_level_of_open_documents() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, "<?php\n$a = $b |> strlen(...);\n");

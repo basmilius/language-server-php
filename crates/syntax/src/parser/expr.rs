@@ -343,7 +343,10 @@ fn clone_expr(p: &mut Parser, checkpoint: Checkpoint) -> SyntaxKind {
 /// Whether `clone(` is a call with arguments, as `clone($object, [...])`, `clone(object: $x)` and
 /// `clone(...)` are, and not a parenthesized operand.
 fn clone_is_call(p: &Parser) -> bool {
-    p.nth(1) == ELLIPSIS || (is_identifier_like(p.nth(1)) && p.nth(2) == COLON) || paren_has_top_level_comma(p)
+    p.nth(1) == ELLIPSIS
+        || p.nth(1) == QUESTION && matches!(p.nth(2), COMMA | RPAREN)
+        || (is_identifier_like(p.nth(1)) && p.nth(2) == COLON)
+        || paren_has_top_level_comma(p)
 }
 
 /// Whether the parenthesis at the cursor holds a comma at its own level.
@@ -602,25 +605,42 @@ pub(crate) fn argument_list(p: &mut Parser) {
     if p.at(ELLIPSIS) && p.nth(1) == RPAREN {
         p.bump();
     } else {
-        comma_list(p, RPAREN, argument, |kind| can_start_expr(kind) || kind == ELLIPSIS);
+        comma_list(p, RPAREN, argument, |kind| {
+            can_start_expr(kind) || matches!(kind, ELLIPSIS | QUESTION)
+        });
     }
     p.expect(RPAREN, "')'");
     p.finish_node();
 }
 
+/// Whether the token after the cursor ends an argument, as it does after a placeholder.
+fn ends_argument(p: &Parser, ahead: usize) -> bool {
+    matches!(p.nth(ahead), COMMA | RPAREN)
+}
+
 fn argument(p: &mut Parser) -> bool {
     let named = is_identifier_like(p.current()) && p.nth(1) == COLON;
-    if !named && !can_start_expr(p.current()) && !p.at(ELLIPSIS) {
+    let placeholder = p.at(QUESTION) && ends_argument(p, 1);
+    if !named && !placeholder && !can_start_expr(p.current()) && !p.at(ELLIPSIS) {
         return false;
     }
     p.start(ARGUMENT);
-    if p.at(ELLIPSIS) {
+    if placeholder {
+        // `f(1, ?)`: partial application leaves the argument to the call of the closure it makes.
         p.bump();
-        expr_required(p);
+    } else if p.at(ELLIPSIS) {
+        p.bump();
+        if !ends_argument(p, 0) {
+            expr_required(p);
+        }
     } else if named {
         p.bump();
         p.bump();
-        expr_required(p);
+        if p.at(QUESTION) && ends_argument(p, 1) {
+            p.bump();
+        } else {
+            expr_required(p);
+        }
     } else {
         expr_required(p);
     }

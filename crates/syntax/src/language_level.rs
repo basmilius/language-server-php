@@ -27,9 +27,14 @@ impl PhpVersion {
     pub const V8_3: PhpVersion = PhpVersion::new(8, 3);
     pub const V8_4: PhpVersion = PhpVersion::new(8, 4);
     pub const V8_5: PhpVersion = PhpVersion::new(8, 5);
+    pub const V8_6: PhpVersion = PhpVersion::new(8, 6);
 
-    /// The newest version the parser knows. A file without a configured level is read at this one.
-    pub const LATEST: PhpVersion = PhpVersion::V8_5;
+    /// The newest version the parser knows.
+    pub const LATEST: PhpVersion = PhpVersion::V8_6;
+
+    /// The level of a file without a configured one: the newest release. PHP 8.6 is a release
+    /// candidate until November 2026, after which this follows `LATEST` again.
+    pub const DEFAULT: PhpVersion = PhpVersion::V8_5;
 
     pub const fn new(major: u8, minor: u8) -> PhpVersion {
         PhpVersion { major, minor }
@@ -865,5 +870,118 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CASE_CLAUSE, DEFAULT_CLAUSE],
         detect: |element| token_child(node_of(element)?, SEMICOLON).map(|token| token.text_range()),
         example: "switch ($a) { case 1; break; }",
+    },
+    Feature {
+        id: "partial-function-application",
+        name: "Partial function application",
+        plural: false,
+        since: Some(PhpVersion::V8_6),
+        deprecated: None,
+        removed: None,
+        kinds: &[ARGUMENT],
+        detect: |element| {
+            let argument = node_of(element)?;
+            let question = token_child(argument, QUESTION);
+            let lone_ellipsis = token_child(argument, ELLIPSIS).filter(|_| argument.children().next().is_none());
+            question.or(lone_ellipsis).map(|token| token.text_range())
+        },
+        example: "$f = str_replace('a', ?, ...);",
+    },
+    Feature {
+        id: "readonly-property-defaults",
+        name: "Default values of readonly properties",
+        plural: true,
+        since: Some(PhpVersion::V8_6),
+        deprecated: None,
+        removed: None,
+        kinds: &[PROPERTY_ELEMENT],
+        detect: |element| {
+            let property = node_of(element)?;
+            let assign = token_child(property, ASSIGN)?;
+            let declaration = property
+                .parent()
+                .filter(|parent| parent.kind() == PROPERTY_DECLARATION)?;
+            let own =
+                node_child(&declaration, MODIFIER_LIST).is_some_and(|list| token_child(&list, READONLY_KW).is_some());
+            let class = declaration
+                .ancestors()
+                .find(|ancestor| matches!(ancestor.kind(), CLASS_DECLARATION | ANONYMOUS_CLASS));
+            let of_class = class
+                .and_then(|class| node_child(&class, MODIFIER_LIST))
+                .is_some_and(|list| token_child(&list, READONLY_KW).is_some());
+            (own || of_class).then(|| TextRange::new(assign.text_range().start(), property.text_range().end()))
+        },
+        example: "class A { public readonly int $x = 1; }",
+    },
+    Feature {
+        id: "constant-object-property-writes",
+        name: "Writes to a property of an object in a constant",
+        plural: true,
+        since: Some(PhpVersion::V8_6),
+        deprecated: None,
+        removed: None,
+        kinds: &[ASSIGN_EXPR],
+        detect: |element| {
+            let assign = node_of(element)?;
+            let target = assign
+                .children()
+                .next()
+                .filter(|node| node.kind() == PROPERTY_FETCH_EXPR)?;
+            let object = target.children().next()?;
+            matches!(object.kind(), NAME | SCOPED_ACCESS_EXPR).then(|| target.text_range())
+        },
+        example: "FOO->bar = 1;",
+    },
+    Feature {
+        id: "override-on-constants",
+        name: "#[Override] on a class constant or an enum case",
+        plural: false,
+        since: Some(PhpVersion::V8_6),
+        deprecated: None,
+        removed: None,
+        kinds: &[ATTRIBUTE],
+        detect: |element| {
+            let attribute = node_of(element)?;
+            let owner = attribute.parent()?.parent()?;
+            if !matches!(owner.kind(), CLASS_CONST_DECLARATION | ENUM_CASE) {
+                return None;
+            }
+            let name = node_child(attribute, NAME)?;
+            let written = name.text().to_string();
+            written
+                .trim_start_matches('\\')
+                .eq_ignore_ascii_case("Override")
+                .then(|| attribute.text_range())
+        },
+        example: "class A extends B { #[\\Override] const X = 1; }",
+    },
+    Feature {
+        id: "enum-debug-info",
+        name: "__debugInfo() on an enum",
+        plural: false,
+        since: Some(PhpVersion::V8_6),
+        deprecated: None,
+        removed: None,
+        kinds: &[METHOD_DECLARATION],
+        detect: |element| {
+            let method = node_of(element)?;
+            let name = node_child(method, NAME)?;
+            let in_enum = method
+                .ancestors()
+                .skip(1)
+                .find(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        CLASS_DECLARATION
+                            | ENUM_DECLARATION
+                            | TRAIT_DECLARATION
+                            | INTERFACE_DECLARATION
+                            | ANONYMOUS_CLASS
+                    )
+                })
+                .is_some_and(|owner| owner.kind() == ENUM_DECLARATION);
+            (in_enum && name.text().to_string().eq_ignore_ascii_case("__debugInfo")).then(|| name.text_range())
+        },
+        example: "enum E { public function __debugInfo(): array { return []; } }",
     },
 ];

@@ -565,10 +565,19 @@ fn param_for<'p>(params: &[&'p Param], arg: &Arg, position: usize) -> Option<&'p
     }
 }
 
-/// `strlen(...)`, `$object->method(...)` and `Foo::method(...)`: the callable itself, not a call.
+/// `strlen(...)`, `$object->method(...)` and `Foo::method(...)`, and a partial application such as
+/// `str_replace('a', ?, ...)`: a closure, not a call.
 pub fn is_first_class_callable(call: &SyntaxNode) -> bool {
-    child_of(call, ARGUMENT_LIST)
-        .is_some_and(|list| list.children().next().is_none() && tokens(&list).any(|token| token.kind() == ELLIPSIS))
+    child_of(call, ARGUMENT_LIST).is_some_and(|list| {
+        list.children().next().is_none() && tokens(&list).any(|token| token.kind() == ELLIPSIS)
+            || list.children().any(|argument| is_placeholder(&argument))
+    })
+}
+
+/// `?`, `name: ?` or a `...` that spreads nothing: an argument partial application leaves open.
+pub fn is_placeholder(argument: &SyntaxNode) -> bool {
+    argument.kind() == ARGUMENT
+        && (has_token(argument, QUESTION) || has_token(argument, ELLIPSIS) && argument.children().next().is_none())
 }
 
 fn param_of_signature(param: &CallableParam, index: usize) -> Param {

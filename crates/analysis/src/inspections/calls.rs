@@ -32,7 +32,9 @@ fn check_call(cx: &Cx, call: &SyntaxNode) {
     let Some(list) = child_of(call, ARGUMENT_LIST) else {
         return;
     };
-    if tokens(&list).any(|token| token.kind() == ELLIPSIS) {
+    if tokens(&list).any(|token| token.kind() == ELLIPSIS)
+        || list.children().any(|argument| crate::infer::is_placeholder(&argument))
+    {
         return;
     }
     let arguments_nodes: Vec<SyntaxNode> = list.children().filter(|child| child.kind() == ARGUMENT).collect();

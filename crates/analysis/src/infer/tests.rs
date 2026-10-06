@@ -457,3 +457,15 @@ fn type_aliases_are_read_where_they_are_declared_and_imported() {
     );
     assert_eq!(var(&fixture, code, "origin"), "array{x: int, y: int}");
 }
+
+#[test]
+fn a_partial_application_is_a_closure() {
+    let fixture = Fixture::new(&[(
+        "f.php",
+        "<?php\nfunction pad(string $text, int $width, string $with = ' '): string {}\n",
+    )]);
+    let code = "<?php\n$left = pad(?, 10);\n$rest = pad('a', ...);\n$named = pad(text: 'a', width: ?);\n$0";
+    assert_eq!(var(&fixture, code, "left"), "Closure");
+    assert_eq!(var(&fixture, code, "rest"), "Closure");
+    assert_eq!(var(&fixture, code, "named"), "Closure");
+}

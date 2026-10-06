@@ -231,6 +231,8 @@ pub(crate) fn family_in(rcx: &Rcx<'_>, home: &Loaded, function: &SyntaxNode) -> 
                 }
                 HitKind::Reference => match call_of_name(&name) {
                     Some(call) if is_first_class(&call) => {}
+                    // A partial application binds arguments by position, which a change would move.
+                    Some(call) if crate::infer::is_first_class_callable(&call) => loose += 1,
                     Some(call) => {
                         if !calls.iter().any(|known| known.file == index && known.call == call) {
                             calls.push(CallSite { file: index, call });

@@ -734,3 +734,13 @@ fn self_and_static_in_an_anonymous_class_are_that_class() {
     let named = "<?php\nclass Seeder extends Migration {\n    public function up() {\n        return static::$missing;\n    }\n}\n";
     assert_eq!(only_in(&files, "undefined-property", named), ["$missing"]);
 }
+
+#[test]
+fn a_partial_application_is_no_call_with_too_few_arguments() {
+    let files = [(
+        "f.php",
+        "<?php\nfunction pad(string $text, int $width, string $with = ' '): string {}\n",
+    )];
+    let source = "<?php\n$left = pad(?, 10);\n$rest = pad(...);\n$one = pad(?);\n";
+    assert_eq!(only_in(&files, "wrong-argument-count", source), Vec::<String>::new());
+}

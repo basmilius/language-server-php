@@ -198,7 +198,7 @@ impl<'a> Server<'a> {
         let workspace = Workspace::new(
             settings.storage_path.clone(),
             settings.stubs_path.clone(),
-            settings.php_version.unwrap_or(PhpVersion::LATEST),
+            settings.php_version.unwrap_or(PhpVersion::DEFAULT),
         );
         Server {
             connection,
@@ -607,7 +607,7 @@ impl<'a> Server<'a> {
         }
         document_level
             .or(self.settings.php_version)
-            .unwrap_or(PhpVersion::LATEST)
+            .unwrap_or(PhpVersion::DEFAULT)
     }
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
@@ -1211,7 +1211,7 @@ impl<'a> Server<'a> {
         if pushed.php_version.is_some() || !self.configuration_support {
             self.settings.php_version = pushed.php_version;
             self.workspace
-                .set_default_level(pushed.php_version.unwrap_or(PhpVersion::LATEST));
+                .set_default_level(pushed.php_version.unwrap_or(PhpVersion::DEFAULT));
         }
         if self.configuration_support {
             for uri in self.documents.uris() {

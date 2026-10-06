@@ -143,3 +143,29 @@ fn a_file_at_the_newest_level_with_old_syntax_is_quiet() {
     let text = "enum A: string { case B = 'b'; }\nfinal class C { public function __construct(private readonly int $x = 0) {} }";
     assert!(features_found(text, PhpVersion::LATEST).is_empty());
 }
+
+#[test]
+fn partial_application_parses_and_is_new_in_8_6() {
+    let text = "$a = str_replace('a', ?, ...);\n$b = $o->m(x: ?);\n$c = new A(?);\n$d = f(...);\n$e = f(...$args);\n$f = clone(?);";
+    let parsed = parse(&format!("<?php\n{text}\n"));
+    assert!(parsed.errors().is_empty(), "{:?}", parsed.errors());
+    assert!(features_found(text, PhpVersion::V8_6).is_empty());
+    let at_8_5 = features_found(text, PhpVersion::V8_5);
+    assert_eq!(at_8_5, ["partial-function-application"; 5]);
+}
+
+#[test]
+fn what_php_8_6_allows_is_reported_before_it() {
+    let text = "readonly class R { public int $y = 2; }\nclass A { public readonly int $x = 1; public int $z = 3; #[\\Override] const C = 1; }\nenum E { public function __debugInfo(): array { return []; } }\nFOO->bar = 1;\n$o->bar = 2;";
+    assert!(features_found(text, PhpVersion::V8_6).is_empty());
+    assert_eq!(
+        features_found(text, PhpVersion::V8_5),
+        [
+            "readonly-property-defaults",
+            "readonly-property-defaults",
+            "override-on-constants",
+            "enum-debug-info",
+            "constant-object-property-writes"
+        ]
+    );
+}

@@ -15,7 +15,7 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
 
 | Setting                     | Default | Meaning                                                                                  |
 | --------------------------- | ------- | ---------------------------------------------------------------------------------------- |
-| `phpVersion`                | `8.5`   | The language level of a project whose `composer.json` names none                         |
+| `phpVersion`                | `8.5`   | The language level of a project whose `composer.json` names none; `8.6` is known too     |
 | `storagePath`               | none    | Where the server keeps its cache and downloads the standard library stubs                |
 | `stubsPath`                 | none    | A folder of phpstorm-stubs to read instead of downloading them                           |
 | `inlayHints.parameterNames` | `true`  | Names of parameters before arguments                                                     |
