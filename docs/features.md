@@ -35,7 +35,7 @@ The formatter follows PER Coding Style 2.0, with the [settings](./configuration.
 
 Support turns on by the packages Composer installed: `laravel/framework` or `illuminate/*` for Laravel, `symfony/framework-bundle` for Symfony and `doctrine/orm` for Doctrine repositories. The server boots no framework.
 
-- Laravel: facades, Eloquent attributes from migrations and schema dumps, casts, relations, accessors, scopes, builders and factories, the container, and the strings that name config keys, routes, views, translations, environment variables, abilities and form request fields, with completion and navigation.
+- Laravel: facades, Eloquent attributes from migrations and schema dumps, casts, relations, accessors, scopes, builders and factories, the container, and the strings that name config keys, routes, views, translations, environment variables, abilities and form request fields, relation strings, validation rules and the keys and values of `$casts`, with completion and navigation.
 - Symfony: services from YAML and PHP configuration, routes, templates, translations, parameters and events.
 - Doctrine: repositories and the fields of entities.
 - Symfony configuration in YAML: parameters, environment variables, service references, the classes of services and the controllers of routes hover, complete and lead to their declarations, and are found as usages from PHP. A class that does not exist is reported.

@@ -858,3 +858,29 @@ fn a_validation_rule_leads_to_its_method_and_completes() {
     );
     client.shutdown();
 }
+
+#[test]
+fn a_cast_key_leads_to_its_column_and_an_unknown_cast_is_reported() {
+    let disk = laravel();
+    let account = "<?php\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Account extends Model\n{\n    protected $table = 'users';\n\n    protected $casts = ['email' => 'string', 'name' => 'booleen'];\n}\n";
+    disk.write("project/app/Models/Account.php", account);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Models/Account.php");
+    client.open(&uri, account);
+    let found = client.at("textDocument/definition", &uri, 9, 26);
+    assert_eq!(
+        found[0]["uri"],
+        disk.uri("project/database/migrations/2020_01_01_000000_create_users_table.php"),
+        "{found}"
+    );
+    assert_eq!(found[0]["range"]["start"]["line"], 6, "{found}");
+    let items = complete_at(&mut client, &uri, 9, 36);
+    assert!(items.contains(&"boolean".to_string()), "{items:?}");
+    let diagnostics = client.diagnostics(&uri);
+    let unknown: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "unknown-cast")
+        .collect();
+    assert_eq!(unknown.len(), 1, "{diagnostics:?}");
+    client.shutdown();
+}

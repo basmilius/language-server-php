@@ -206,6 +206,10 @@ class BelongsTo extends Relation { /** @inheritDoc */ public function getResults
         "<?php namespace Illuminate\\Database\\Eloquent\\Factories; /** @template TFactory of Factory */ trait HasFactory { /** @return TFactory */ public static function factory($count = null, $state = []) {} }",
     ),
     (
+        "vendor/laravel/HasAttributes.php",
+        "<?php namespace Illuminate\\Database\\Eloquent\\Concerns;\ntrait HasAttributes {\n    protected static $primitiveCastTypes = ['array', 'bool', 'boolean', 'date', 'datetime', 'decimal', 'encrypted', 'encrypted:array', 'hashed', 'int', 'integer', 'string'];\n}",
+    ),
+    (
         "vendor/laravel/ScopeAttribute.php",
         "<?php namespace Illuminate\\Database\\Eloquent\\Attributes; #[\\Attribute] class Scope {}",
     ),

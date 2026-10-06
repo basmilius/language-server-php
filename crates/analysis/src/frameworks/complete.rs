@@ -43,7 +43,7 @@ pub fn complete_key(
     }
     let analyzer = Analyzer::new(index, root, offset);
     let Some(found) = key_at(&analyzer, offset) else {
-        return rule_items(&analyzer, text, offset, options);
+        return rule_items(&analyzer, text, offset, options).or_else(|| cast_items(&analyzer, text, offset, options));
     };
     if found.kind == KeyKind::Relation {
         // Each segment of `posts.comments` completes from the model the one before leads to.
@@ -110,6 +110,32 @@ fn rule_items(analyzer: &Analyzer<'_>, text: &str, offset: u32, options: Complet
             .map(|(name, _)| (name.clone(), ItemKind::Property))
             .collect(),
     };
+    Some(name_items(names, typed, (start, end), "validation rule", options))
+}
+
+/// The casts a model takes by name, in the string of a cast.
+fn cast_items(analyzer: &Analyzer<'_>, text: &str, offset: u32, options: CompletionOptions) -> Option<CompletionList> {
+    let ctx = crate::context::FileContext::new(analyzer.index, &analyzer.root);
+    let (_, range) = super::casts::cast_value_at(&ctx, offset)?;
+    let (start, end) = (u32::from(range.start()), u32::from(range.end()));
+    let typed = text.get(start as usize..offset as usize)?;
+    let names = php_index::framework::eloquent::primitive_casts(analyzer.index)?
+        .into_iter()
+        // The model turns `date:Y-m-d` into these itself; nobody writes them.
+        .filter(|name| !name.contains("custom_"))
+        .map(|name| (name, ItemKind::Keyword))
+        .collect();
+    Some(name_items(names, typed, (start, end), "cast", options))
+}
+
+/// Plain names that fit what was typed, each replacing the text from `start` to `end`.
+fn name_items(
+    names: Vec<(String, ItemKind)>,
+    typed: &str,
+    (start, end): (u32, u32),
+    description: &str,
+    options: CompletionOptions,
+) -> CompletionList {
     let mut items: Vec<(u8, CompletionItem)> = names
         .into_iter()
         .filter_map(|(name, kind)| {
@@ -120,7 +146,7 @@ fn rule_items(analyzer: &Analyzer<'_>, text: &str, offset: u32, options: Complet
                     label: name.clone(),
                     kind,
                     detail: None,
-                    description: Some("validation rule".to_string()),
+                    description: Some(description.to_string()),
                     edit: TextEdit {
                         start,
                         end,
@@ -137,10 +163,10 @@ fn rule_items(analyzer: &Analyzer<'_>, text: &str, offset: u32, options: Complet
         .collect();
     items.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.label.cmp(&right.1.label)));
     let incomplete = items.len() > options.limit;
-    Some(CompletionList {
+    CompletionList {
         items: items.into_iter().take(options.limit).map(|(_, item)| item).collect(),
         incomplete,
-    })
+    }
 }
 
 /// The names of a kind that fit what was typed, each replacing the text from `start` to `end`.

@@ -142,7 +142,8 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
     }
     let (value, span) = php_index::test_facts::string_value(literal)?;
     let Some((argument, place)) = argument_of(literal) else {
-        return event_key(analyzer, literal, &value, span);
+        return event_key(analyzer, literal, &value, span)
+            .or_else(|| super::casts::cast_key(analyzer, literal, &value, span));
     };
     let named = argument
         .children_with_tokens()

@@ -14,7 +14,8 @@ pub(super) fn run(cx: &Cx) {
         .iter()
         .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
         || cx.on("unknown-relation")
-        || cx.on("unknown-validation-rule");
+        || cx.on("unknown-validation-rule")
+        || cx.on("unknown-cast");
     if !wanted {
         return;
     }
@@ -35,6 +36,9 @@ pub(super) fn run(cx: &Cx) {
                 }
             }
         }
+    }
+    if cx.on("unknown-cast") {
+        unknown_casts(cx);
     }
     let relations = cx.on("unknown-relation")
         && cx.index.frameworks().eloquent
@@ -94,6 +98,28 @@ fn unknown_relations(cx: &Cx, key: &crate::frameworks::keys::KeyString) {
                 crate::short(&segment.model),
                 segment.name
             ),
+            super::Fix::None,
+        );
+    }
+}
+
+/// The casts written as strings that a model does not know, by name or as a class. A string with a
+/// backslash names a class that may be missing for reasons of its own, so it is left to that.
+fn unknown_casts(cx: &Cx) {
+    let Some(primitives) = php_index::framework::eloquent::primitive_casts(cx.index) else {
+        return;
+    };
+    for (cast, range) in crate::frameworks::casts::cast_values(&cx.file) {
+        if cast.is_empty()
+            || cast.contains('\\')
+            || php_index::framework::eloquent::is_known_cast(cx.index, &primitives, &cast)
+        {
+            continue;
+        }
+        cx.report(
+            "unknown-cast",
+            range,
+            format!("A model has no cast '{cast}'"),
             super::Fix::None,
         );
     }

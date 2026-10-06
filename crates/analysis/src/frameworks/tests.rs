@@ -1115,3 +1115,81 @@ mod validation_rules {
         assert_eq!(found, ["nope"]);
     }
 }
+
+mod casts {
+    use php_index::framework::testing::{ELOQUENT, VALIDATION};
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    const USER: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass User extends Model {\n    protected $casts = ['email' => 'string', 'options' => 'encrypted:array', 'price' => 'decimal:2', 'born' => 'datetime:Y-m-d', 'money' => 'App\\Casts\\Money:EUR', 'wrong' => 'booleen', 'other' => 'App\\Nope'];\n    protected function casts(): array {\n        return ['id' => 'int', 'flag' => 'Bool'];\n    }\n}\n";
+    const MONEY: &str = "<?php\nnamespace App\\Casts;\nclass Money {}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = ELOQUENT.to_vec();
+        files.extend(VALIDATION.iter().filter(|(path, _)| path.contains("migrations")));
+        files.extend_from_slice(&[("app/Casts/Money.php", MONEY), ("app/Models/User.php", USER)]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_key_is_a_column_of_the_table() {
+        let fixture = fixture();
+        let code = USER.replace("['email' =>", "['em$0ail' =>");
+        let (_, root, offset) = split_cursor(&code);
+        let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let file = fixture.sources.get(&path).cloned().unwrap_or_default();
+                file[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect();
+        assert_eq!(found, ["email"]);
+    }
+
+    #[test]
+    fn keys_complete_columns_and_values_casts() {
+        let fixture = fixture();
+        let complete = |code: &str| -> Vec<String> {
+            let offset = code.find(CURSOR).expect("a cursor") as u32;
+            let text = code.replacen(CURSOR, "", 1);
+            complete(&fixture.index, &text, offset, CompletionOptions::default())
+                .items
+                .into_iter()
+                .map(|item| item.label)
+                .collect()
+        };
+        assert_eq!(complete(&USER.replace("['email' =>", "['em$0' =>")), ["email"]);
+        assert_eq!(
+            complete(&USER.replace("'flag' => 'Bool'", "'flag' => 'boo$0'")),
+            ["bool", "boolean"]
+        );
+    }
+
+    #[test]
+    fn a_cast_the_model_does_not_know_is_reported() {
+        let fixture = fixture();
+        let root = php_syntax::parse(USER).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: USER,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-cast")
+        .map(|finding| {
+            USER[usize::from(finding.diagnostic.range.start())..usize::from(finding.diagnostic.range.end())].to_string()
+        })
+        .collect();
+        assert_eq!(found, ["booleen"]);
+    }
+}

@@ -259,6 +259,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         "A validation rule the validator does not have and the project does not add",
     ),
     info(
+        "unknown-cast",
+        Warning,
+        true,
+        "A cast of a model that is neither one the model knows by name nor a class",
+    ),
+    info(
         "unknown-relation",
         Warning,
         true,

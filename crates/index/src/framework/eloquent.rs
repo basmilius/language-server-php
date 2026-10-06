@@ -36,6 +36,7 @@ const TABLE: &str = "Illuminate\\Database\\Eloquent\\Attributes\\Table";
 const APPENDS: &str = "Illuminate\\Database\\Eloquent\\Attributes\\Appends";
 const CASTS_ATTRIBUTES: &str = "Illuminate\\Contracts\\Database\\Eloquent\\CastsAttributes";
 const SOFT_DELETES: &str = "Illuminate\\Database\\Eloquent\\SoftDeletes";
+const HAS_ATTRIBUTES: &str = "Illuminate\\Database\\Eloquent\\Concerns\\HasAttributes";
 const CARBON: [&str; 2] = ["Illuminate\\Support\\Carbon", "Carbon\\Carbon"];
 
 /// What a model class declares that Eloquent turns into members.
@@ -187,6 +188,34 @@ fn info_of(index: &Index, model: &Class<'_>) -> Option<Arc<ModelInfo>> {
         found.insert(key, info.clone());
     }
     info
+}
+
+/// The table of a model of the project. `None` when the class is no model.
+pub fn table(index: &Index, model: &str) -> Option<String> {
+    let class = index.class(model)?;
+    let ancestors = index.ancestors(&Type::class(class.decl.name.clone()));
+    model_of(&ancestors)?;
+    Some(info_of(index, &class)?.table.clone())
+}
+
+/// The casts a model takes by name, as the installed framework lists them. `None` when it lists none.
+pub fn primitive_casts(index: &Index) -> Option<Vec<String>> {
+    let concern = index.class(HAS_ATTRIBUTES)?;
+    let list = string_list(&property_default(concern.decl, "primitiveCastTypes")?);
+    (!list.is_empty()).then_some(list)
+}
+
+/// Whether a model takes a cast written as a string: a cast by name, one with a format or a
+/// precision after the colon, or a class with its arguments after the colon.
+pub fn is_known_cast(index: &Index, primitives: &[String], cast: &str) -> bool {
+    if primitives.iter().any(|known| known.eq_ignore_ascii_case(cast)) {
+        return true;
+    }
+    let head = cast.split_once(':').map_or(cast, |(head, _)| head);
+    // The model reads these prefixes in code rather than from its list.
+    let formatted = ["date", "datetime", "immutable_date", "immutable_datetime", "decimal"];
+    (cast.contains(':') && formatted.iter().any(|prefix| head.eq_ignore_ascii_case(prefix)))
+        || index.class(head.trim_start_matches('\\')).is_some()
 }
 
 fn owns_members(class: &Class<'_>) -> bool {
