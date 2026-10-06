@@ -1559,3 +1559,60 @@ fn formats_the_line_a_typed_brace_or_newline_belongs_to() {
     );
     client.shutdown();
 }
+
+#[test]
+fn usages_in_the_installed_packages_are_found_when_asked_for() {
+    let disk = Disk::new();
+    disk.write(
+        "project/vendor/acme/lib/src/Factory.php",
+        "<?php\nnamespace Acme\\Lib;\n\nclass Factory\n{\n    public function make(): Widget\n    {\n        return new Widget();\n    }\n}\n",
+    );
+    disk.write(
+        "project/src/Page.php",
+        "<?php\nnamespace App;\n\nuse Acme\\Lib\\Widget;\n\nfunction page(Widget $widget) {}\n",
+    );
+    let page = disk.uri("project/src/Page.php");
+    let text = std::fs::read_to_string(disk.path("project/src/Page.php")).expect("read");
+    let files = |found: &Value| {
+        let mut names: Vec<String> = found
+            .as_array()
+            .expect("locations")
+            .iter()
+            .map(|location| {
+                location["uri"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    };
+    let ask = |client: &mut Client| {
+        client.request(
+            "textDocument/references",
+            json!({
+                "textDocument": { "uri": page },
+                "position": { "line": 5, "character": 16 },
+                "context": { "includeDeclaration": false }
+            }),
+        )
+    };
+
+    let mut client = indexed_server(&disk);
+    client.open(&page, &text);
+    assert_eq!(files(&ask(&mut client)), ["Page.php"]);
+    client.shutdown();
+
+    let mut options = disk.options();
+    options["usages"] = json!({ "packages": true });
+    let (mut client, _) = Client::start_in(PROGRESS_CAPABILITIES(), options, json!(disk.uri("project")));
+    client.wait_for_indexing();
+    client.open(&page, &text);
+    assert_eq!(files(&ask(&mut client)), ["Factory.php", "Page.php"]);
+    client.shutdown();
+}

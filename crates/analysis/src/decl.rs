@@ -101,6 +101,16 @@ pub fn declarations(index: &Index, query: &Query) -> Vec<Declaration> {
         }
         Symbol::Variable { .. } => {}
         Symbol::Dataset(name) => out.extend(crate::pest::dataset_declarations(index, name)),
+        Symbol::Key { kind, name, scope } => {
+            for definition in php_index::framework::keys::definitions(index, *kind, name, scope.as_deref()) {
+                out.push(Declaration {
+                    origin: index.file(&definition.path).map_or(Origin::Project, |file| file.origin),
+                    path: definition.path,
+                    name_span: definition.span,
+                    span: definition.span,
+                });
+            }
+        }
     }
     out
 }

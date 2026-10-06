@@ -18,6 +18,8 @@ pub struct Document {
     pub inspections: Option<InspectionSettings>,
     /// The formatting settings of this document alone, when the client gave some.
     pub format: Option<FormatSettings>,
+    /// Whether a search from this document reads the installed packages, when the client said.
+    pub usages_packages: Option<bool>,
     parsed: Option<Parse>,
     /// The version whose declarations the index holds.
     pub indexed_version: Option<i32>,
@@ -35,6 +37,7 @@ impl Document {
             level: None,
             inspections: None,
             format: None,
+            usages_packages: None,
             parsed: None,
             indexed_version: None,
             blade: false,

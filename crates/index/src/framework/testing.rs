@@ -269,7 +269,11 @@ function env($key, $default = null) {}
         "vendor/laravel/Facades.php",
         r#"<?php
 namespace Illuminate\Support\Facades;
-/** @method static mixed get(string $key, mixed $default = null) @method static bool has(string $key) */
+/**
+ * @method static mixed get(string $key, mixed $default = null)
+ * @method static bool has(string $key)
+ * @method static void set(string $key, mixed $value = null)
+ */
 class Config {}
 /** @method static bool has(string $name) */
 class Route {}

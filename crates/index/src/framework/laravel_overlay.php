@@ -234,6 +234,12 @@ interface Repository
     public function boolean(string $key, $default = null) {}
     /** @key config */
     public function array(string $key, $default = null) {}
+    /** @key config */
+    public function set($key, $value = null) {}
+    /** @key config */
+    public function prepend($key, $value) {}
+    /** @key config */
+    public function push($key, $value) {}
 }
 
 }
@@ -256,6 +262,12 @@ class Config
     public static function boolean(string $key, $default = null) {}
     /** @key config */
     public static function array(string $key, $default = null) {}
+    /** @key config */
+    public static function set($key, $value = null) {}
+    /** @key config */
+    public static function prepend($key, $value) {}
+    /** @key config */
+    public static function push($key, $value) {}
 }
 
 class URL

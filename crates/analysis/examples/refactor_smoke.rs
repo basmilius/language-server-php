@@ -291,7 +291,7 @@ fn main() {
         .map(|file| file.path.clone())
         .collect();
     paths.sort();
-    project.words.build(paths.clone());
+    project.words.build(paths.clone(), None);
     let settings = InspectionSettings::default();
     let is_class = |name: &str| names.0.contains(&name.to_ascii_lowercase());
     let is_function = |name: &str| names.1.contains(&name.to_ascii_lowercase());

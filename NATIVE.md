@@ -79,6 +79,8 @@ Only standard LSP channels are used:
 - `workspace/configuration`, when the client supports it: the server asks for the section `phpLanguageServer` with the document as `scopeUri` and reads `{ "phpVersion": "8.4", "inlayHints": { ... }, "inspections": { ... }, "format": { ... } }`, so a client can answer differently per project or folder;
 - `workspace/didChangeConfiguration` with the same object, bare or under `phpLanguageServer`.
 
+`{ "usages": { "packages": true } }`, in any of the three, makes find usages and incoming calls read the installed packages too (see "A reference index on disk").
+
 The level of a document is the answer for its scope, else the default, else the newest version (8.5).
 
 ### Incremental reparse
@@ -165,13 +167,13 @@ A name in a file resolves to a `Symbol` through the same resolution and type lay
 
 What counts as a usage: a class in every type and expression position (types, `new`, `extends`, `implements`, `instanceof`, `catch`, `Foo::class`, static access, attributes, trait `use` and its `insteadof` and `as` rules), `use` statements and group uses, functions and constants, methods (also through `static::`, `self::`, `parent::`, first-class callables and `?->`), properties (also written as `Foo::$name`), class constants and enum cases, variables with their closures and arrow functions, parameters through their named arguments, and PHPDoc: the classes in the types of every tag, `@param` and `@var` variables, `@property` and `@method` declarations, `@template` names, and the targets of `@see` and `{@see}`. A constructor also counts the `new` that calls it, also for a class below it that has no constructor of its own. A class imported under an alias counts where the alias is written.
 
-How it is found: `php-index` keeps, per file of the project, the sorted hashes of the words in it (`words.rs`), built the first time something asks and kept current from then on (open documents, watched files). A search reads only the files whose words contain the name, in parallel, and resolves the names in them against the index, so a result is never stale when a file elsewhere changed. Open documents are searched as they are in the editor. The resolved references are not stored. In the 798 own files of the project above, finding the 321 usages of a class in 68 files takes 60 ms in the probe (the words took 80 ms the first time) and 25 ms through the server, and a method used in five places takes 2 ms.
+How it is found: `php-index` keeps, per file of the project, the sorted hashes of the words in it (`words.rs`), built the first time something asks and kept current from then on (open documents, watched files), and kept on disk between runs (see "A reference index on disk" below). A search reads only the files whose words contain the name, in parallel, and resolves the names in them against the index, so a result is never stale when a file elsewhere changed. Open documents are searched as they are in the editor. The resolved references are not stored. In the 798 own files of the project above, finding the 321 usages of a class in 68 files takes 60 ms in the probe (the words took 80 ms the first time) and 25 ms through the server, and a method used in five places takes 2 ms.
 
 Counting conventions, as an IDE counts the "N usages" above a declaration: the declaration itself is not a usage (a client asks with `includeDeclaration: false`, and a promoted parameter's own line is left out as well), a `use` import is one, a name in a doc comment is one (types of every tag, also inside array shapes that span lines, and `@see` targets), and so is a call through an interface or a parent for each method of the family, `parent::` included.Folders whose name starts with `~` are not read, so a copy of the project in a `~backup` folder does not double every count.
 
 `scripts/survey-usages.py` runs the same questions at a spread of declarations on two servers and prints every difference, which is how these conventions were checked against a real project of 564 source files: of 453 declarations, 376 give the same set of places. The rest are the installed packages (calls from `vendor/` that this server does not read), the declaration line of a property that the other server reports as a usage, and receivers the type layer cannot name.
 
-Limits: only the project's own files are searched, not the installed packages. A usage whose receiver the type layer cannot name (`mixed`, a dynamic member name, `__get` and `__call`) is not found, and neither is a name inside a string (`'App\Foo'`, `[$this, 'run']`, `compact('x')`). `$$name` and `${name}` are not variables here. A usage in a file that is not on disk and not open is not seen.
+Limits: only the project's own files are searched, unless the installed packages are asked for (`usages.packages`, below). A usage whose receiver the type layer cannot name (`mixed`, a dynamic member name, `__get` and `__call`) is not found, and neither is a name inside a string (`'App\Foo'`, `[$this, 'run']`, `compact('x')`). `$$name` and `${name}` are not variables here. A usage in a file that is not on disk and not open is not seen.
 
 `textDocument/documentHighlight` marks the same places inside the open file. Variables and properties and class constants say read or write (an assignment, a compound assignment, `++`, `unset`, a `foreach` target, a destructuring and a by-reference `use` count as writes), the rest says text.
 
@@ -458,7 +460,7 @@ Members that exist only at run time are made up by the index when a type is aske
 
 ### Strings that name things
 
-The argument of a function or method that the overlay marks is followed like a name: completion of the names the project declares, go to definition (to the line of the key, the route, the template, the `.env` line), hover, and for some an inspection. Each inspection stays silent unless it is certain, and each says what makes it uncertain.
+The argument of a function or method that the overlay marks is followed like a name: completion of the names the project declares, go to definition (to the line of the key, the route, the template, the `.env` line), hover, find usages and highlights (see "A reference index on disk" below), and for some an inspection. Each inspection stays silent unless it is certain, and each says what makes it uncertain.
 
 | Kind | Where the names come from | Reported as unknown when |
 | --- | --- | --- |
@@ -522,6 +524,33 @@ The speed comes from one change that is not about frameworks: looking a method o
 
 `cargo run --release -p php-analysis --example typecov -- <project> <stubs>` and `--example survey` open the project with its Composer metadata, so the framework layer is on when the project installs it. The default test run holds unit tests of every catalog (`crates/index/src/framework/*`), of the overlay, of the types the layer gives (`crates/analysis/src/frameworks/tests.rs`), of the Blade reading (`blade.rs`), and end-to-end tests over the in-memory connection (`crates/server/tests/frameworks.rs`) for Laravel and Symfony projects written to a folder with the pieces of the framework they need (`php-index`'s `testing` feature has them).
 
+## After the planned phases
+
+### A reference index on disk
+
+Find usages works on the strings that name something: a route, a config key, a view, a translation, a Twig template, a service, a parameter, an event, an environment variable, an ability, a Blade component, and the fields of a form request or an entity. The cursor can be on a usage (`route('home')`, `@include('partials.nav')`, `{{ __('auth.failed') }}`) or on the place that declares the name (the `'home'` of `->name('home')`, a key of `config/app.php` or `lang/en/auth.php`, `#[Route(name: 'blog_index')]`). The answer holds every string the overlay marks as that name, in PHP files and in Blade templates (directives, `<x-...>` tags and the PHP of `{{ }}` and `@php`), and, with `includeDeclaration`, the place it is declared, which for a view or a template is the start of its file. A config key is one key: `config('app')` and `config('app.name.x')` are not usages of `app.name`. Highlights work the same inside one file. A string the overlay does not mark is not a usage, which keeps a route name out of `Route::prefix('home')` and a URI out of `$this->post('login')`. `Config::set`, `prepend` and `push` are marked as well now.
+
+The index is the word index of phase 2, with two changes:
+
+- A run of identifier characters joined by `.`, `-`, `:` or `/` (`admin.users.index`, `mail::welcome`, `emails/invoice`) is also hashed as a whole, with separators at either end left off, so a search for a route name reads only the files that write the whole string. A name with spaces (a translation key that is a sentence) needs all of its words. What resolves the strings is the type layer, at search time, as for every other symbol: only a literal whose text is the name is asked what it names. Nothing resolved is stored, so a result is never stale.
+- The words of each project are kept in `<storagePath>/cache/words-<project>.bin`, with the size and modification time of each file. The first search after a start reads that file and reads again only the files whose stamp changed; a build that read anything writes the file again. The words of an open document are its text in the editor and are not written. Without a storage folder everything works as before, from memory.
+
+**Usages in packages.** With `usages.packages` on (in `initializationOptions`, `workspace/configuration` for the document or `didChangeConfiguration`), find usages and incoming calls also read the files Composer loads from `vendor/`. Their words are a second index, built on the first search that asks and kept in `<storagePath>/cache/package-words-<project>.bin` the same way. Rename, refactors and everything that edits never look at them.
+
+Measured on Passly's workspace (798 own files, 9,288 with packages; usages of an interface used in 58 of its files, 216 places), release builds, against the commit before:
+
+| | Before | After |
+| --- | --- | --- |
+| Startup (index from the cache) | 0.8 s, 47 MB | 0.8 s, 46 MB |
+| First search, no words on disk | 16 ms | 16 ms (and the words are written, 0.5 MB) |
+| First search after a restart | 14 ms | 7 ms |
+| Second search | 5 ms | 5 ms |
+| First search with packages, no words on disk | | 136 ms, 357 places in 90 files |
+| First search with packages after a restart | | 26 ms (7.6 MB on disk) |
+| Resident after a search with packages | | 70 to 73 MB, 17 MB more than without |
+
+`cargo run --release -p php-analysis --example key_usages -- <project> <stubs>` finds the usages of every name the project's PHP files mark and holds them against a plain search for the quoted string. On `laravelio/laravel.io` (452 files) it runs 132 searches in 74 ms (the slowest 3.4 ms), and of the quoted strings it does not count, read by hand, every one is something else: an array key or a URI that happens to be spelled like a route, a Blade `@props` name, a doc comment, the declaration itself. The usages it misses are in places nothing reads yet: Livewire's `redirectRoute()`, the `:href="route(...)"` attributes of Blade components and project helpers that take a route name (`is_active('home')`). On `symfony/symfony-demo` (51 files, 27 searches in 7 ms) the strings it does not count are the `#[Route(name:)]` declarations and doc comments. Twig and YAML files are not searched yet. `scripts/measure-usages.py` times the first and second search of a running server.
+
 ## Build, test and run
 
 ```sh
@@ -580,14 +609,13 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 3. **Phase 2, usages, rename and editing aids (done):** find usages, document highlights, rename, signature help, call and type hierarchies, semantic tokens, inlay hints, completion of overridable methods and a cache that keeps declarations on disk, as described above.
 4. **Phase 3, inspections, fixes and formatting (done):** the inspections, quick fixes, code actions and the formatter described above.
 5. **Phase 4, refactors (done):** extract variable, constant, field, method and parameter, inline variable and method, move a class (and follow renamed files), change signature, pull up and push down, the rewrite intentions, and the formatter's wrapping and `.editorconfig`, as described above. Left for later: introducing a type or an interface from a class, a preview of a rename that moves namespaces, and strings that hold class names.
-6. **Phase 5, PHPUnit and Pest, and what was left of phase 1b (done):** test and dataset navigation, `$this` and the properties of `beforeEach` in Pest closures, `expect()` chains and custom expectations, test doubles, the run markers (`php/runnables` and code lenses), closure arguments typed through templates, return types read from bodies and `@psalm-assert` narrowing, as described above. Left for later: the doc and attribute formats of Laravel and Symfony macros and `@psalm-type` aliases, usages in the installed packages, usages found through a reference index that is kept on disk, and interned strings if the memory of the summaries ever matters.
+6. **Phase 5, PHPUnit and Pest, and what was left of phase 1b (done):** test and dataset navigation, `$this` and the properties of `beforeEach` in Pest closures, `expect()` chains and custom expectations, test doubles, the run markers (`php/runnables` and code lenses), closure arguments typed through templates, return types read from bodies and `@psalm-assert` narrowing, as described above. Left for later: the doc and attribute formats of Laravel and Symfony macros and `@psalm-type` aliases, and interned strings if the memory of the summaries ever matters. Usages in the installed packages and an index kept on disk came after phase 6.
 7. **Phase 6, Laravel and Symfony (done):** facades, Eloquent (attributes from migrations and casts, relations, accessors, scopes, builder and collection generics, factories), the container, the strings that name config keys, routes, views, translations, environment variables, abilities, services, parameters, templates and events, form request fields, Doctrine repositories and entity fields, a minimal Blade reading, and the commands of `artisan` and `bin/console` as runnables, as described above.
 
 What is left after the planned phases:
 
 - Twig and Blade as languages of their own: a Blade model of the template (scope, slots, `@props`, layouts), Twig variables and tags, and YAML and Twig documents for the strings that are completed in PHP now. Livewire and Inertia.
 - DQL and the Doctrine query builder (aliases, fields in `->andWhere('u.email')`), Eloquent query strings (`with('author')`, `where('author.name')`, `whereHas`), validation rule strings and `$casts` strings.
-- A reference index kept on disk, so that usages of a route name, a config key or a service id across the project (and of the installed packages) are found; today only definitions and completion are.
 - Other frameworks and packages in the same overlay format (Livewire, Filament, Pennant, API Platform, Symfony Messenger and Workflow), and the container of Laravel's `bootstrap/app.php` and `bind` calls outside providers.
-- Composer autoload maps beyond PSR-4 and PSR-0 (classmap authoritative, `files` reading by name), usages in installed packages, and the `@psalm-type` aliases of phase 5's list.
+- Composer autoload maps beyond PSR-4 and PSR-0 (classmap authoritative, `files` reading by name), and the `@psalm-type` aliases of phase 5's list.
 - A PHP 8.6 level, when its syntax exists.

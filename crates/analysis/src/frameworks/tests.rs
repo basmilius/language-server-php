@@ -699,3 +699,196 @@ mod symfony {
         assert_eq!(labels, ["app.title"]);
     }
 }
+
+mod usages {
+    use std::path::PathBuf;
+
+    use php_index::framework::testing::HELPERS;
+
+    use crate::decl::declarations;
+    use crate::references::{Current, references_at};
+    use crate::refs::Query;
+    use crate::testing::{CURSOR, Files, Fixture};
+
+    const FILES: &[(&str, &str)] = &[
+        (
+            "config/app.php",
+            "<?php\nreturn [\n    'name' => 'Laravel',\n    'nested' => ['name' => 1],\n];\n",
+        ),
+        (
+            "routes/web.php",
+            "<?php\nRoute::get('/', fn () => 1)->name('home');\nRoute::get('/about', fn () => 1)->name('about');\n",
+        ),
+        ("lang/en/messages.php", "<?php return ['welcome' => 'Welcome'];"),
+        ("resources/views/welcome.blade.php", "<h1>hi</h1>"),
+        (
+            "resources/views/layout.blade.php",
+            "<a href=\"{{ route('home') }}\">{{ config('app.name') }}</a>\n@include('welcome')\n@lang('messages.welcome')",
+        ),
+        (
+            "app/Http/Controllers/HomeController.php",
+            "<?php\nclass HomeController {\n    public function index() {\n        $name = config('app.name');\n        $other = config('app.nested.name');\n        $text = 'home';\n        return view('welcome', ['url' => route('home'), 'title' => __('messages.welcome')]);\n    }\n}\n",
+        ),
+        (
+            "app/Http/Controllers/AboutController.php",
+            "<?php\nclass AboutController {\n    public function index() { return redirect(route('about')) ?? route('home'); }\n}\n",
+        ),
+        (
+            "tests/ConfigTest.php",
+            "<?php\nuse Illuminate\\Support\\Facades\\Config;\nConfig::set('app.name', 'Test');\n",
+        ),
+    ];
+
+    /// Every usage of what the cursor of one file is on, as `file: text`, and the declarations.
+    fn usages(path: &str, find: &str) -> (Vec<String>, Vec<String>) {
+        let mut files = HELPERS.to_vec();
+        let mut edited = None;
+        for (file, text) in FILES {
+            if *file == path {
+                let at = text.find(find).expect("the text to find") + 1;
+                edited = Some((at, text.to_string()));
+            }
+        }
+        let (offset, text) = edited.expect("the file is a fixture");
+        files.extend_from_slice(FILES);
+        let fixture = Fixture::framework(&files);
+        let sources = Files(fixture.sources.clone());
+        let full = PathBuf::from("/project").join(path);
+        let root = php_syntax::parse(&text).syntax();
+        let found = references_at(
+            &fixture.index,
+            &sources,
+            &Current {
+                path: &full,
+                text: &text,
+                root: &root,
+            },
+            offset as u32,
+        );
+        let Some(found) = found else {
+            return (Vec::new(), Vec::new());
+        };
+        let show = |path: &PathBuf, start: u32, end: u32| {
+            let source = &fixture.sources[path];
+            format!(
+                "{}: {}",
+                path.strip_prefix("/project").unwrap_or(path).display(),
+                &source[start as usize..end as usize]
+            )
+        };
+        let mut hits: Vec<String> = found
+            .files
+            .iter()
+            .flat_map(|file| {
+                file.hits
+                    .iter()
+                    .map(|hit| show(&file.path, u32::from(hit.range.start()), u32::from(hit.range.end())))
+            })
+            .collect();
+        hits.sort();
+        let declared = found
+            .symbols
+            .iter()
+            .flat_map(|symbol| declarations(&fixture.index, &Query::new(&fixture.index, symbol.clone())))
+            .map(|declaration| {
+                show(
+                    &declaration.path,
+                    declaration.name_span.start,
+                    declaration.name_span.end,
+                )
+            })
+            .collect();
+        let _ = CURSOR;
+        (hits, declared)
+    }
+
+    #[test]
+    fn a_route_is_used_in_code_and_templates() {
+        let (hits, declared) = usages("app/Http/Controllers/AboutController.php", "home");
+        assert_eq!(
+            hits,
+            [
+                "app/Http/Controllers/AboutController.php: home",
+                "app/Http/Controllers/HomeController.php: home",
+                "resources/views/layout.blade.php: home",
+            ]
+        );
+        assert_eq!(declared, ["routes/web.php: home"]);
+    }
+
+    #[test]
+    fn a_route_is_found_from_where_it_is_named() {
+        let (hits, _) = usages("routes/web.php", "home");
+        assert_eq!(hits.len(), 3);
+        assert!(hits.iter().all(|hit| !hit.starts_with("routes/")));
+    }
+
+    #[test]
+    fn a_config_key_is_one_key_and_not_its_children() {
+        let (hits, declared) = usages("app/Http/Controllers/HomeController.php", "app.name");
+        assert_eq!(
+            hits,
+            [
+                "app/Http/Controllers/HomeController.php: app.name",
+                "resources/views/layout.blade.php: app.name",
+                "tests/ConfigTest.php: app.name",
+            ]
+        );
+        assert_eq!(declared, ["config/app.php: name"]);
+        let (from_file, _) = usages("config/app.php", "name");
+        assert_eq!(from_file, hits);
+    }
+
+    #[test]
+    fn views_and_translations_count_their_directives() {
+        let (views, _) = usages("app/Http/Controllers/HomeController.php", "welcome'");
+        assert_eq!(
+            views,
+            [
+                "app/Http/Controllers/HomeController.php: welcome",
+                "resources/views/layout.blade.php: welcome",
+            ]
+        );
+        let (translations, _) = usages("resources/views/layout.blade.php", "messages.welcome");
+        assert_eq!(
+            translations,
+            [
+                "app/Http/Controllers/HomeController.php: messages.welcome",
+                "resources/views/layout.blade.php: messages.welcome",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_symfony_route_is_found_from_its_attribute() {
+        let mut files = php_index::framework::testing::SYMFONY.to_vec();
+        let controller = "<?php\nnamespace App\\Controller;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n#[Route('/blog', name: 'blog_')]\nclass BlogController extends AbstractController {\n    #[Route('/', name: 'index')]\n    public function index() { return $this->redirectToRoute('blog_index'); }\n}\n";
+        files.push(("src/Controller/BlogController.php", controller));
+        let fixture = Fixture::framework(&files);
+        let path = PathBuf::from("/project/src/Controller/BlogController.php");
+        let root = php_syntax::parse(controller).syntax();
+        let offset = controller.find("'index'").expect("the name") as u32 + 2;
+        let found = references_at(
+            &fixture.index,
+            &Files(fixture.sources.clone()),
+            &Current {
+                path: &path,
+                text: controller,
+                root: &root,
+            },
+            offset,
+        )
+        .expect("a route");
+        assert_eq!(
+            format!("{:?}", found.symbols),
+            "[Key { kind: Route, name: \"blog_index\", scope: None }]"
+        );
+        assert_eq!(found.files.iter().map(|file| file.hits.len()).sum::<usize>(), 1);
+    }
+
+    #[test]
+    fn a_plain_string_is_no_usage() {
+        let (hits, _) = usages("app/Http/Controllers/HomeController.php", "'home';");
+        assert!(hits.is_empty());
+    }
+}

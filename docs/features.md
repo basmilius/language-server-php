@@ -23,6 +23,8 @@ Types follow declarations, PHPDoc with generics and array shapes, narrowing by c
 
 Rename checks the new name and conflicts, follows methods and properties through the class hierarchy, updates promoted parameters and named arguments, and changes PHPDoc references. A class that is alone in its file, named after it and found through PSR-4 also renames its file, for a client that announces `documentChanges` and the rename resource operation. Names in ordinary strings and comments stay as they are, and so do the usages in installed packages.
 
+Find usages also works on the strings a framework reads as names: from `route('home')`, `@include('partials.nav')` or `__('auth.failed')`, or from the place that declares the name, such as `->name('home')` or a key of a config file, it lists every call and Blade directive that names the same thing. With `usages.packages` on, find usages and incoming calls also search the installed packages. Rename does not change these strings.
+
 Code actions offer quick fixes of inspections and imports, and refactors: extract variable, constant, field, method and parameter, inline variable and method, move a class, change signature, pull up, push down and rewrite intentions. Expensive refactors are worked out on `codeAction/resolve`, where an unsafe one returns an error with the reason. Introducing an interface from a class and a preview of a rename that moves a namespace are not done.
 
 ## Formatting

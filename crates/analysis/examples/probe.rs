@@ -99,6 +99,7 @@ fn main() {
                     .filter(|file| file.origin == Origin::Project)
                     .map(|file| file.path.clone())
                     .collect(),
+                None,
             );
             println!("words of {} files in {:?}", words.len(), words_started.elapsed());
             let started = Instant::now();
@@ -155,6 +156,7 @@ fn main() {
                     .filter(|file| file.origin == Origin::Project)
                     .map(|file| file.path.clone())
                     .collect(),
+                None,
             );
             let started = Instant::now();
             let root = parse(&text).syntax();

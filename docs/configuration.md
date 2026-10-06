@@ -8,7 +8,8 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
     "storagePath": "/Users/me/Library/Caches/my-app/php",
     "inlayHints": { "parameterNames": true, "closureTypes": false },
     "inspections": { "unused-import": "off", "undefined-class": "warning", "deprecated": { "severity": "hint" } },
-    "format": { "lineLength": 100, "alignAssignments": true }
+    "format": { "lineLength": 100, "alignAssignments": true },
+    "usages": { "packages": false }
 }
 ```
 
@@ -21,6 +22,7 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
 | `inlayHints.closureTypes`   | `true`  | The types of closure parameters and returns                                              |
 | `inspections`               |         | Per inspection code: `false` or `'off'`, a severity, or `{ enabled, severity }`          |
 | `format`                    |         | The [formatter](#formatter)                                                              |
+| `usages.packages`           | `false` | Find usages and incoming calls also read the installed packages                          |
 
 A severity is `error`, `warning`, `information` (or `info`) or `hint`. Pass the folders at initialization.
 
@@ -44,7 +46,7 @@ A project sees a default set of extensions (core, standard, SPL, date, json, pcr
 
 ## Cache
 
-With a `storagePath`, each project keeps its index in `<storagePath>/cache`, so a second start skips the files that did not change. Without it nothing is kept between runs.
+With a `storagePath`, each project keeps its index in `<storagePath>/cache`, so a second start skips the files that did not change. The words that find usages searches by are kept there too, read on the first search and again only for the files that changed. Without it nothing is kept between runs.
 
 ## Formatter
 

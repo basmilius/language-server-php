@@ -28,6 +28,8 @@ pub struct Settings {
     pub inspections: Option<InspectionSettings>,
     /// `format`: what the formatter is told to do besides the indentation the client sends.
     pub format: Option<FormatSettings>,
+    /// `usages.packages`: find usages and incoming calls also read the installed packages.
+    pub usages_packages: Option<bool>,
 }
 
 /// The keys of `format`, each of which leaves the formatter's default alone when absent.
@@ -99,6 +101,10 @@ impl Settings {
                 .get("format")
                 .filter(|value| value.is_object())
                 .map(FormatSettings::from_value),
+            usages_packages: object
+                .get("usages")
+                .and_then(|usages| usages.get("packages"))
+                .and_then(Value::as_bool),
         }
     }
 }

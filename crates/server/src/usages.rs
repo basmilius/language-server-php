@@ -25,17 +25,31 @@ use crate::server::Server;
 pub(crate) struct ProjectSources<'a> {
     open: HashMap<PathBuf, String>,
     words: &'a WordIndex,
+    /// The words of the installed packages, for a search that reads them too.
+    packages: Option<&'a WordIndex>,
 }
 
 impl<'a> ProjectSources<'a> {
     pub(crate) fn new(open: HashMap<PathBuf, String>, words: &'a WordIndex) -> ProjectSources<'a> {
-        ProjectSources { open, words }
+        ProjectSources {
+            open,
+            words,
+            packages: None,
+        }
+    }
+
+    pub(crate) fn with_packages(mut self, packages: Option<&'a WordIndex>) -> ProjectSources<'a> {
+        self.packages = packages;
+        self
     }
 }
 
 impl Sources for ProjectSources<'_> {
     fn candidates(&self, word: &str) -> Vec<PathBuf> {
         let mut found = self.words.candidates(word);
+        if let Some(packages) = self.packages {
+            found.extend(packages.candidates(word));
+        }
         for (path, text) in &self.open {
             if text.to_ascii_lowercase().contains(word) && !found.contains(path) {
                 found.push(path.clone());
@@ -56,19 +70,52 @@ impl Sources for ProjectSources<'_> {
 }
 
 impl Server<'_> {
-    /// Reads the words of the project's own files, once, before the first search.
+    /// Reads the words of the project's own files, once, before the first search. What the storage
+    /// folder kept of an earlier run is read again only for the files that changed.
     pub(crate) fn ensure_words(&mut self, path: &Path) {
+        self.ensure_words_of(path, false);
+    }
+
+    /// Whether a search from a document also reads the installed packages, and their words when so.
+    pub(crate) fn package_scope(&mut self, uri: &Uri, path: &Path) -> bool {
+        let wanted = self
+            .documents
+            .get(uri)
+            .and_then(|document| document.usages_packages)
+            .or(self.settings.usages_packages)
+            .unwrap_or(false);
+        if wanted {
+            self.ensure_words_of(path, true);
+        }
+        wanted
+    }
+
+    fn ensure_words_of(&mut self, path: &Path, packages: bool) {
+        let storage = self.workspace.storage.clone();
         let project = self.workspace.project_for_mut(path);
-        if project.words.is_built() {
+        let (origin, built) = if packages {
+            (Origin::Vendor, project.package_words.is_built())
+        } else {
+            (Origin::Project, project.words.is_built())
+        };
+        if built {
             return;
         }
         let paths: Vec<PathBuf> = project
             .index
             .files()
-            .filter(|file| file.origin == Origin::Project)
+            .filter(|file| file.origin == origin)
             .map(|file| file.path.clone())
             .collect();
-        project.words.build(paths);
+        let kept = storage
+            .filter(|_| !project.root.as_os_str().is_empty())
+            .map(|storage| project.words_path(&storage, packages));
+        let words = if packages {
+            &mut project.package_words
+        } else {
+            &mut project.words
+        };
+        words.build(paths, kept.as_deref());
     }
 
     pub(crate) fn references(&mut self, params: ReferenceParams) -> Option<Vec<Location>> {
@@ -78,6 +125,7 @@ impl Server<'_> {
         let path = uri_to_path(&uri)?;
         self.sync_symbols(&uri);
         self.ensure_words(&path);
+        let packages = self.package_scope(&uri, &path);
         let open = self.documents.texts();
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
@@ -91,7 +139,8 @@ impl Server<'_> {
             .offset(position.position),
         );
         let project = self.workspace.project_for(&path);
-        let sources = ProjectSources::new(open, &project.words);
+        let sources =
+            ProjectSources::new(open, &project.words).with_packages(packages.then_some(&project.package_words));
         let found = references_at(
             &project.index,
             &sources,
@@ -181,12 +230,13 @@ fn highlight_kind(hit: &Hit) -> DocumentHighlightKind {
 }
 
 /// A declaration in a file the search does not read (a package, the standard library) still belongs
-/// to the answer when the client asks for it.
+/// to the answer when the client asks for it, and so does the place a route, a config key or a
+/// translation is declared, which is no usage of it.
 fn add_foreign_declarations(index: &php_index::Index, symbols: &[Symbol], files: &mut Vec<FileHits>) {
     for symbol in symbols {
         let query = php_analysis::refs::Query::new(index, symbol.clone());
         for declaration in php_analysis::decl::declarations(index, &query) {
-            if declaration.origin == Origin::Project {
+            if declaration.origin == Origin::Project && !matches!(symbol, Symbol::Key { .. }) {
                 continue;
             }
             let range =

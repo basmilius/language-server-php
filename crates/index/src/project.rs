@@ -23,6 +23,8 @@ pub struct Project {
     pub index: Index,
     /// The words of the project's own files, for searches. Built when the first one asks.
     pub words: WordIndex,
+    /// The words of the files of the installed packages, for a search that asks for them.
+    pub package_words: WordIndex,
 }
 
 impl Project {
@@ -42,6 +44,7 @@ impl Project {
             level_from_composer,
             index: Index::new(level),
             words: WordIndex::default(),
+            package_words: WordIndex::default(),
         };
         project.configure_index();
         project
@@ -69,6 +72,7 @@ impl Project {
             level_from_composer: false,
             index: Index::new(default_level),
             words: WordIndex::default(),
+            package_words: WordIndex::default(),
         }
     }
 
@@ -105,6 +109,13 @@ impl Project {
     pub fn cache_path(&self, storage: &Path) -> PathBuf {
         let name = crate::cache::path_key(&self.root);
         storage.join("cache").join(format!("project-{name}.bin"))
+    }
+
+    /// Where the words of the project's own files are kept, or those of its packages.
+    pub fn words_path(&self, storage: &Path, packages: bool) -> PathBuf {
+        let name = crate::cache::path_key(&self.root);
+        let kind = if packages { "package-words" } else { "words" };
+        storage.join("cache").join(format!("{kind}-{name}.bin"))
     }
 
     /// The stub folders this project shows.

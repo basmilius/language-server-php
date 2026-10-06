@@ -52,6 +52,9 @@ pub fn symbols_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(Text
     if let Some(found) = crate::phpunit::strings::symbols_at_string(&ctx, offset) {
         return Some(found);
     }
+    if let Some(found) = key_symbol_at(index, root, offset) {
+        return Some(found);
+    }
     let token = token_at(root, offset)?;
     let symbols = symbols_of_token(&ctx, &token);
     if symbols.is_empty() {
@@ -60,11 +63,91 @@ pub fn symbols_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(Text
     Some((ast::last_segment_of_token(&token), symbols))
 }
 
+/// A string that names a route, a config key or the like.
+fn key_symbol_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
+    if !index.frameworks().any() {
+        return None;
+    }
+    let key = crate::frameworks::keys::key_at(&crate::infer::Analyzer::new(index, root, offset), offset)?;
+    Some((
+        key.range,
+        vec![Symbol::Key {
+            kind: key.kind,
+            name: key.value,
+            scope: key.scope,
+        }],
+    ))
+}
+
+/// The name a framework file declares at a position: the `->name('home')` of a route, a key of a
+/// config or translation file. Only a string is looked at.
+fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
+    if !index.frameworks().any() {
+        return None;
+    }
+    use php_syntax::SyntaxKind::{ATTRIBUTE, CLASS_DECLARATION, METHOD_DECLARATION, NAME, STRING_LITERAL};
+    let string = match current.root.token_at_offset(php_syntax::TextSize::from(offset)) {
+        php_syntax::TokenAtOffset::None => None,
+        php_syntax::TokenAtOffset::Single(token) => Some(token),
+        php_syntax::TokenAtOffset::Between(left, right) => {
+            [right, left].into_iter().find(|token| token.kind() == STRING_LITERAL)
+        }
+    }
+    .filter(|token| token.kind() == STRING_LITERAL)?;
+    let key = |kind, name| {
+        vec![Symbol::Key {
+            kind,
+            name,
+            scope: None,
+        }]
+    };
+    if let Some((kind, name, span)) = php_index::framework::keys::declared_at(index, current.path, offset) {
+        return Some((range_of(span.start, span.end), key(kind, name)));
+    }
+    let literal = string.parent()?;
+    let (value, span) = php_index::test_facts::string_value(&literal)?;
+    let attribute = literal.ancestors().find(|node| node.kind() == ATTRIBUTE)?;
+    let owner = attribute
+        .ancestors()
+        .find(|node| matches!(node.kind(), METHOD_DECLARATION | CLASS_DECLARATION))?;
+    let name = owner.children().find(|child| child.kind() == NAME)?;
+    let owner_span = php_index::Span {
+        start: u32::from(name.text_range().start()),
+        end: u32::from(name.text_range().end()),
+    };
+    let (kind, name) = php_index::framework::keys::declared_by(index, current.path, owner_span, &value)?;
+    Some((range_of(span.start, span.end), key(kind, name)))
+}
+
+/// The symbols under a position of the file a question is asked in, a Blade template included.
+pub fn symbols_in_current(index: &Index, current: &Current, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
+    if crate::blade::is_template(current.path) {
+        return crate::blade::key_symbol_at(index, current.text, offset);
+    }
+    symbols_at(index, current.root, offset).or_else(|| declared_key_at(index, current, offset))
+}
+
 /// Every place that names what is under a position.
 pub fn references_at(index: &Index, sources: &dyn Sources, current: &Current, offset: u32) -> Option<References> {
-    let (range, symbols) = symbols_at(index, current.root, offset)?;
+    let (range, symbols) = symbols_in_current(index, current, offset)?;
     let files = hits_of_symbols(index, sources, current, &symbols);
     Some(References { range, symbols, files })
+}
+
+/// The places of a query in one file, which is a Blade template or PHP.
+fn hits_in_text(index: &Index, path: &Path, text: &str, root: Option<&SyntaxNode>, query: &Query) -> Vec<Hit> {
+    if crate::blade::is_template(path) && matches!(query.symbol, Symbol::Key { .. }) {
+        return crate::blade::key_hits(index, text, query);
+    }
+    let parsed;
+    let root = match root {
+        Some(root) => root,
+        None => {
+            parsed = parse(text).syntax();
+            &parsed
+        }
+    };
+    hits_in_file(&FileContext::new(index, root), text, query)
 }
 
 /// The places that name any of the symbols, by file.
@@ -117,9 +200,7 @@ pub fn find_hits(index: &Index, sources: &dyn Sources, current: Option<&Current>
         .par_iter()
         .filter_map(|path| {
             let text = sources.text(path)?;
-            let root = parse(&text).syntax();
-            let ctx = FileContext::new(index, &root);
-            let hits = hits_in_file(&ctx, &text, query);
+            let hits = hits_in_text(index, path, &text, None, query);
             (!hits.is_empty()).then(|| FileHits {
                 path: path.clone(),
                 hits,
@@ -127,8 +208,7 @@ pub fn find_hits(index: &Index, sources: &dyn Sources, current: Option<&Current>
         })
         .collect();
     if let Some(current) = current {
-        let ctx = FileContext::new(index, current.root);
-        let own = hits_in_file(&ctx, current.text, query);
+        let own = hits_in_text(index, current.path, current.text, Some(current.root), query);
         if !own.is_empty() {
             out.push(FileHits {
                 path: current.path.to_path_buf(),
@@ -182,7 +262,7 @@ fn parameter_body_hits(index: &Index, sources: &dyn Sources, current: &Current, 
 
 /// The places of the current file that name what is under a position.
 pub fn highlights_at(index: &Index, current: &Current, offset: u32) -> Vec<Hit> {
-    let Some((_, symbols)) = symbols_at(index, current.root, offset) else {
+    let Some((_, symbols)) = symbols_in_current(index, current, offset) else {
         return Vec::new();
     };
     let ctx = FileContext::new(index, current.root);
@@ -192,7 +272,13 @@ pub fn highlights_at(index: &Index, current: &Current, offset: u32) -> Vec<Hit> 
             Symbol::Variable { name, scope } => hits.extend(variable_hits(&ctx, *scope, name)),
             other => {
                 let query = Query::new(index, other.clone());
-                hits.extend(hits_in_file(&ctx, current.text, &query));
+                hits.extend(hits_in_text(
+                    index,
+                    current.path,
+                    current.text,
+                    Some(current.root),
+                    &query,
+                ));
             }
         }
     }

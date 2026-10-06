@@ -1038,8 +1038,10 @@ impl<'a> Server<'a> {
             }
             let project = self.workspace.project_for_mut(&path);
             let origin = project.origin_of(&path);
-            if origin == php_index::Origin::Project {
-                project.words.update_from_disk(&path);
+            match origin {
+                php_index::Origin::Project => project.words.update_from_disk(&path),
+                php_index::Origin::Vendor => project.package_words.update_from_disk(&path),
+                php_index::Origin::Stub => {}
             }
             if change.typ == FileChangeType::DELETED {
                 project.index.remove_file(&path);
@@ -1076,6 +1078,7 @@ impl<'a> Server<'a> {
             project.reload_composer(default_level);
             project.reset_index();
             project.words = php_index::words::WordIndex::default();
+            project.package_words = php_index::words::WordIndex::default();
             if stubs_loaded {
                 let extensions = project.extensions();
                 project.index.set_stubs(&stubs, &extensions);
@@ -1107,6 +1110,9 @@ impl<'a> Server<'a> {
         }
         if pushed.format.is_some() {
             self.settings.format = pushed.format;
+        }
+        if pushed.usages_packages.is_some() {
+            self.settings.usages_packages = pushed.usages_packages;
         }
         self.refresh_editor_features()?;
         if pushed.php_version.is_some() || !self.configuration_support {
@@ -1180,6 +1186,7 @@ impl<'a> Server<'a> {
         let level = answer.as_ref().and_then(|settings| settings.php_version);
         let format = answer.as_ref().and_then(|settings| settings.format.clone());
         document.format = format;
+        document.usages_packages = answer.as_ref().and_then(|settings| settings.usages_packages);
         let inspections = answer.and_then(|settings| settings.inspections);
         if document.level != level || document.inspections != inspections {
             document.level = level;

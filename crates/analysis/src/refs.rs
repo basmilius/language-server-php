@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 
+use php_index::framework::keys::KeyKind;
 use php_index::{ClassDecl, Index, Name, Type};
 use php_syntax::SyntaxKind::*;
 use php_syntax::{SyntaxKind, SyntaxNode, SyntaxToken, TextRange};
@@ -43,6 +44,13 @@ pub enum Symbol {
     },
     /// A Pest dataset, by the name it is declared and used under.
     Dataset(String),
+    /// A string that names a route, a config key, a view and the like. The scope is the class a
+    /// form request field or an entity field belongs to.
+    Key {
+        kind: KeyKind,
+        name: String,
+        scope: Option<String>,
+    },
 }
 
 impl Symbol {
@@ -55,7 +63,8 @@ impl Symbol {
             | Symbol::ClassConst { name, .. }
             | Symbol::Parameter { name, .. }
             | Symbol::Variable { name, .. }
-            | Symbol::Dataset(name) => name,
+            | Symbol::Dataset(name)
+            | Symbol::Key { name, .. } => name,
         };
         match self {
             Symbol::Dataset(name) => name
@@ -192,6 +201,20 @@ impl Query {
                 Symbol::Parameter { callee, name },
             ) => wanted_name == name && same_callee(wanted, callee),
             (Symbol::Dataset(wanted), Symbol::Dataset(name)) => wanted == name,
+            (
+                Symbol::Key {
+                    kind: wanted_kind,
+                    name: wanted_name,
+                    scope: wanted_scope,
+                },
+                Symbol::Key { kind, name, scope },
+            ) => {
+                wanted_kind == kind
+                    && wanted_name == name
+                    && (!matches!(kind, KeyKind::Field | KeyKind::EntityField)
+                        || wanted_scope.as_deref().map(str::to_ascii_lowercase)
+                            == scope.as_deref().map(str::to_ascii_lowercase))
+            }
             _ => false,
         }
     }
@@ -418,7 +441,8 @@ pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol
                 push(Symbol::Parameter { callee, name });
             }
             Target::Dataset(name) => push(Symbol::Dataset(name)),
-            Target::Variable { .. } | Target::Key { .. } => {}
+            Target::Key { kind, name, scope } => push(Symbol::Key { kind, name, scope }),
+            Target::Variable { .. } => {}
         }
     }
     out
@@ -664,6 +688,9 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
     if let Symbol::Variable { name, scope } = &query.symbol {
         return variable_hits(ctx, *scope, name);
     }
+    if let Symbol::Key { name, .. } = &query.symbol {
+        return key_hits(ctx, name, query);
+    }
     let word = query.symbol.word();
     let aliases = class_aliases(ctx, query);
     let mut hits: Vec<Hit> = Vec::new();
@@ -719,6 +746,37 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
     }
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
+    hits
+}
+
+/// The strings that name a route, a config key or the like. Only a literal that holds the name is
+/// asked what it is, which is what keeps a search cheap.
+fn key_hits(ctx: &FileContext, name: &str, query: &Query) -> Vec<Hit> {
+    let mut hits = Vec::new();
+    for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
+        if php_index::test_facts::string_value(&node).is_none_or(|(value, _)| value != name) {
+            continue;
+        }
+        let analyzer = ctx.analyzer(&node);
+        let Some(key) = crate::frameworks::keys::key_of_literal(&analyzer, &node, None) else {
+            continue;
+        };
+        let symbol = Symbol::Key {
+            kind: key.kind,
+            name: key.value,
+            scope: key.scope,
+        };
+        if query.matches(&symbol) {
+            hits.push(Hit {
+                range: key.range,
+                kind: HitKind::Reference,
+                access: Access::Read,
+                dollar: false,
+                via_alias: false,
+                symbol,
+            });
+        }
+    }
     hits
 }
 

@@ -143,9 +143,11 @@ impl Server<'_> {
         let symbol = symbol_from_data(params.item.data.as_ref()?)?;
         let path = uri_to_path(&params.item.uri)?;
         self.ensure_words(&path);
+        let packages = self.package_scope(&params.item.uri, &path);
         let open = self.documents.texts();
         let project = self.workspace.project_for(&path);
-        let sources = ProjectSources::new(open, &project.words);
+        let sources =
+            ProjectSources::new(open, &project.words).with_packages(packages.then_some(&project.package_words));
         let calls = incoming_calls(&project.index, &sources, &symbol);
         let mut texts = TextCache::new(self, None);
         let mut out = Vec::new();

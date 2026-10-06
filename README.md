@@ -32,7 +32,7 @@ php-language-server --stdio
 
 - Twig has no language model, and Blade only a minimal one: no `@foreach` scope, props, slots or component attributes.
 - Livewire, Inertia, DQL and the Doctrine query builder, Eloquent query strings and validation rule strings are not analyzed.
-- Usages are found in the project, not in installed packages, and not in ordinary strings and comments. There is no reference index kept on disk.
+- Usages are found in the project, and in installed packages when `usages.packages` asks for them. Strings count when they name a route, a config key, a view, a translation or another name a framework declares, in PHP and Blade; ordinary strings and comments, Twig and YAML do not.
 - Composer autoloading is read from PSR-4 and PSR-0; an authoritative classmap and `files` are not looked up by name. `@psalm-type` aliases are not read.
 - Dynamic code, such as variable variables and members made at run time, gives `mixed`.
 

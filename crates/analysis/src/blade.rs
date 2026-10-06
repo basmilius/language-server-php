@@ -10,11 +10,15 @@ use php_index::framework::overlay::{Marker, directive_markers};
 use php_syntax::SyntaxKind::*;
 use php_syntax::parse;
 
+use php_syntax::TextRange;
+
 use crate::ast::range_of;
 use crate::completion::{CompletionList, CompletionOptions, complete};
+use crate::context::FileContext;
 use crate::frameworks::complete::key_items;
 use crate::infer::Analyzer;
 use crate::nav::{HoverResult, Place, hover_markdown};
+use crate::refs::{Access, Hit, HitKind, Query, Symbol, hits_in_file};
 
 /// What a stretch of the template is, in the offsets of the template.
 #[derive(Debug, PartialEq)]
@@ -281,6 +285,103 @@ fn shift_place(mini: &Mini, place: Place) -> Place {
             },
         },
     }
+}
+
+/// Whether a file is a Blade template, by its name.
+pub fn is_template(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".blade.php"))
+}
+
+/// The name under an offset of a template, as a directive, a tag or a string of the PHP in it gives it.
+pub fn key_symbol_at(index: &Index, text: &str, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
+    match piece_at(index, text, offset)? {
+        Piece::Name {
+            kind,
+            value,
+            start,
+            end,
+        } => Some((
+            range_of(start, end),
+            vec![Symbol::Key {
+                kind,
+                name: value,
+                scope: None,
+            }],
+        )),
+        piece @ Piece::Php { .. } => {
+            let mini = Mini::of(&piece)?;
+            let root = parse(&mini.text).syntax();
+            let at = mini.to_mini(offset);
+            let key = crate::frameworks::keys::key_at(&Analyzer::new(index, &root, at), at)?;
+            Some((
+                range_of(
+                    mini.to_blade(u32::from(key.range.start())),
+                    mini.to_blade(u32::from(key.range.end())),
+                ),
+                vec![Symbol::Key {
+                    kind: key.kind,
+                    name: key.value,
+                    scope: key.scope,
+                }],
+            ))
+        }
+    }
+}
+
+/// The places of a template that name a route, a view, a translation or the like.
+pub fn key_hits(index: &Index, text: &str, query: &Query) -> Vec<Hit> {
+    let Symbol::Key { name, .. } = &query.symbol else {
+        return Vec::new();
+    };
+    let mut hits = Vec::new();
+    for piece in pieces(index, text) {
+        match &piece {
+            Piece::Name {
+                kind,
+                value,
+                start,
+                end,
+            } => {
+                let symbol = Symbol::Key {
+                    kind: *kind,
+                    name: value.clone(),
+                    scope: None,
+                };
+                if query.matches(&symbol) {
+                    hits.push(Hit {
+                        range: range_of(*start, *end),
+                        kind: HitKind::Reference,
+                        access: Access::Read,
+                        dollar: false,
+                        via_alias: false,
+                        symbol,
+                    });
+                }
+            }
+            Piece::Php { code, .. } => {
+                if !code.contains(name.as_str()) {
+                    continue;
+                }
+                let Some(mini) = Mini::of(&piece) else {
+                    continue;
+                };
+                let root = parse(&mini.text).syntax();
+                let ctx = FileContext::new(index, &root);
+                for mut hit in hits_in_file(&ctx, &mini.text, query) {
+                    hit.range = range_of(
+                        mini.to_blade(u32::from(hit.range.start())),
+                        mini.to_blade(u32::from(hit.range.end())),
+                    );
+                    hits.push(hit);
+                }
+            }
+        }
+    }
+    hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
+    hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
+    hits
 }
 
 /// Where the name or the PHP under an offset of a template is declared.

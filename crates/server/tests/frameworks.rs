@@ -498,3 +498,83 @@ fn the_fields_of_a_form_request_complete() {
     );
     client.shutdown();
 }
+
+/// `file:line` of every location an answer holds, sorted.
+fn places(found: &Value) -> Vec<String> {
+    let mut places: Vec<String> = found
+        .as_array()
+        .expect("locations")
+        .iter()
+        .map(|location| {
+            format!(
+                "{}:{}",
+                location["uri"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default(),
+                location["range"]["start"]["line"]
+            )
+        })
+        .collect();
+    places.sort();
+    places
+}
+
+#[test]
+fn a_route_name_has_usages_in_code_and_templates_and_keeps_its_words() {
+    let disk = laravel();
+    disk.write(
+        "project/app/Http/Controllers/HomeController.php",
+        "<?php\nnamespace App\\Http\\Controllers;\n\nclass HomeController\n{\n    public function show()\n    {\n        return route('home');\n    }\n}\n",
+    );
+    disk.write(
+        "project/resources/views/layouts/nav.blade.php",
+        "<nav>\n    <a href=\"{{ route('home') }}\">Home</a>\n</nav>\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Controllers/HomeController.php");
+    client.open(
+        &uri,
+        &std::fs::read_to_string(disk.path("project/app/Http/Controllers/HomeController.php")).expect("read"),
+    );
+    let ask = |client: &mut Client, include: bool| {
+        client.request(
+            "textDocument/references",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 7, "character": 23 },
+                "context": { "includeDeclaration": include }
+            }),
+        )
+    };
+    assert_eq!(
+        places(&ask(&mut client, true)),
+        ["HomeController.php:7", "nav.blade.php:1", "web.php:3"]
+    );
+    assert_eq!(
+        places(&ask(&mut client, false)),
+        ["HomeController.php:7", "nav.blade.php:1"]
+    );
+    let routes = disk.uri("project/routes/web.php");
+    client.open(
+        &routes,
+        &std::fs::read_to_string(disk.path("project/routes/web.php")).expect("read"),
+    );
+    let from_declaration = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": routes },
+            "position": { "line": 3, "character": 52 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    assert_eq!(places(&from_declaration), ["HomeController.php:7", "nav.blade.php:1"]);
+    let words = std::fs::read_dir(disk.path("storage/cache"))
+        .expect("a cache folder")
+        .filter_map(Result::ok)
+        .any(|entry| entry.file_name().to_string_lossy().starts_with("words-"));
+    assert!(words, "the words are kept in the storage folder");
+    client.shutdown();
+}

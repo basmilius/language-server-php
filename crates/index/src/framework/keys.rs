@@ -402,6 +402,51 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
     out
 }
 
+/// The name a file declares at an offset: a route's `->name()`, a key of a config or translation
+/// file, a service or parameter of the PHP configuration.
+pub fn declared_at(index: &Index, path: &std::path::Path, offset: u32) -> Option<(KeyKind, String, Span)> {
+    declared_where(index, |_, definition| {
+        definition.path == path
+            && definition.span.start < definition.span.end
+            && definition.span.start <= offset
+            && offset <= definition.span.end
+    })
+}
+
+/// The name an attribute of a declaration gives it, when the catalog keeps the name by the name of
+/// the declaration: the `name:` of `#[Route]` on a controller method, which may carry the prefix of
+/// the class.
+pub fn declared_by(index: &Index, path: &std::path::Path, owner: Span, written: &str) -> Option<(KeyKind, String)> {
+    declared_where(index, |key, definition| {
+        definition.path == path && definition.span == owner && key.ends_with(written)
+    })
+    .map(|(kind, key, _)| (kind, key))
+}
+
+fn declared_where(index: &Index, wanted: impl Fn(&str, &Definition) -> bool) -> Option<(KeyKind, String, Span)> {
+    const DECLARED: [KeyKind; 8] = [
+        KeyKind::Route,
+        KeyKind::Config,
+        KeyKind::Translation,
+        KeyKind::Service,
+        KeyKind::Parameter,
+        KeyKind::Event,
+        KeyKind::Ability,
+        KeyKind::Env,
+    ];
+    for kind in DECLARED {
+        for candidate in candidates(index, kind, None) {
+            let found = definitions(index, kind, &candidate.key, None)
+                .into_iter()
+                .find(|definition| wanted(&candidate.key, definition));
+            if let Some(definition) = found {
+                return Some((kind, candidate.key, definition.span));
+            }
+        }
+    }
+    None
+}
+
 /// Whether a name is certainly wrong: the project declares everything of its kind that it can,
 /// and the name is not among it.
 pub fn is_missing(index: &Index, kind: KeyKind, key: &str) -> bool {

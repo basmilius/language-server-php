@@ -109,6 +109,7 @@ pub enum RenameKind {
     Variable,
     Namespace,
     Dataset,
+    Key,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,6 +158,7 @@ fn kind_of(symbol: &Symbol) -> RenameKind {
         Symbol::ClassConst { .. } => RenameKind::ClassConst,
         Symbol::Parameter { .. } | Symbol::Variable { .. } => RenameKind::Variable,
         Symbol::Dataset(_) => RenameKind::Dataset,
+        Symbol::Key { .. } => RenameKind::Key,
     }
 }
 
@@ -226,6 +228,9 @@ fn check_declared_in_project(index: &Index, symbols: &[Symbol]) -> Result<(), St
         if matches!(symbol, Symbol::Variable { .. } | Symbol::Parameter { .. }) {
             continue;
         }
+        if let Symbol::Key { kind, .. } = symbol {
+            return Err(format!("A {} cannot be renamed", kind.label()));
+        }
         let query = Query::new(index, symbol.clone());
         let found = declarations(index, &query);
         if found.is_empty() {
@@ -274,6 +279,7 @@ pub fn validate_name(kind: RenameKind, name: &str) -> Result<(), String> {
             }
             Ok(())
         }
+        RenameKind::Key => Err("A string that names a route, a key or a view cannot be renamed".to_string()),
         _ if !identifier => Err(format!("'{name}' is not a valid name")),
         RenameKind::Variable => {
             if SUPERGLOBALS.contains(&name) {
@@ -365,7 +371,8 @@ fn symbol_name(symbol: &Symbol) -> Option<&str> {
         | Symbol::ClassConst { name, .. }
         | Symbol::Parameter { name, .. }
         | Symbol::Variable { name, .. }
-        | Symbol::Dataset(name) => Some(name),
+        | Symbol::Dataset(name)
+        | Symbol::Key { name, .. } => Some(name),
     }
 }
 
@@ -405,7 +412,7 @@ fn check_conflicts(index: &Index, current: &Current, symbol: &Symbol, new_name: 
                 return Err(format!("A variable named '${new_name}' is already used in this scope"));
             }
         }
-        Symbol::Parameter { .. } => {}
+        Symbol::Parameter { .. } | Symbol::Key { .. } => {}
         Symbol::Dataset(name) => {
             if name != new_name && !crate::pest::dataset_declarations(index, new_name).is_empty() {
                 return Err(format!("A dataset named '{new_name}' already exists"));
