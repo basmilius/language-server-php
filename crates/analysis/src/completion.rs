@@ -13,7 +13,9 @@ use crate::imports::{ImportPlan, import_edit, plan_import};
 use crate::infer::{Analyzer, Env};
 use crate::render;
 
+mod expected;
 mod overrides;
+mod shape_keys;
 
 const PLACEHOLDER: &str = "__ph__";
 
@@ -178,6 +180,9 @@ pub fn complete(index: &Index, text: &str, offset: u32, options: CompletionOptio
     if let Some(list) = crate::class_strings::complete(index, &real, offset as u32, options) {
         return list;
     }
+    if let Some(list) = shape_keys::complete_quoted(index, &real, text, offset as u32, options) {
+        return list;
+    }
     if in_dead_zone(&real, offset as u32) {
         return CompletionList::default();
     }
@@ -209,6 +214,7 @@ pub fn complete(index: &Index, text: &str, offset: u32, options: CompletionOptio
         offset: offset as u32,
         env: &env,
         items: Vec::new(),
+        preferred_keywords: Vec::new(),
         options,
     };
     builder.run(&context, &token);
@@ -328,7 +334,7 @@ fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
         }
         NAMED_TYPE => classify_type(&owner),
         TRAIT_USE => Context::TraitUse,
-        BINARY_EXPR => Context::Instanceof,
+        BINARY_EXPR if has_token(&owner, INSTANCEOF_KW) => Context::Instanceof,
         CLASS_DECLARATION
         | INTERFACE_DECLARATION
         | TRAIT_DECLARATION
@@ -406,6 +412,8 @@ struct Builder<'a> {
     offset: u32,
     env: &'a Env,
     items: Vec<(u8, CompletionItem)>,
+    /// The keywords the position expects, which come before the other keywords.
+    preferred_keywords: Vec<&'static str>,
     options: CompletionOptions,
 }
 
@@ -532,6 +540,8 @@ impl Builder<'_> {
                 }
             }
             Context::Expression { statement_start } => {
+                self.expected_values(token);
+                self.shape_keys(token);
                 self.named_arguments(token);
                 self.variables_if_dollar();
                 self.keywords(*statement_start, token);
@@ -800,7 +810,8 @@ impl Builder<'_> {
                         edit: self.range_edit(constant.name.clone()),
                         additional_edits: Vec::new(),
                         sort_text: format!(
-                            "1{:02}{}",
+                            "{}{:02}{}",
+                            if constant.is_case { "!" } else { "1" },
                             depth_of(&depth, &found.class.decl.name),
                             constant.name.to_ascii_lowercase()
                         ),
@@ -948,20 +959,7 @@ impl Builder<'_> {
         for (score, class) in candidates {
             let fqn = &class.decl.name;
             let short = crate::short(fqn);
-            let plan = plan_import(&self.analyzer.resolver, fqn, UseKind::Class, |name| {
-                let own = self.analyzer.resolver.qualify(name);
-                self.index
-                    .class(&own)
-                    .is_some_and(|other| !other.decl.name.eq_ignore_ascii_case(fqn))
-            });
-            let (insert, additional) = match plan {
-                ImportPlan::Plain(name) => (name, Vec::new()),
-                ImportPlan::Qualified(name) => (format!("\\{name}"), Vec::new()),
-                ImportPlan::Import(name) => {
-                    let edit = import_edit(self.text, self.real, self.offset, fqn, UseKind::Class);
-                    (name, edit.into_iter().collect())
-                }
-            };
+            let (insert, additional) = self.class_reference(fqn);
             let namespace = php_index::types::namespace_of(fqn);
             let detail = if with_constructor {
                 self.index
@@ -985,6 +983,24 @@ impl Builder<'_> {
                     data: Some(format!("class:{fqn}")),
                 },
             );
+        }
+    }
+
+    /// How a class is written at the cursor, with the import that spelling needs.
+    fn class_reference(&self, fqn: &str) -> (String, Vec<TextEdit>) {
+        let plan = plan_import(&self.analyzer.resolver, fqn, UseKind::Class, |name| {
+            let own = self.analyzer.resolver.qualify(name);
+            self.index
+                .class(&own)
+                .is_some_and(|other| !other.decl.name.eq_ignore_ascii_case(fqn))
+        });
+        match plan {
+            ImportPlan::Plain(name) => (name, Vec::new()),
+            ImportPlan::Qualified(name) => (format!("\\{name}"), Vec::new()),
+            ImportPlan::Import(name) => {
+                let edit = import_edit(self.text, self.real, self.offset, fqn, UseKind::Class);
+                (name, edit.into_iter().collect())
+            }
         }
     }
 
@@ -1304,7 +1320,11 @@ impl Builder<'_> {
             description: None,
             edit: self.range_edit(keyword.to_string()),
             additional_edits: Vec::new(),
-            sort_text: format!("{group}{keyword}"),
+            sort_text: if self.preferred_keywords.contains(&keyword) {
+                format!("!1{keyword}")
+            } else {
+                format!("{group}{keyword}")
+            },
             filter_text: None,
             deprecated: false,
             data: None,

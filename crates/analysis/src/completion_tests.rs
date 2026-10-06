@@ -149,6 +149,7 @@ fn completes_static_members_constants_and_cases() {
     assert_eq!(item(&enum_list, "Admin").kind, ItemKind::EnumMember);
     assert!(labels(&enum_list).contains(&"cases") && labels(&enum_list).contains(&"from"));
     assert!(!labels(&enum_list).contains(&"label"));
+    assert_eq!(labels(&enum_list)[..2], ["Admin", "Guest"], "the cases come first");
     let statics = run(project(), "<?php\nuse App\\Models\\User;\nUser::$c$0\n");
     assert_eq!(labels(&statics), vec!["$count"]);
 }
@@ -491,5 +492,145 @@ fn a_string_that_starts_a_qualified_name_completes_classes() {
         labels("<?php\n$a = 'App$0';\n")
             .iter()
             .all(|label| !label.starts_with("App\\Http"))
+    );
+}
+
+fn tickets() -> Fixture {
+    Fixture::new(&[(
+        "src/Ticket.php",
+        r#"<?php
+namespace App\Data;
+
+enum ScanStatus: string { case Pending = 'pending'; case Checkin = 'checkin'; public static function fallback(): self { return self::Pending; } }
+
+class Ticket {
+    public ScanStatus $status;
+    public ?ScanStatus $previous = null;
+    public bool $valid = true;
+    public function mark(ScanStatus $status, bool $notify = false): void {}
+
+    /**
+     * @return array{
+     *     current: array<array{
+     *         date: string,
+     *         value: float
+     *     }>,
+     *     previous: array<array{
+     *         date: string,
+     *         value: float
+     *     }>,
+     *     total?: int
+     * }
+     * @throws \RuntimeException
+     */
+    public static function chart(): array { return []; }
+}
+"#,
+    )])
+}
+
+#[test]
+fn a_comparison_with_an_enum_offers_its_cases_first() {
+    let code = "<?php\nnamespace App\\Http;\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    if ($t->status === $0) {}\n}\n";
+    let list = run(tickets(), code);
+    let names = labels(&list);
+    assert_eq!(names[..2], ["ScanStatus::Pending", "ScanStatus::Checkin"], "{names:?}");
+    let pending = item(&list, "ScanStatus::Pending");
+    assert_eq!(pending.kind, ItemKind::EnumMember);
+    assert_eq!(pending.detail.as_deref(), Some("= 'pending'"));
+    assert_eq!(
+        applied(code, pending),
+        "<?php\nnamespace App\\Http;\nuse App\\Data\\ScanStatus;\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    if ($t->status === ScanStatus::Pending) {}\n}\n"
+    );
+    assert!(
+        !names.contains(&"Ticket"),
+        "a comparison is not an instanceof: {names:?}"
+    );
+    let typed = run(
+        tickets(),
+        "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    if ($t->status !== Che$0) {}\n}\n",
+    );
+    assert_eq!(labels(&typed).first(), Some(&"ScanStatus::Checkin"));
+}
+
+#[test]
+fn instanceof_still_offers_classes() {
+    let list = run(
+        tickets(),
+        "<?php\nuse App\\Data\\Ticket;\nfunction f($t) {\n    if ($t instanceof $0) {}\n}\n",
+    );
+    assert!(labels(&list).contains(&"Ticket"), "{:?}", labels(&list));
+}
+
+#[test]
+fn assignments_arguments_returns_and_match_expect_their_type() {
+    let first = |code: &str| {
+        let list = run(tickets(), code);
+        labels(&list).first().map(|label| label.to_string())
+    };
+    let pending = Some("ScanStatus::Pending".to_string());
+    assert_eq!(
+        first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->previous = $0\n}\n"),
+        pending
+    );
+    assert_eq!(
+        first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark($0);\n}\n"),
+        pending
+    );
+    assert_eq!(
+        first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark(notify: true, status: $0);\n}\n"),
+        pending
+    );
+    assert_eq!(
+        first("<?php\nuse App\\Data\\ScanStatus;\nfunction f(): ScanStatus {\n    return $0\n}\n"),
+        pending
+    );
+    assert_eq!(
+        first(
+            "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    return match ($t->status) {\n        $0\n    };\n}\n"
+        ),
+        pending
+    );
+    assert_eq!(
+        first(
+            "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    switch ($t->status) {\n        case $0\n    }\n}\n"
+        ),
+        pending
+    );
+    let nullable = run(
+        tickets(),
+        "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->previous = $0\n}\n",
+    );
+    assert_eq!(labels(&nullable)[2], "null", "{:?}", labels(&nullable));
+    assert_eq!(
+        first(
+            "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark(App\\Data\\ScanStatus::Pending, $0);\n}\n"
+        ),
+        Some("false".to_string())
+    );
+}
+
+#[test]
+fn completes_the_keys_of_a_shape() {
+    let quoted = run(
+        tickets(),
+        "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    Ticket::chart()['$0'];\n}\n",
+    );
+    assert_eq!(labels(&quoted), vec!["current", "previous", "total"]);
+    assert_eq!(item(&quoted, "total").description.as_deref(), Some("optional"));
+    let nested_code = "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    $chart = Ticket::chart();\n    $chart['current'][0]['va$0'];\n}\n";
+    let nested = run(tickets(), nested_code);
+    assert_eq!(labels(&nested), vec!["value"]);
+    assert_eq!(item(&nested, "value").detail.as_deref(), Some("float"));
+    assert_eq!(
+        applied(nested_code, item(&nested, "value")),
+        nested_code.replace("['va$0']", "['value']")
+    );
+    let bare_code = "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    Ticket::chart()[$0];\n}\n";
+    let bare = run(tickets(), bare_code);
+    assert_eq!(labels(&bare)[..3], ["current", "previous", "total"]);
+    assert_eq!(
+        applied(bare_code, item(&bare, "current")),
+        bare_code.replace("[$0]", "['current']")
     );
 }
