@@ -844,12 +844,16 @@ fn a_validation_rule_leads_to_its_method_and_completes() {
     );
     let found = client.at("textDocument/definition", &uri, 2, 45);
     assert!(
-        found[0]["uri"].as_str().is_some_and(|uri| uri.ends_with("ValidatesAttributes.php")),
+        found[0]["uri"]
+            .as_str()
+            .is_some_and(|uri| uri.ends_with("ValidatesAttributes.php")),
         "{found}"
     );
     let diagnostics = client.diagnostics(&uri);
     assert!(
-        diagnostics.iter().any(|diagnostic| diagnostic["code"] == "unknown-validation-rule"),
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["code"] == "unknown-validation-rule"),
         "{diagnostics:?}"
     );
     client.shutdown();
