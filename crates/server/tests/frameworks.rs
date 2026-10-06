@@ -948,3 +948,18 @@ fn a_query_column_leads_to_its_migration_and_is_one_of_its_usages() {
     assert!(places(&usages).contains(&"Find.php:3".to_string()), "{usages}");
     client.shutdown();
 }
+
+#[test]
+fn a_binding_of_bootstrap_app_types_what_the_container_gives() {
+    let disk = laravel();
+    disk.write(
+        "project/bootstrap/app.php",
+        "<?php\n\nreturn Application::configure(basePath: dirname(__DIR__))\n    ->withBindings(['reports' => \\App\\Models\\Post::class])\n    ->create();\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Report.php");
+    client.open(&uri, "<?php\nfunction report() {\n    return app('reports')->ti;\n}\n");
+    let items = complete_at(&mut client, &uri, 2, 28);
+    assert!(items.contains(&"title".to_string()), "{items:?}");
+    client.shutdown();
+}

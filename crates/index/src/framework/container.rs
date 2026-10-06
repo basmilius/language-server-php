@@ -110,37 +110,89 @@ const BINDING_METHODS: [&str; 7] = [
     "instance",
 ];
 
-/// What the service providers of the project register under a name written out: `$this->app->bind('mail',
-/// fn () => new Mailer)` and `$this->app->singleton(Gateway::class, StripeGateway::class)`.
+/// What the project registers in the container under a name written out: `$this->app->bind('mail',
+/// fn () => new Mailer)` and `$this->app->singleton(Gateway::class, StripeGateway::class)` in a service
+/// provider, the `$bindings` and `$singletons` of a provider, `withBindings()` and `withSingletons()`
+/// in `bootstrap/app.php`, and the same calls through `App::`, `app()` or the container anywhere in
+/// `app/`. A name bound to two different classes stands for neither.
 #[derive(Default)]
 pub struct Bindings {
-    by_name: HashMap<String, Name>,
+    by_name: HashMap<String, Option<Name>>,
 }
 
 impl Bindings {
     pub fn class_of(&self, name: &str) -> Option<Name> {
-        self.by_name.get(name.trim_start_matches('\\')).cloned()
+        self.by_name.get(name.trim_start_matches('\\')).cloned().flatten()
     }
 
     pub fn names(&self) -> impl Iterator<Item = &String> {
-        self.by_name.keys()
+        self.by_name
+            .iter()
+            .filter(|(_, class)| class.is_some())
+            .map(|(name, _)| name)
+    }
+
+    fn bind(&mut self, name: String, class: Name) {
+        match self.by_name.get(&name) {
+            Some(Some(known)) if !known.eq_ignore_ascii_case(&class) => {
+                self.by_name.insert(name, None);
+            }
+            Some(_) => {}
+            None => {
+                self.by_name.insert(name, Some(class));
+            }
+        }
     }
 }
+
+/// A word every file that binds something outside a provider holds, to skip the rest unread.
+const BINDING_WORDS: [&str; 7] = [
+    "bind(",
+    "singleton(",
+    "scoped(",
+    "instance(",
+    "alias(",
+    "withBindings(",
+    "withSingletons(",
+];
 
 impl Section for Bindings {
     fn build(index: &Index) -> Self {
         let mut bindings = Bindings::default();
-        let mut paths = Vec::new();
+        let mut providers = Vec::new();
         for provider in index.all_subtypes(SERVICE_PROVIDER) {
-            if provider.file.origin == Origin::Project && !paths.contains(&provider.file.path) {
-                paths.push(provider.file.path.clone());
+            if provider.file.origin == Origin::Project && !providers.contains(&provider.file.path) {
+                providers.push(provider.file.path.clone());
             }
         }
-        for path in paths {
-            if let Some(tree) = tree_of(index, &path) {
+        let root = index.framework_root();
+        let app = root.join("app");
+        let mut others: Vec<std::path::PathBuf> = vec![root.join("bootstrap").join("app.php")];
+        others.extend(
+            index
+                .files()
+                .filter(|file| file.origin == Origin::Project && file.path.starts_with(&app))
+                .map(|file| file.path.clone())
+                .filter(|path| !providers.contains(path)),
+        );
+        for path in &providers {
+            if let Some(tree) = tree_of(index, path) {
+                bindings.read_properties(&tree);
                 for node in tree.descendants().filter(|node| node.kind() == CALL_EXPR) {
                     bindings.read_call(&node);
                 }
+            }
+        }
+        for path in others {
+            let Some(text) = index.read_text(&path) else {
+                continue;
+            };
+            if !BINDING_WORDS.iter().any(|word| text.contains(word)) {
+                continue;
+            }
+            let tree = php_syntax::parse(&text).syntax();
+            for node in tree.descendants().filter(|node| node.kind() == CALL_EXPR) {
+                bindings.read_call(&node);
             }
         }
         bindings
@@ -152,33 +204,59 @@ impl Section for Bindings {
 }
 
 impl Bindings {
+    /// `protected $bindings = [Gateway::class => StripeGateway::class]` and `$singletons` of a provider.
+    fn read_properties(&mut self, tree: &SyntaxNode) {
+        for element in tree.descendants().filter(|node| node.kind() == PROPERTY_ELEMENT) {
+            let named = element
+                .children_with_tokens()
+                .filter_map(|child| child.into_token())
+                .any(|token| token.kind() == VARIABLE && matches!(token.text(), "$bindings" | "$singletons"));
+            if !named {
+                continue;
+            }
+            if let Some(array) = element.children().find(|child| child.kind() == ARRAY_EXPR) {
+                self.read_map(&array);
+            }
+        }
+    }
+
+    /// An array of abstract names to what they stand for.
+    fn read_map(&mut self, array: &SyntaxNode) {
+        for (key, value) in array_items(array).unwrap_or_default() {
+            let name = match key.as_ref().and_then(literal_of) {
+                Some(Literal::Class(class)) => class,
+                Some(Literal::Text(text, _)) => text.trim_start_matches('\\').to_string(),
+                None => continue,
+            };
+            if let Some(class) = concrete_of(&value) {
+                self.bind(name, class);
+            }
+        }
+    }
+
     fn read_call(&mut self, call: &SyntaxNode) {
-        let Some(callee) = call
-            .children()
-            .next()
-            .filter(|callee| callee.kind() == PROPERTY_FETCH_EXPR)
-        else {
+        let Some(callee) = call.children().next() else {
             return;
         };
-        let Some(method) = callee.children().find(|child| child.kind() == NAME) else {
+        let Some(method) = callee.children().filter(|child| child.kind() == NAME).last() else {
             return;
         };
         let method = method.text().to_string().to_ascii_lowercase();
-        let receiver = callee
-            .children()
-            .next()
-            .map(|node| node.text().to_string())
-            .unwrap_or_default();
-        let receiver = receiver.replace(char::is_whitespace, "");
-        if !matches!(receiver.as_str(), "$this->app" | "$app" | "app()") {
+        let args = argument_expressions(call);
+        if matches!(method.as_str(), "withbindings" | "withsingletons") && callee.kind() == PROPERTY_FETCH_EXPR {
+            if let Some(array) = args.first().filter(|node| node.kind() == ARRAY_EXPR) {
+                self.read_map(array);
+            }
             return;
         }
-        let args = argument_expressions(call);
+        if !is_container(&callee) {
+            return;
+        }
         if method == "alias" {
             if let (Some(Literal::Class(class)), Some(Literal::Text(alias, _))) =
                 (args.first().and_then(literal_of), args.get(1).and_then(literal_of))
             {
-                self.by_name.insert(alias, class);
+                self.bind(alias, class);
             }
             return;
         }
@@ -195,8 +273,39 @@ impl Bindings {
             Some(node) => concrete_of(node),
         };
         if let Some(concrete) = concrete {
-            self.by_name.insert(abstract_name, concrete);
+            self.bind(abstract_name, concrete);
         }
+    }
+}
+
+/// Whether a call is made on the container: `$this->app->bind()`, `$app->bind()`, `app()->bind()`,
+/// `$container->bind()`, `Container::getInstance()->bind()` or the facade, `App::bind()`.
+fn is_container(callee: &SyntaxNode) -> bool {
+    match callee.kind() {
+        PROPERTY_FETCH_EXPR => {
+            let receiver = callee
+                .children()
+                .next()
+                .map(|node| node.text().to_string().replace(char::is_whitespace, ""))
+                .unwrap_or_default();
+            matches!(
+                receiver.trim_start_matches('\\'),
+                "$this->app"
+                    | "$app"
+                    | "app()"
+                    | "$container"
+                    | "Container::getInstance()"
+                    | "Illuminate\\Container\\Container::getInstance()"
+            )
+        }
+        SCOPED_ACCESS_EXPR => callee
+            .children()
+            .find(|child| child.kind() == NAME)
+            .is_some_and(|name| {
+                let class = resolver_for(callee).resolve_class(&name.text().to_string());
+                class.eq_ignore_ascii_case("Illuminate\\Support\\Facades\\App") || class.eq_ignore_ascii_case("App")
+            }),
+        _ => false,
     }
 }
 

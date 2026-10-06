@@ -96,8 +96,50 @@ class AppServiceProvider extends ServiceProvider {
 }
 "#,
         ),
+        (
+            "app/Providers/BillingServiceProvider.php",
+            r#"<?php
+namespace App\Providers;
+use App\{Mailer, StripeGateway};
+use Illuminate\Support\ServiceProvider;
+class BillingServiceProvider extends ServiceProvider {
+    public $singletons = ['billing' => StripeGateway::class];
+    public function register(): void {
+        $this->app->bind('twice', Mailer::class);
+    }
+}
+"#,
+        ),
+        (
+            "bootstrap/app.php",
+            r#"<?php
+use App\Mailer;
+return Application::configure(basePath: dirname(__DIR__))
+    ->withBindings(['reports' => Mailer::class])
+    ->create();
+"#,
+        ),
+        (
+            "app/Support/boot.php",
+            r#"<?php
+namespace App\Support;
+use App\{Mailer, StripeGateway};
+use Illuminate\Support\Facades\App;
+App::singleton('notifier', Mailer::class);
+app()->bind('twice', StripeGateway::class);
+"#,
+        ),
     ]);
     Fixture::framework(&files)
+}
+
+#[test]
+fn the_container_reads_bindings_outside_the_providers_too() {
+    let code = "<?php\n$billing = app('billing');\n$reports = app('reports');\n$notifier = app('notifier');\n$twice = app('twice');\n$0";
+    assert_eq!(container_var(code, "billing"), "StripeGateway");
+    assert_eq!(container_var(code, "reports"), "Mailer");
+    assert_eq!(container_var(code, "notifier"), "Mailer");
+    assert_eq!(container_var(code, "twice"), "mixed");
 }
 
 fn container_var(code: &str, name: &str) -> String {
