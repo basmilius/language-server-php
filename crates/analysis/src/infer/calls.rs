@@ -340,6 +340,7 @@ impl Analyzer<'_> {
             results.push(self.return_type_of(callee, &args, env));
         }
         let result = self.container_call_type(&callees, &args, env, Type::union(results));
+        let result = crate::frameworks::raxos::column_call_type(self, &callees, &args).unwrap_or(result);
         let nullsafe = callee_node.kind() == PROPERTY_FETCH_EXPR && has_token(&callee_node, NULLSAFE_ARROW);
         if nullsafe {
             let receiver = callee_node.children().next().map(|object| self.type_of(&object, env));

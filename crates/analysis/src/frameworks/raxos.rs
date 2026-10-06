@@ -207,3 +207,52 @@ pub fn route_segment_at(analyzer: &Analyzer<'_>, offset: u32) -> Option<RouteSeg
         .into_iter()
         .find(|segment| u32::from(segment.range.start()) <= offset && offset <= u32::from(segment.range.end()))
 }
+
+const ARRAY_LIST: &str = "Raxos\\Collection\\ArrayList";
+
+/// What `column('buyer', 'id')` on a list of models gives: an `ArrayList` of what the last key holds,
+/// each key read from what the one before it gave, the way `array_column` is applied in turn.
+pub(crate) fn column_call_type(
+    analyzer: &Analyzer<'_>,
+    callees: &[crate::infer::ResolvedCallable],
+    args: &[crate::infer::Arg],
+) -> Option<php_index::Type> {
+    use php_index::Type;
+    if !analyzer.index.frameworks().raxos || args.is_empty() {
+        return None;
+    }
+    let callee = callees.first()?;
+    if !callee.name.rsplit("::").next()?.eq_ignore_ascii_case("column") {
+        return None;
+    }
+    let receiver = callee.receiver.as_ref()?;
+    let is_list = receiver.members().iter().any(|member| {
+        matches!(member, Type::Class { name, .. }
+            if analyzer.index.is_subclass_of(name, php_index::framework::raxos::orm::MODEL_ARRAY_LIST))
+    });
+    if !is_list {
+        return None;
+    }
+    let mut holds = Type::class(model_of(analyzer.index, receiver)?);
+    for arg in args {
+        if arg.name.is_some() || arg.spread {
+            return None;
+        }
+        let literal = arg.expr.as_ref().filter(|expr| expr.kind() == LITERAL)?;
+        let (key, _) = php_index::test_facts::string_value(literal)?;
+        let model = model_of(analyzer.index, &holds)?;
+        let (_, property) = properties_of(analyzer.index, &model)
+            .into_iter()
+            .find(|(_, property)| property.answers_to(&key))?;
+        holds = analyzer
+            .index
+            .find_property(&Type::class(model), &property.name)?
+            .member
+            .effective_type(analyzer.index.level)?
+            .clone();
+    }
+    Some(Type::Class {
+        name: ARRAY_LIST.to_string(),
+        args: vec![Type::Int, holds],
+    })
+}

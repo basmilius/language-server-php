@@ -455,6 +455,20 @@ class ModelArrayList {
 "#,
     ),
     (
+        "vendor/raxos/collection/src/ArrayList.php",
+        r#"<?php
+namespace Raxos\Collection;
+/**
+ * @template TKey of array-key
+ * @template TValue
+ */
+class ArrayList {
+    /** @return array<TKey, TValue> */
+    public function toArray(): array {}
+}
+"#,
+    ),
+    (
         "vendor/raxos/router/src/Attribute/Attributes.php",
         r#"<?php
 namespace Raxos\Router\Attribute;

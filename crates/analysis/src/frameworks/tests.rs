@@ -2312,4 +2312,18 @@ mod raxos {
             .collect();
         assert_eq!(parameters, ["$merchant", "$from", "$to"]);
     }
+
+    #[test]
+    fn column_gives_a_list_of_what_its_keys_hold() {
+        let code = "<?php\nnamespace App;\nfunction f(Order $order, Merchant $merchant) {\n    $quantities = $order->lines->column('quantity');\n    $array = $order->lines->column('quantity')->toArray();\n    $names = $merchant->orders->column('buyer', 'first_name');\n    $0\n}\n";
+        let fixture = router_project(code);
+        let (_, root, offset) = split_cursor(code);
+        let analyzer = Analyzer::new(&fixture.index, &root, offset);
+        let env = analyzer.env_at(offset);
+        let shown = |name: &str| env.get(name).map(|ty| ty.display(true)).unwrap_or_default();
+        assert_eq!(shown("quantities"), "ArrayList<int, int>");
+        assert_eq!(shown("array"), "array<int, int>");
+        assert_eq!(shown("names"), "ArrayList<int, string>");
+        assert_eq!(completions("$order->lines->column('$0');"), ["quantity"]);
+    }
 }
