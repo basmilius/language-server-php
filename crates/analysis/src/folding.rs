@@ -1,5 +1,5 @@
 use php_syntax::SyntaxKind::*;
-use php_syntax::{SyntaxElement, SyntaxNode, SyntaxToken, TextRange};
+use php_syntax::{SyntaxElement, SyntaxNode, SyntaxToken, TextRange, TextSize};
 
 use crate::LineIndex;
 
@@ -16,6 +16,9 @@ pub struct Fold {
     pub start_line: u32,
     pub end_line: u32,
     pub kind: Option<FoldKind>,
+    /// Where the visible text of the first line ends and that of the last line starts, for a
+    /// client that folds within a line; `None` folds whole lines.
+    pub characters: Option<(TextSize, TextSize)>,
 }
 
 /// What folds in a file: the bodies of classes, functions and control structures, arrays, `match`
@@ -54,6 +57,7 @@ impl Walker<'_> {
             start_line,
             end_line,
             kind,
+            characters: None,
         });
     }
 
@@ -238,6 +242,11 @@ impl Walker<'_> {
         let range = TextRange::new(statement.text_range().start(), last.text_range().end());
         let (start, end) = (self.line(range.start().into()), self.line(range.end().into()));
         self.push(start, end, Some(FoldKind::Imports));
+        let keyword = Self::token_child(statement, USE_KW);
+        let semicolon = Self::last_token_child(&last, SEMICOLON);
+        if let (Some(fold), Some(keyword), Some(semicolon)) = (self.folds.last_mut(), keyword, semicolon) {
+            fold.characters = Some((keyword.text_range().end(), semicolon.text_range().start()));
+        }
     }
 }
 

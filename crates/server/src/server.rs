@@ -125,6 +125,8 @@ pub(crate) struct Server<'a> {
     /// The client pulls diagnostics, so the server does not push them.
     pull_diagnostics: bool,
     hierarchical_symbols: bool,
+    /// The client announced `lineFoldingOnly: false`, so a fold can start and end within a line.
+    folding_characters: bool,
     configuration_support: bool,
     diagnostic_refresh_support: bool,
     watch_support: bool,
@@ -217,6 +219,10 @@ impl<'a> Server<'a> {
                 .and_then(|text_document| text_document.document_symbol.as_ref())
                 .and_then(|symbol| symbol.hierarchical_document_symbol_support)
                 .unwrap_or(false),
+            folding_characters: text_document
+                .and_then(|text_document| text_document.folding_range.as_ref())
+                .and_then(|folding| folding.line_folding_only)
+                .is_some_and(|line_folding_only| !line_folding_only),
             configuration_support: capabilities
                 .workspace
                 .as_ref()
@@ -564,10 +570,17 @@ impl<'a> Server<'a> {
     }
 
     fn folding_ranges(&mut self, params: FoldingRangeParams) -> Option<Vec<lsp_types::FoldingRange>> {
+        let (encoding, folding_characters) = (self.encoding, self.folding_characters);
         let document = self.documents.get_mut(&params.text_document.uri)?;
         let root = document.parse().syntax();
         let folds = folding_ranges(&root, &document.text, &document.index);
-        Some(folds.iter().map(convert::folding_range).collect())
+        let mapper = Mapper {
+            text: &document.text,
+            index: &document.index,
+            encoding,
+        };
+        let mapper = folding_characters.then_some(&mapper);
+        Some(folds.iter().map(|fold| convert::folding_range(mapper, fold)).collect())
     }
 
     fn selection_ranges(&mut self, params: SelectionRangeParams) -> Option<Vec<lsp_types::SelectionRange>> {

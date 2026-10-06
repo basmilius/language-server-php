@@ -171,12 +171,17 @@ pub fn flat_symbols(
     }
 }
 
-pub fn folding_range(fold: &Fold) -> FoldingRange {
+/// A fold, with the characters where it starts and ends when a mapper is given: only a client
+/// that folds within a line takes those.
+pub fn folding_range(mapper: Option<&Mapper>, fold: &Fold) -> FoldingRange {
+    let characters = mapper
+        .zip(fold.characters)
+        .map(|(mapper, (start, end))| (mapper.position(start).character, mapper.position(end).character));
     FoldingRange {
         start_line: fold.start_line,
-        start_character: None,
+        start_character: characters.map(|(start, _)| start),
         end_line: fold.end_line,
-        end_character: None,
+        end_character: characters.map(|(_, end)| end),
         kind: fold.kind.map(|kind| match kind {
             FoldKind::Comment => FoldingRangeKind::Comment,
             FoldKind::Imports => FoldingRangeKind::Imports,

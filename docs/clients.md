@@ -30,6 +30,10 @@ Without `snippetEditSupport`, a code action that writes a name carries the comma
 
 Settings come from `initializationOptions`, `workspace/configuration` (section `phpLanguageServer`, with the document as `scopeUri`) and `workspace/didChangeConfiguration`. See [configuration](./configuration.md). A client that keeps a cache between runs passes `storagePath`. Without it the standard library stubs are not downloaded and the index of words is not kept on disk.
 
+## Folding
+
+A client that announces `textDocument.foldingRange.lineFoldingOnly: false` gets a run of `use` statements with `startCharacter` after the first `use` and `endCharacter` at the last `;`, so it can draw the folded run as `use …;`. Other folds and other clients fold whole lines.
+
 ## Progress and refreshes
 
 - `window.workDoneProgress` shows indexing as `$/progress`.

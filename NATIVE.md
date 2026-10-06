@@ -70,7 +70,7 @@ Besides the requests the sections below describe, it answers:
 
 - diagnostics: syntax errors, language level findings and inspections, pushed with `textDocument/publishDiagnostics` after a burst of changes has settled, or pulled with `textDocument/diagnostic` by a client that announces it (then nothing is pushed);
 - `textDocument/documentSymbol`: namespaces, classes, interfaces, traits, enums and their members, functions and constants, with signatures as detail and the deprecated tag from `@deprecated`. A client that cannot nest gets the flat form. Declarations behind `if (!function_exists(...))` count;
-- `textDocument/foldingRange`: bodies, arrays, `match` and `switch`, property hooks, attribute lists, heredocs, alternative syntax, multi-line and consecutive line comments (`comment`), runs of `use` statements (`imports`), `// region` and `// endregion` (`region`) and PHP tags between markup. A fold ends on the line before a closing bracket that starts its line, so the bracket stays visible;
+- `textDocument/foldingRange`: bodies, arrays, `match` and `switch`, property hooks, attribute lists, heredocs, alternative syntax, multi-line and consecutive line comments (`comment`), runs of `use` statements (`imports`, from after the first `use` to the last `;` for a client that folds within a line), `// region` and `// endregion` (`region`) and PHP tags between markup. A fold ends on the line before a closing bracket that starts its line, so the bracket stays visible;
 - `textDocument/selectionRange`, growing from the token through every enclosing node to the file.
 
 ### Configuration

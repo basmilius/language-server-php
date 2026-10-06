@@ -257,6 +257,27 @@ fn lists_document_symbols_as_a_tree_or_flat() {
 }
 
 #[test]
+fn folds_imports_within_their_lines_for_a_client_that_can() {
+    let capabilities = json!({ "textDocument": { "foldingRange": { "lineFoldingOnly": false } } });
+    let (mut client, _) = Client::start(capabilities, Value::Null);
+    client.open(
+        URI,
+        "<?php\nnamespace App;\n\n    use App\\A;\nuse App\\{B,\n    C};\n\nclass D {}\n",
+    );
+    let folds = client.request("textDocument/foldingRange", json!({ "textDocument": { "uri": URI } }));
+    let imports = folds
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|fold| fold["kind"] == "imports");
+    assert_eq!(
+        imports,
+        Some(&json!({ "startLine": 3, "startCharacter": 7, "endLine": 5, "endCharacter": 6, "kind": "imports" }))
+    );
+    client.shutdown();
+}
+
+#[test]
 fn answers_folding_and_selection_ranges() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, SOURCE);
@@ -277,6 +298,17 @@ fn answers_folding_and_selection_ranges() {
     assert!(folds.contains(&(6, 7, Some("comment"))), "{folds:?}");
     assert!(folds.contains(&(9, 16, None)), "{folds:?}");
     assert!(folds.contains(&(12, 15, None)), "{folds:?}");
+
+    let imports = client.request("textDocument/foldingRange", json!({ "textDocument": { "uri": URI } }));
+    let imports = imports
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|fold| fold["kind"] == "imports");
+    assert!(
+        imports.is_some_and(|fold| fold.get("startCharacter").is_none() && fold.get("endCharacter").is_none()),
+        "{imports:?}"
+    );
 
     let ranges = client.request(
         "textDocument/selectionRange",
