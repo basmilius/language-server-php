@@ -572,6 +572,63 @@ fn watched_files_update_the_index() {
 }
 
 #[test]
+fn a_search_before_the_index_is_complete_does_not_fix_the_words() {
+    let disk = Disk::new();
+    disk.write(
+        "project/src/Services/Report.php",
+        "<?php\nnamespace App\\Services;\n\nuse App\\Models\\User;\n\nfinal class Report\n{\n    public function owner(): User\n    {\n        return new User();\n    }\n}\n",
+    );
+    let (server_side, client_side) = lsp_server::Connection::memory();
+    let server = std::thread::spawn(move || {
+        php_language_server::run(server_side).expect("the server runs to the end");
+    });
+    let mut client = Client {
+        connection: client_side,
+        server: Some(server),
+        next_id: 2,
+        backlog: Vec::new(),
+    };
+    let user = disk.uri("project/src/Models/User.php");
+    let text = std::fs::read_to_string(disk.path("project/src/Models/User.php")).expect("read");
+    let references = json!({
+        "textDocument": { "uri": user },
+        "position": { "line": 4, "character": 7 },
+        "context": { "includeDeclaration": false }
+    });
+    // Everything at once: the server answers the search before the indexer it just started is done.
+    client.send(Request::new(
+        RequestId::from(1),
+        "initialize".to_string(),
+        json!({ "processId": null, "rootUri": disk.uri("project"), "capabilities": PROGRESS_CAPABILITIES(), "initializationOptions": disk.options() }),
+    ));
+    client.notify("initialized", json!({}));
+    client.open(&user, &text);
+    client.send(Request::new(
+        RequestId::from(2),
+        "textDocument/references".to_string(),
+        references.clone(),
+    ));
+    client.wait_for(|message| match message {
+        Message::Response(response) if response.id == RequestId::from(2) => Some(()),
+        _ => None,
+    });
+    client.wait_for_indexing();
+
+    let found = client.request("textDocument/references", references);
+    let files: Vec<&str> = found
+        .as_array()
+        .expect("locations")
+        .iter()
+        .filter_map(|location| location["uri"].as_str())
+        .collect();
+    assert!(
+        files.iter().any(|uri| uri.ends_with("src/Services/Report.php")),
+        "{found}"
+    );
+    client.shutdown();
+}
+
+#[test]
 fn the_class_map_is_watched_by_its_own_glob() {
     let disk = Disk::new();
     let (mut client, _) = Client::start_in(

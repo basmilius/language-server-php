@@ -120,13 +120,17 @@ impl Server<'_> {
 
     fn ensure_words_of(&mut self, path: &Path, packages: bool) {
         let storage = self.workspace.storage.clone();
+        // Built from a partial index, the words would miss every file read after this search and
+        // stay that way; until the index is complete a search reads the open documents only.
+        let root = &self.workspace.project_for(path).root;
+        let complete = root.as_os_str().is_empty() || self.workspace.indexed.contains(root);
         let project = self.workspace.project_for_mut(path);
         let (origin, built) = if packages {
             (Origin::Vendor, project.package_words.is_built())
         } else {
             (Origin::Project, project.words.is_built())
         };
-        if built {
+        if built || !complete {
             return;
         }
         let mut paths: Vec<PathBuf> = project
