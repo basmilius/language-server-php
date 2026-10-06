@@ -28,6 +28,8 @@ fn item_kind(kind: KeyKind) -> ItemKind {
         KeyKind::Slot | KeyKind::Attribute => ItemKind::Property,
         KeyKind::Relation => ItemKind::Method,
         KeyKind::Table | KeyKind::Column => ItemKind::Property,
+        KeyKind::ModelColumn | KeyKind::ModelProperty => ItemKind::Property,
+        KeyKind::ModelRelation => ItemKind::Method,
     }
 }
 

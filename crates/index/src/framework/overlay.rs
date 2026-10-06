@@ -30,11 +30,22 @@ fn symfony() -> &'static FileSymbols {
     })
 }
 
+fn raxos() -> &'static FileSymbols {
+    static PARSED: OnceLock<FileSymbols> = OnceLock::new();
+    PARSED.get_or_init(|| {
+        extract(
+            &parse(include_str!("raxos_overlay.php")).syntax(),
+            ExtractOptions::default(),
+        )
+    })
+}
+
 /// Which framework an overlay entry belongs to, which has to be in the project for it to count.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Owner {
     Laravel,
     Symfony,
+    Raxos,
 }
 
 /// The position of a `@key *` marker: every argument, for a method that takes a list of names.
@@ -159,7 +170,11 @@ fn markers() -> &'static HashMap<String, Vec<Entry>> {
                 });
             }
         };
-        for (owner, symbols) in [(Owner::Laravel, laravel()), (Owner::Symfony, symfony())] {
+        for (owner, symbols) in [
+            (Owner::Laravel, laravel()),
+            (Owner::Symfony, symfony()),
+            (Owner::Raxos, raxos()),
+        ] {
             for function in &symbols.functions {
                 add(owner, None, &function.name, function.doc.as_deref());
             }
@@ -222,6 +237,7 @@ pub fn is_marked(index: &Index, name: &str) -> bool {
         entries.iter().any(|entry| match entry.owner {
             Owner::Laravel => frameworks.laravel || frameworks.facades,
             Owner::Symfony => frameworks.symfony,
+            Owner::Raxos => frameworks.raxos,
         })
     })
 }
@@ -241,6 +257,7 @@ pub fn markers_for(index: &Index, declaring: Option<&str>, receiver: Option<&str
         .filter(|entry| match entry.owner {
             Owner::Laravel => frameworks.laravel || frameworks.facades,
             Owner::Symfony => frameworks.symfony,
+            Owner::Raxos => frameworks.raxos,
         })
         .filter(|entry| match (&entry.class, declaring) {
             (None, None) => frameworks.laravel,

@@ -1198,6 +1198,9 @@ impl<'a> Server<'a> {
         if pushed.hint_closure_types.is_some() {
             self.settings.hint_closure_types = pushed.hint_closure_types;
         }
+        if pushed.hint_property_types.is_some() {
+            self.settings.hint_property_types = pushed.hint_property_types;
+        }
         if pushed.inspections.is_some() {
             self.settings.inspections = pushed.inspections;
         }

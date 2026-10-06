@@ -10,6 +10,7 @@ mod members;
 mod names;
 mod phpdoc;
 mod phpunit;
+mod raxos;
 mod scopes;
 pub(crate) mod types;
 pub(crate) mod unused;
@@ -287,6 +288,48 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         Warning,
         true,
         "A cast of a model that is neither one the model knows by name nor a class",
+    ),
+    info(
+        "message-handler-mismatch",
+        Warning,
+        true,
+        "A Raxos `#[Handler]` that names a class which does not handle the message",
+    ),
+    info(
+        "invalid-model-attribute",
+        Warning,
+        true,
+        "A Raxos `#[Macro]` that does not take the model or gives what the property cannot hold, or a `#[Caster]` that is no caster",
+    ),
+    info(
+        "model-method-mismatch",
+        Warning,
+        true,
+        "An `@method` of a Raxos model for a property that is no relation, or with another model than its relation",
+    ),
+    info(
+        "redundant-model-method",
+        Hint,
+        true,
+        "An `@method` of a Raxos model that repeats what its relation already says",
+    ),
+    info(
+        "unknown-route-parameter",
+        Warning,
+        true,
+        "A `$name` in a Raxos route path that no parameter fills, or a parent instance no controller above has",
+    ),
+    info(
+        "route-without-return-type",
+        Error,
+        true,
+        "A Raxos route method without a return type, which the router refuses to map",
+    ),
+    info(
+        "unknown-model-key",
+        Warning,
+        true,
+        "A column, property or relation a Raxos model does not have, which its ORM throws for",
     ),
     info(
         "unknown-entity-field",
@@ -583,6 +626,7 @@ pub fn inspect(env: &InspectionEnv) -> Vec<Finding> {
     phpdoc::run(&cx);
     phpunit::run(&cx);
     frameworks::run(&cx);
+    raxos::run(&cx);
     let mut found = cx.found.into_inner();
     found.sort_by_key(|finding| (finding.diagnostic.range.start(), finding.diagnostic.range.end()));
     found.dedup_by(|later, earlier| {

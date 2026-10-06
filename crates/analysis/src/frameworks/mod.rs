@@ -8,6 +8,7 @@ pub(crate) mod complete;
 mod container;
 pub mod dql;
 pub mod keys;
+pub mod raxos;
 pub mod relations;
 pub mod rules;
 

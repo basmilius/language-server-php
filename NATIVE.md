@@ -216,6 +216,7 @@ Constants are `variable` with `readonly`, class constants `property` with `reado
 
 - **Parameter names** in front of positional arguments, left out when the argument already says it: a variable, property, constant or call named like the parameter (`$user_id` for `$userId`, `getName()`), a one-letter or underscore parameter, a function of one argument unless the argument is a bare `true`, `false` or `null`, an argument after a named or spread one, and the arguments of a variadic parameter. Accepting a hint inserts `name: `.
 - **Closure parameter types** for a closure or arrow function whose parameter has no type, from the `callable(User): bool` the callee declares for it, with the templates of the call bound. A type made of built-in types only can be accepted.
+- **Property types**: the type arguments a framework gives a property that has no `@var` (the target of a Raxos to-many relation or a Doctrine collection), after its declared type. They cannot be accepted, since PHP has no generic types.
 
 ## Inspections and fixes
 
@@ -231,7 +232,7 @@ Every inspection has a code, a default severity and a default state, and can be 
 | Classes | `abstract-method-not-implemented`, `interface-method-not-implemented`, `incompatible-override`, `readonly-reassigned`, `enum-misuse` |
 | PHPDoc and style | `phpdoc-unknown-parameter`, `phpdoc-type-mismatch`, `missing-strict-types` (off by default) |
 | Tests | `missing-data-provider`, `missing-test-dependency`, `data-provider-arity`, `missing-double-method`, `double-return-type-mismatch` |
-| Frameworks | `unknown-config-key`, `unknown-route`, `unknown-view`, `unknown-template`, `unknown-translation`, `unknown-relation`, `unknown-validation-rule`, `unknown-cast`, `unknown-entity-field`, `unknown-inertia-page`, `unknown-feature`, `unknown-serializer-group`, `unknown-workflow-name` |
+| Frameworks | `unknown-config-key`, `unknown-route`, `unknown-view`, `unknown-template`, `unknown-translation`, `unknown-relation`, `unknown-validation-rule`, `unknown-cast`, `unknown-entity-field`, `unknown-inertia-page`, `unknown-feature`, `unknown-serializer-group`, `unknown-workflow-name`, `unknown-model-key`, `model-method-mismatch`, `redundant-model-method`, `invalid-model-attribute`, `unknown-route-parameter`, `route-without-return-type`, `message-handler-mismatch` |
 | Templates | `unbalanced-directive`, `unknown-twig-function`, `unknown-twig-filter`, `unknown-twig-test` |
 
 An inspection reports only what is certain, and stays silent where it cannot be. A name is undefined only after the project, its packages and the standard library of the extensions it requires have all been read. A call is not checked when it reaches its callee through `__call` (how a method lent by a `@mixin`, a scope or an `@method` tag is called), neither for being static nor for its arguments; a partial application is not checked for its arguments. A function only documented as `never` (Laravel's `abort()`) keeps `missing-return` silent and does not make the code after it unreachable. `survey` runs every inspection over a project to find the ones that are wrong on code that is right; [MEASUREMENTS.md](./MEASUREMENTS.md) has what it found.
@@ -357,7 +358,7 @@ The server runs nothing; it says what is runnable. `php/runnables` with `{ "uri"
 
 ### How the layer works
 
-Nothing here activates in a project that does not install the framework. `Frameworks::detect` reads `composer.json` and the installed packages: `laravel/framework` or `illuminate/*` turn on the facades and Eloquent (and, with the framework, the conventions of an application), `symfony/framework-bundle` turns on Symfony, `doctrine/orm` the repositories, `twig/twig` Twig. A package such as Livewire, Inertia, Pennant or Filament is on when its base class is in the index.
+Nothing here activates in a project that does not install the framework. `Frameworks::detect` reads `composer.json` and the installed packages: `laravel/framework` or `illuminate/*` turn on the facades and Eloquent (and, with the framework, the conventions of an application), `symfony/framework-bundle` turns on Symfony, `doctrine/orm` the repositories, `twig/twig` Twig, `raxos/database` the Raxos ORM. A package such as Livewire, Inertia, Pennant or Filament is on when its base class is in the index.
 
 What the frameworks declare themselves is read like any other code: docblocks, `@template` and `@extends`, attributes, the arrays of `config/`. What no declaration says is in two overlays, PHP files that are read and never run: `crates/index/src/framework/laravel_overlay.php` and `symfony_overlay.php`. The tags on a function or method are the data:
 
@@ -394,6 +395,16 @@ They are made up when a type is asked for its members (`framework/mod.rs`, calle
 
 **Doctrine.** `#[ORM\Entity(repositoryClass: ...)]` makes `$em->getRepository(User::class)` that repository. The finders give the entity from the `ObjectRepository<T>` the repository implements, and `findByEmail`, `findOneByFirstName` and `countByEmail` exist for its fields. A `Collection` of a `OneToMany` or `ManyToMany` is a `Collection<int, Target>`.
 
+**Raxos.** `framework/raxos/orm.rs` reads every model of the project the way the ORM's structure generator does: a property with `#[Column]`, `#[PrimaryKey]` or `#[ForeignKey]` is a column under its key (the attribute's argument, else its name) and its alias (`#[Alias('x')]`, or the key for a bare `#[Alias]`); one with a relation attribute is a relation to the model a to-many attribute names first, or to the type of the property; `#[Macro]` and `#[Embedded]` are their own kinds. A model is read once per change of a PHP file, since the class name in an attribute needs the imports of its file, and a model below another has the properties of both. What follows from it:
+
+- a `ModelArrayList` property of a to-many relation without a `@var` is a `ModelArrayList<int, Target>`;
+- every relation is a method of its name that gives `QueryInterface<Target>`, which the model answers through `__call`; an `@method` the class writes wins;
+- the strings of `Model::col()` and `column()` name a column, those of `only()`, `makeVisible()`, `makeHidden()`, `ModelArrayList::column()` and `#[Visible]` on a relation any property, and those of `eagerLoad()` a relation. A nested array below a relation key (`only(['buyer' => ['id']])`) is read against that relation's model, `#[Visible]` against the model of the relation it sits on, and the second argument of `#[MapModelRelation]` against the model of the constructor parameter its first names. Each completes, leads to its property and is reported by `unknown-model-key` when the model has no property of that name, alias or key, which the ORM throws for;
+- an `@method` of a model whose property is no relation, or that names another model than its relation, is `model-method-mismatch`; one that says what the relation does is `redundant-model-method`, with a fix that removes the line;
+- `invalid-model-attribute` reports a `#[Macro]` callable whose first parameter cannot take the model or whose return type is a class the property cannot hold, and a `#[Caster]` class that does not implement `CasterInterface`.
+
+`framework/raxos/router.rs` reads the controller tree: `#[Controller(prefix:)]`, the `#[Child]` controllers below it and the routes of its methods (`#[Get]` to `#[Any]`). A controller nobody has as a child is mounted at its own prefix, so a route has one whole path per chain of parents, which hover on its attribute shows. The router puts a parameter into a path where `$name` matches the name of one, so `unknown-route-parameter` reports a `$name` of a prefix that no constructor parameter has, of a route path that no parameter of the method has, and a first argument of `#[MapModelRelation]` that no constructor of the controller or one above has. A route method without a return type is `route-without-return-type`, since the mapper refuses it. `message-handler-mismatch` reports a `#[Handler]` on a message whose class does not implement `HandlerInterface` for that message.
+
 ### Strings that name things
 
 The argument of a function or method the overlay marks is followed like a name: completion of the names the project declares, definition (to the key, the route, the template, the `.env` line), hover, usages in both directions (from the declaration too: the `'home'` of `->name('home')`, a key of `config/app.php`, `#[Route(name:)]`), and for some an inspection. A string the overlay does not mark is not a usage, which keeps a route name out of `Route::prefix('home')`.
@@ -416,6 +427,7 @@ The argument of a function or method the overlay marks is followed like a name: 
 | Serialization group | `#[Groups]` on properties, methods and classes | no group mapping in `config/serializer` or `config/api_platform`; never `Default` |
 | Symfony workflow, transition, place | `framework.workflows` in the YAML of `config/` | no PHP file of `config/` configures workflows |
 | Livewire component | subclasses of `Livewire\Component` below the class namespace, and `Livewire::component()` | never |
+| Raxos model column, property, relation | the ORM properties of the model the call is made on or holds, and of the models above it | the project declares the model |
 
 `%name%` and `%env(NAME)%` in `#[Autowire]` lead to the parameter, the `.env` line and the service. `#[AsEventListener(event:)]`, `dispatch($event, 'name')`, `addListener()` and the keys of `getSubscribedEvents()` complete the events. In `$builder->add('name', |)` and `createForm(|)` the form types complete as `TextType::class`.
 

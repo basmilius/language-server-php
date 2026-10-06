@@ -24,6 +24,8 @@ pub struct Settings {
     pub hint_parameter_names: Option<bool>,
     /// `inlayHints.closureTypes`: show the type a function promises for a closure's parameter.
     pub hint_closure_types: Option<bool>,
+    /// `inlayHints.propertyTypes`: show the type arguments a framework gives a property.
+    pub hint_property_types: Option<bool>,
     /// `inspections`: a switch or a severity per inspection code. `None` when the key is absent.
     pub inspections: Option<InspectionSettings>,
     /// `format`: what the formatter is told to do besides the indentation the client sends.
@@ -96,6 +98,7 @@ impl Settings {
             stubs_path: text("stubsPath").map(PathBuf::from),
             hint_parameter_names: flag("parameterNames"),
             hint_closure_types: flag("closureTypes"),
+            hint_property_types: flag("propertyTypes"),
             inspections: object.get("inspections").map(parse_inspections),
             format: object
                 .get("format")

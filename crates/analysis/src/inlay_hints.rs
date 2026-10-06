@@ -1,5 +1,5 @@
-//! Inlay hints: the name of the parameter an argument goes to, and the type a closure parameter
-//! gets from the function that takes the closure.
+//! Inlay hints: the name of the parameter an argument goes to, the type a closure parameter gets
+//! from the function that takes the closure, and the type arguments a framework gives a property.
 //!
 //! A parameter name is shown for every positional argument except when it says nothing the
 //! argument does not: the argument is named like the parameter (`$name`, `$user->name`,
@@ -36,6 +36,7 @@ pub struct InlayHint {
 pub struct HintOptions {
     pub parameter_names: bool,
     pub closure_types: bool,
+    pub property_types: bool,
 }
 
 impl Default for HintOptions {
@@ -43,6 +44,7 @@ impl Default for HintOptions {
         HintOptions {
             parameter_names: true,
             closure_types: true,
+            property_types: true,
         }
     }
 }
@@ -53,6 +55,12 @@ pub fn inlay_hints(index: &Index, root: &SyntaxNode, range: Option<TextRange>, o
     let mut out = Vec::new();
     for node in root.descendants() {
         if range.is_some_and(|range| range.intersect(node.text_range()).is_none()) {
+            continue;
+        }
+        if node.kind() == PROPERTY_DECLARATION {
+            if options.property_types {
+                property_hints(&ctx, &node, &mut out);
+            }
             continue;
         }
         if !matches!(node.kind(), CALL_EXPR | NEW_EXPR) {
@@ -261,6 +269,53 @@ fn closure_hints(
                 insert: wanted.ty.class_names().is_empty().then(|| format!("{shown} ")),
             });
         }
+    }
+}
+
+/// The type arguments a framework gives a property that has no `@var`, such as the model of a
+/// Raxos relation or a Doctrine collection, drawn after its declared type.
+fn property_hints(ctx: &FileContext<'_>, node: &SyntaxNode, out: &mut Vec<InlayHint>) {
+    let Some(type_node) = node.children().find(|child| child.kind() == NAMED_TYPE) else {
+        return;
+    };
+    let analyzer = ctx.analyzer(node);
+    let Some(class) = &analyzer.class else {
+        return;
+    };
+    let Some(declared) = ctx.index.class(&class.name) else {
+        return;
+    };
+    let receiver = Type::class(class.name.clone());
+    for element in node.children().filter(|child| child.kind() == PROPERTY_ELEMENT) {
+        let Some(variable) = ast::first_token(&element, VARIABLE) else {
+            continue;
+        };
+        let name = variable.text().trim_start_matches('$');
+        if declared
+            .decl
+            .properties
+            .iter()
+            .any(|property| property.name == name && property.doc_ty.is_some())
+        {
+            continue;
+        }
+        let Some(found) = ctx.index.find_property(&receiver, name) else {
+            continue;
+        };
+        let Some(Type::Class { args, .. }) = &found.member.doc_ty else {
+            continue;
+        };
+        if args.is_empty() || args.iter().any(has_template) {
+            continue;
+        }
+        let shown: Vec<String> = args.iter().map(|arg| arg.display(true)).collect();
+        out.push(InlayHint {
+            offset: u32::from(type_node.text_range().end()),
+            label: format!("<{}>", shown.join(", ")),
+            kind: HintKind::Type,
+            insert: None,
+        });
+        return;
     }
 }
 

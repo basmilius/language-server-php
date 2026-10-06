@@ -6,7 +6,11 @@ use crate::testing::Fixture;
 
 /// The text with every hint in angle brackets at its place.
 fn render(files: &[(&str, &str)], text: &str, range: Option<(u32, u32)>) -> String {
-    let fixture = Fixture::with_level(PhpVersion::V8_4, files, &[]).with_current(text);
+    render_in(Fixture::with_level(PhpVersion::V8_4, files, &[]), text, range)
+}
+
+fn render_in(fixture: Fixture, text: &str, range: Option<(u32, u32)>) -> String {
+    let fixture = fixture.with_current(text);
     let root = parse(text).syntax();
     let range = range.map(|(start, end)| TextRange::new(TextSize::from(start), TextSize::from(end)));
     let mut out = text.to_string();
@@ -111,4 +115,26 @@ fn only_hints_the_calls_in_a_range() {
         found,
         "<?php\nuse function Lib\\repeat;\nrepeat('a', 1);\nrepeat(<text:> 'b', <count:> 2);\n"
     );
+}
+
+#[test]
+fn shows_the_model_a_raxos_relation_gives_its_list() {
+    let raxos = "<?php\nnamespace Raxos\\Database\\Orm;\n/**\n * @template TKey of array-key\n * @template TValue\n */\nclass ModelArrayList {}\nclass Model {}\nnamespace Raxos\\Database\\Orm\\Attribute;\n#[\\Attribute] class HasMany { public function __construct(public string $referenceModel) {} }\n";
+    let text = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\HasMany;\nclass Scan extends Model {}\nclass AppTeam extends Model {\n    #[HasMany(Scan::class)]\n    public ModelArrayList $scans;\n    /** @var ModelArrayList<int, Scan> */\n    #[HasMany(Scan::class)]\n    public ModelArrayList $documented;\n}\n";
+    let fixture = Fixture::framework(&[("vendor/raxos/database/Orm.php", raxos)]);
+    expect![[r#"
+        <?php
+        namespace App;
+        use Raxos\Database\Orm\{Model, ModelArrayList};
+        use Raxos\Database\Orm\Attribute\HasMany;
+        class Scan extends Model {}
+        class AppTeam extends Model {
+            #[HasMany(Scan::class)]
+            public ModelArrayList<<int, Scan>>  $scans;
+            /** @var ModelArrayList<int, Scan> */
+            #[HasMany(Scan::class)]
+            public ModelArrayList $documented;
+        }
+    "#]]
+    .assert_eq(&render_in(fixture, text, None));
 }

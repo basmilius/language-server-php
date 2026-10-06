@@ -257,8 +257,13 @@ impl Analyzer<'_> {
 
     pub fn hover(&self, offset: u32) -> Option<HoverResult> {
         let found = self.targets_at(offset);
-        let range = found.first()?.range;
-        let mut sections = Vec::new();
+        let route = crate::frameworks::raxos::route_hover(self, offset);
+        let range = match (found.first(), &route) {
+            (Some(first), _) => first.range,
+            (None, Some((_, range))) => *range,
+            (None, None) => return None,
+        };
+        let mut sections: Vec<String> = route.into_iter().map(|(markdown, _)| markdown).collect();
         for item in &found {
             for description in self.describe(&item.target) {
                 sections.push(hover_markdown(&description));

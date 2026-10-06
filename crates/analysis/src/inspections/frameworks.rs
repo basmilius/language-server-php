@@ -25,7 +25,8 @@ pub(super) fn run(cx: &Cx) {
         || cx.on("unknown-relation")
         || cx.on("unknown-validation-rule")
         || cx.on("unknown-cast")
-        || cx.on("unknown-entity-field");
+        || cx.on("unknown-entity-field")
+        || cx.on("unknown-model-key");
     if !wanted {
         return;
     }
@@ -60,6 +61,15 @@ pub(super) fn run(cx: &Cx) {
             .section::<php_index::framework::eloquent::DynamicRelations>()
             .found;
     for key in keys_in(&cx.file) {
+        if matches!(
+            key.kind,
+            KeyKind::ModelColumn | KeyKind::ModelProperty | KeyKind::ModelRelation
+        ) {
+            if cx.on("unknown-model-key") {
+                unknown_model_key(cx, &key);
+            }
+            continue;
+        }
         if key.kind == KeyKind::Relation {
             if relations {
                 unknown_relations(cx, &key);
@@ -87,6 +97,31 @@ pub(super) fn run(cx: &Cx) {
         };
         cx.report(code, key.range, message, super::Fix::None);
     }
+}
+
+/// A key of a Raxos model the model does not have under any of its names.
+fn unknown_model_key(cx: &Cx, key: &crate::frameworks::keys::KeyString) {
+    let Some(model) = &key.scope else {
+        return;
+    };
+    if key.value.is_empty()
+        || key.value == "*"
+        || !php_index::framework::keys::is_missing_model_key(cx.index, key.kind, model, &key.value)
+    {
+        return;
+    }
+    let short = model.rsplit('\\').next().unwrap_or(model);
+    let what = match key.kind {
+        KeyKind::ModelColumn => "column",
+        KeyKind::ModelRelation => "relation",
+        _ => "property",
+    };
+    cx.report(
+        "unknown-model-key",
+        key.range,
+        format!("The model '{short}' has no {what} '{}'", key.value),
+        super::Fix::None,
+    );
 }
 
 /// The segments of a relation string that name no method of their model at all. A method that is

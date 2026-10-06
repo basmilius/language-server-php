@@ -35,6 +35,7 @@ impl Server<'_> {
         let options = HintOptions {
             parameter_names: self.settings.hint_parameter_names.unwrap_or(true),
             closure_types: self.settings.hint_closure_types.unwrap_or(true),
+            property_types: self.settings.hint_property_types.unwrap_or(true),
         };
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;

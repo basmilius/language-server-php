@@ -43,11 +43,12 @@ enum Place {
     Item,
 }
 
-/// The argument a literal is in, and where in it.
-fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place)> {
+/// The argument a literal is in, where in it, and the string keys of the arrays it is nested in
+/// below the argument's own, outermost first: `['buyer' => ['id']]` puts `id` below `buyer`.
+fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place, Vec<String>)> {
     let parent = literal.parent()?;
     match parent.kind() {
-        ARGUMENT => Some((parent, Place::Argument)),
+        ARGUMENT => Some((parent, Place::Argument, Vec::new())),
         ARRAY_ITEM => {
             let children: Vec<SyntaxNode> = parent.children().collect();
             let place = match children.as_slice() {
@@ -55,9 +56,26 @@ fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place)> {
                 [only] if only == literal => Place::Item,
                 _ => return None,
             };
-            let array = parent.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
-            let argument = array.parent().filter(|node| node.kind() == ARGUMENT)?;
-            Some((argument, place))
+            let mut path = Vec::new();
+            let mut array = parent.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
+            loop {
+                let above = array.parent()?;
+                match above.kind() {
+                    ARGUMENT => {
+                        path.reverse();
+                        return Some((above, place, path));
+                    }
+                    ARRAY_ITEM => {
+                        let [key, value] = above.children().collect::<Vec<_>>().try_into().ok()?;
+                        if value != array || key.kind() != LITERAL {
+                            return None;
+                        }
+                        path.push(php_index::test_facts::string_value(&key)?.0);
+                        array = above.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
+                    }
+                    _ => return None,
+                }
+            }
         }
         _ => None,
     }
@@ -141,11 +159,34 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
         return None;
     }
     let (value, span) = php_index::test_facts::string_value(literal)?;
-    let Some((argument, place)) = argument_of(literal) else {
-        return event_key(analyzer, literal, &value, span)
+    let fallback = || {
+        event_key(analyzer, literal, &value, span)
             .or_else(|| super::casts::cast_key(analyzer, literal, &value, span))
-            .or_else(|| context_group(analyzer, literal, &value, span));
+            .or_else(|| context_group(analyzer, literal, &value, span))
     };
+    let Some((argument, place, path)) = argument_of(literal) else {
+        return fallback();
+    };
+    let found = argument_key(analyzer, &value, span, at, &argument, place, &path);
+    // A string deeper in an array that names nothing of a call may still be a context group.
+    if path.is_empty() {
+        found
+    } else {
+        found.or_else(fallback)
+    }
+}
+
+/// The key a literal is as (a part of) the argument of a call that takes one.
+fn argument_key(
+    analyzer: &Analyzer<'_>,
+    value: &str,
+    span: php_index::Span,
+    at: Option<u32>,
+    argument: &SyntaxNode,
+    place: Place,
+    path: &[String],
+) -> Option<KeyString> {
+    let value = value.to_string();
     let named = argument
         .children_with_tokens()
         .any(|element| element.kind() == COLON)
@@ -164,7 +205,7 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
     let position = list
         .children()
         .filter(|child| child.kind() == ARGUMENT)
-        .position(|child| child == argument)?;
+        .position(|child| &child == argument)?;
     let argument_count = list.children().filter(|child| child.kind() == ARGUMENT).count();
     for callee in callees_of(analyzer, &owner) {
         let index_of = match &named {
@@ -208,8 +249,14 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
                 continue;
             };
             let fits = match kind {
+                KeyKind::ModelProperty => true,
+                _ if !path.is_empty() => false,
                 KeyKind::EntityField => place == Place::Key,
-                KeyKind::Relation | KeyKind::Column | KeyKind::Feature | KeyKind::SerializerGroup => true,
+                KeyKind::Relation
+                | KeyKind::Column
+                | KeyKind::Feature
+                | KeyKind::SerializerGroup
+                | KeyKind::ModelRelation => true,
                 _ => place == Place::Argument,
             };
             if !fits {
@@ -231,6 +278,9 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
                     .receiver_type
                     .as_ref()
                     .and_then(|receiver| super::relations::model_of(analyzer, receiver)),
+                KeyKind::ModelColumn | KeyKind::ModelProperty | KeyKind::ModelRelation => {
+                    super::raxos::model_scope(analyzer, &owner, &callee, path)
+                }
                 _ => callee.receiver.clone(),
             };
             return Some(KeyString {

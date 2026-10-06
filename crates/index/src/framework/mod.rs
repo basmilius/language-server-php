@@ -32,6 +32,7 @@ pub mod livewire;
 pub mod migrations;
 pub mod overlay;
 pub mod pennant;
+pub mod raxos;
 pub mod routes;
 pub mod source;
 pub mod symfony;
@@ -59,6 +60,8 @@ pub struct Frameworks {
     pub doctrine: bool,
     /// `twig/twig`.
     pub twig: bool,
+    /// `raxos/database` or `raxos/router`: the models of the ORM and the controllers of the router.
+    pub raxos: bool,
 }
 
 impl Frameworks {
@@ -71,6 +74,7 @@ impl Frameworks {
             symfony: composer.has_package("symfony/framework-bundle") || composer.has_package("symfony/symfony"),
             doctrine: composer.has_package("doctrine/orm"),
             twig: composer.has_package("twig/twig"),
+            raxos: composer.has_package("raxos/database") || composer.has_package("raxos/router"),
         }
     }
 
@@ -83,6 +87,7 @@ impl Frameworks {
             symfony: true,
             doctrine: true,
             twig: true,
+            raxos: true,
         }
     }
 
@@ -301,6 +306,9 @@ pub(crate) fn extend_methods<'a>(
     if index.framework.frameworks.doctrine {
         symfony::doctrine::extend_methods(index, ancestors, only, out, names);
     }
+    if index.framework.frameworks.raxos {
+        raxos::orm::extend_methods(index, ancestors, only, out, names);
+    }
 }
 
 /// Adds the properties the frameworks make up at run time.
@@ -316,6 +324,9 @@ pub(crate) fn extend_properties<'a>(
     }
     if index.framework.frameworks.doctrine {
         symfony::doctrine::extend_properties(index, ancestors, only, out);
+    }
+    if index.framework.frameworks.raxos {
+        raxos::orm::extend_properties(index, only, out);
     }
 }
 
@@ -372,6 +383,8 @@ mod tests {
         assert!(support.facades && !support.eloquent);
         let symfony = detect(json!({ "symfony/framework-bundle": "8.1.*", "doctrine/orm": "^3", "twig/twig": "^3" }));
         assert!(symfony.symfony && symfony.doctrine && symfony.twig && !symfony.laravel);
+        let raxos = detect(json!({ "raxos/database": "^3.3" }));
+        assert!(raxos.raxos && !raxos.eloquent && !raxos.doctrine);
         assert!(!detect(json!({ "php": "^8.3", "monolog/monolog": "^3" })).any());
     }
 

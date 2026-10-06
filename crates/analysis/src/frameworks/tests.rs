@@ -1831,3 +1831,381 @@ mod workflow {
         assert_eq!(found, ["No workflow has the transition 'archive'"]);
     }
 }
+
+mod raxos {
+    use php_index::framework::testing::RAXOS;
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    const ORDER: &str = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\{Alias, BelongsTo, Column, HasMany, PrimaryKey, Visible};\nclass Order extends Model {\n    #[PrimaryKey] public int $id;\n    #[Column('created_on')] public string $createdOn;\n    #[BelongsTo] public ?User $buyer;\n    #[HasMany(OrderLine::class)] #[Visible(['id'])] public ModelArrayList $lines;\n}\n";
+    const USER: &str = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\Model;\nuse Raxos\\Database\\Orm\\Attribute\\{Alias, Column};\nclass User extends Model {\n    #[Column('first_name')] #[Alias('firstName')] public string $firstName;\n    #[Column] public string $email;\n}\n";
+    const LINE: &str = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\Model;\nuse Raxos\\Database\\Orm\\Attribute\\Column;\nclass OrderLine extends Model {\n    #[Column] public int $quantity;\n}\n";
+
+    fn project() -> Fixture {
+        let mut files = RAXOS.to_vec();
+        files.extend_from_slice(&[
+            ("src/Order.php", ORDER),
+            ("src/User.php", USER),
+            ("src/OrderLine.php", LINE),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    fn with_imports(body: &str) -> String {
+        format!(
+            "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\Attribute\\Visible;\nfunction f(Order $order) {{\n    {body}\n}}\n"
+        )
+    }
+
+    fn completions(body: &str) -> Vec<String> {
+        let code = with_imports(body);
+        let fixture = project().with_current(&code);
+        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let mut labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        labels.sort();
+        labels
+    }
+
+    fn findings(body: &str) -> Vec<String> {
+        let code = with_imports(body);
+        let fixture = project().with_current(&code);
+        let root = php_syntax::parse(&code).syntax();
+        let externals = Externals::none();
+        let settings = InspectionSettings::default();
+        let env = InspectionEnv {
+            index: &fixture.index,
+            text: &code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        };
+        inspect(&env)
+            .into_iter()
+            .filter(|finding| finding.diagnostic.code == "unknown-model-key")
+            .map(|finding| finding.diagnostic.message)
+            .collect()
+    }
+
+    #[test]
+    fn completes_the_keys_of_the_model() {
+        assert_eq!(completions("Order::col('$0');"), ["created_on", "id"]);
+        assert_eq!(
+            completions("$order->only(['id', '$0']);"),
+            ["buyer", "createdOn", "id", "lines"]
+        );
+        assert_eq!(
+            completions("$order->only(['buyer' => ['$0']]);"),
+            ["email", "firstName"]
+        );
+        assert_eq!(completions("Order::select()->eagerLoad(['$0']);"), ["buyer", "lines"]);
+        assert_eq!(completions("$order->lines->makeVisible(['$0']);"), ["quantity"]);
+    }
+
+    #[test]
+    fn a_relation_is_a_method_with_its_query() {
+        let code = with_imports("$buyer = $order->buyer()->single();\n    $lines = $order->lines;\n    $0");
+        let fixture = project().with_current(&code);
+        let (_, root, offset) = split_cursor(&code);
+        let analyzer = Analyzer::new(&fixture.index, &root, offset);
+        let env = analyzer.env_at(offset);
+        let shown = |name: &str| env.get(name).map(|ty| ty.display(true)).unwrap_or_default();
+        assert_eq!(shown("buyer"), "?User");
+        assert_eq!(shown("lines"), "ModelArrayList<int, OrderLine>");
+    }
+
+    #[test]
+    fn a_key_leads_to_its_property() {
+        let code = with_imports("Order::col('created$0_on');");
+        let fixture = project().with_current(&code);
+        let (_, root, offset) = split_cursor(&code);
+        let analyzer = Analyzer::new(&fixture.index, &root, offset);
+        let found: Vec<String> = analyzer
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+                source[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect();
+        assert_eq!(found, ["$createdOn"]);
+    }
+
+    #[test]
+    fn visible_on_a_relation_names_the_keys_of_its_model() {
+        let code = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\{HasMany, Visible};\nclass Shop extends Model {\n    #[HasMany(OrderLine::class)] #[Visible(['quantity', 'price'])] public ModelArrayList $lines;\n}\n";
+        let fixture = project().with_current(code);
+        let root = php_syntax::parse(code).syntax();
+        let externals = Externals::none();
+        let settings = InspectionSettings::default();
+        let env = InspectionEnv {
+            index: &fixture.index,
+            text: code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        };
+        let found: Vec<String> = inspect(&env)
+            .into_iter()
+            .filter(|finding| finding.diagnostic.code == "unknown-model-key")
+            .map(|finding| finding.diagnostic.message)
+            .collect();
+        assert_eq!(found, ["The model 'OrderLine' has no property 'price'"]);
+    }
+
+    #[test]
+    fn reports_the_keys_the_model_lacks() {
+        assert_eq!(
+            findings(
+                "Order::col('nope');\n    Order::col('createdOn');\n    Order::col('*');\n    $order->only(['buyer' => ['first_name', 'phone']]);\n    Order::select()->eagerLoad(['created_on']);"
+            ),
+            [
+                "The model 'Order' has no column 'nope'",
+                "The model 'User' has no property 'phone'",
+                "The model 'Order' has no relation 'created_on'",
+            ]
+        );
+    }
+
+    const MERCHANT: &str = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\HasMany;\nclass Merchant extends Model {\n    #[HasMany(Order::class)] public ModelArrayList $orders;\n}\n";
+    const MERCHANT_CONTROLLER: &str = "<?php\nnamespace App;\nuse Raxos\\Router\\Attribute\\{Child, Controller};\n#[Controller(prefix: '/merchants/$merchant')]\n#[Child(OrderController::class)]\nclass MerchantController {\n    public function __construct(public Merchant $merchant) {}\n}\n";
+    const ORDER_CONTROLLER: &str = "<?php\nnamespace App;\nuse Raxos\\Router\\Attribute\\{Controller, Get, MapModelRelation, Post};\n#[Controller(prefix: 'orders/$order')]\nclass OrderController {\n    public function __construct(#[MapModelRelation('merchant', 'orders')] public Order $order) {}\n    #[Get('lines/$lineId')] public function line(int $line): Order {}\n    #[Post] public function update() {}\n}\n";
+
+    fn router_project(current: &str) -> Fixture {
+        let mut files = RAXOS.to_vec();
+        files.extend_from_slice(&[
+            ("src/Order.php", ORDER),
+            ("src/User.php", USER),
+            ("src/OrderLine.php", LINE),
+            ("src/Merchant.php", MERCHANT),
+            ("src/MerchantController.php", MERCHANT_CONTROLLER),
+        ]);
+        Fixture::framework(&files).with_current(current)
+    }
+
+    fn router_findings(code: &str) -> Vec<(&'static str, String)> {
+        let fixture = router_project(code);
+        let root = php_syntax::parse(code).syntax();
+        let externals = Externals::none();
+        let settings = InspectionSettings::default();
+        let env = InspectionEnv {
+            index: &fixture.index,
+            text: code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        };
+        inspect(&env)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.diagnostic.code,
+                    "unknown-route-parameter" | "route-without-return-type" | "unknown-model-key"
+                )
+            })
+            .map(|finding| (finding.diagnostic.code, finding.diagnostic.message))
+            .collect()
+    }
+
+    #[test]
+    fn checks_what_the_router_reads_from_attributes() {
+        assert_eq!(
+            router_findings(ORDER_CONTROLLER),
+            [
+                (
+                    "unknown-route-parameter",
+                    "No parameter of 'line()' is named '$lineId', so the path keeps it as text".to_string()
+                ),
+                (
+                    "route-without-return-type",
+                    "The route 'update()' needs a return type, which the router reads".to_string()
+                ),
+            ]
+        );
+        let wrong = ORDER_CONTROLLER
+            .replace("'merchant', 'orders'", "'shop', 'orders'")
+            .replace("prefix: 'orders/$order'", "prefix: 'orders/$id'");
+        let found: Vec<String> = router_findings(&wrong)
+            .into_iter()
+            .map(|(_, message)| message)
+            .collect();
+        assert!(
+            found.contains(&"No parameter of the constructor is named '$id', so the path keeps it as text".to_string())
+        );
+        assert!(
+            found.contains(&"Neither this controller nor one above has a constructor parameter '$shop'".to_string())
+        );
+        let own = ORDER_CONTROLLER.replace(
+            "line(int $line)",
+            "line(int $lineId, #[MapModelRelation('order', 'lines')] OrderLine $item)",
+        );
+        assert_eq!(
+            router_findings(&own),
+            [(
+                "route-without-return-type",
+                "The route 'update()' needs a return type, which the router reads".to_string()
+            )]
+        );
+        let relation = ORDER_CONTROLLER.replace("'merchant', 'orders'", "'merchant', 'buyers'");
+        assert!(router_findings(&relation).contains(&(
+            "unknown-model-key",
+            "The model 'Merchant' has no relation 'buyers'".to_string()
+        )));
+    }
+
+    #[test]
+    fn hover_on_a_route_shows_its_whole_path() {
+        let code = ORDER_CONTROLLER.replace("#[Get('lines/", "#[Get('li$0nes/");
+        let fixture = router_project(&code);
+        let (_, root, offset) = split_cursor(&code);
+        let analyzer = Analyzer::new(&fixture.index, &root, offset);
+        let markdown = analyzer.hover(offset).map(|hover| hover.markdown).unwrap_or_default();
+        assert!(
+            markdown.starts_with("```\nGET /merchants/$merchant/orders/$order/lines/$lineId\n```"),
+            "{markdown}"
+        );
+    }
+
+    #[test]
+    fn checks_the_methods_a_model_documents() {
+        let code = "<?php\nnamespace App;\nuse Raxos\\Contract\\Database\\Query\\QueryInterface;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\{Column, HasMany, Macro};\n/**\n * @method QueryInterface<OrderLine> lines()\n * @method QueryInterface<OrderLine> label()\n * @method QueryInterface<User> other()\n * @method QueryInterface<User> extras()\n */\nclass Basket extends Model {\n    #[HasMany(OrderLine::class)] public ModelArrayList $lines;\n    #[HasMany(OrderLine::class)] public ModelArrayList $extras;\n    #[Macro(BasketMacro::label(...))] public string $label;\n}\n";
+        let fixture = router_project(code);
+        let root = php_syntax::parse(code).syntax();
+        let externals = Externals::none();
+        let settings = InspectionSettings::default();
+        let env = InspectionEnv {
+            index: &fixture.index,
+            text: code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        };
+        let found: Vec<(&str, String, String)> = inspect(&env)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.diagnostic.code,
+                    "model-method-mismatch" | "redundant-model-method"
+                )
+            })
+            .map(|finding| {
+                let range = finding.diagnostic.range;
+                (
+                    finding.diagnostic.code,
+                    finding.diagnostic.message,
+                    code[usize::from(range.start())..usize::from(range.end())].to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "redundant-model-method",
+                    "'lines()' is known from the relation '$lines'".to_string(),
+                    "@method QueryInterface<OrderLine> lines()".to_string()
+                ),
+                (
+                    "model-method-mismatch",
+                    "'$label' is no relation, so the model throws for 'label()'".to_string(),
+                    "@method QueryInterface<OrderLine> label()".to_string()
+                ),
+                (
+                    "model-method-mismatch",
+                    "The relation '$extras' gives 'OrderLine', not 'User'".to_string(),
+                    "@method QueryInterface<User> extras()".to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn checks_macros_and_casters() {
+        let macros = "<?php\nnamespace App;\nclass BasketMacro {\n    public static function total(Basket $basket): Cost {}\n    public static function forOrder(Order $order): Cost {}\n    public static function label(Basket $basket): User {}\n}\nclass Cost {}\nclass CostCaster implements \\Raxos\\Contract\\Database\\Orm\\CasterInterface {}\nclass NotACaster {}\n";
+        let code = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\Model;\nuse Raxos\\Database\\Orm\\Attribute\\{Caster, Column, Macro};\nclass Basket extends Model {\n    #[Macro(BasketMacro::total(...))] public Cost $total;\n    #[Macro(callback: BasketMacro::forOrder(...))] public Cost $other;\n    #[Macro(BasketMacro::label(...))] public Cost $label;\n    #[Column] #[Caster(CostCaster::class)] public Cost $price;\n    #[Column] #[Caster(NotACaster::class)] public Cost $fee;\n}\n";
+        let mut files = RAXOS.to_vec();
+        files.extend_from_slice(&[
+            ("src/Order.php", ORDER),
+            ("src/User.php", USER),
+            ("src/OrderLine.php", LINE),
+            ("src/BasketMacro.php", macros),
+            (
+                "vendor/raxos/contract/src/Database/Orm/CasterInterface.php",
+                "<?php namespace Raxos\\Contract\\Database\\Orm; interface CasterInterface {}",
+            ),
+        ]);
+        let fixture = Fixture::framework(&files).with_current(code);
+        let root = php_syntax::parse(code).syntax();
+        let externals = Externals::none();
+        let settings = InspectionSettings::default();
+        let env = InspectionEnv {
+            index: &fixture.index,
+            text: code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        };
+        let found: Vec<String> = inspect(&env)
+            .into_iter()
+            .filter(|finding| finding.diagnostic.code == "invalid-model-attribute")
+            .map(|finding| finding.diagnostic.message)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "'BasketMacro::forOrder()' does not take a 'Basket'",
+                "'BasketMacro::label()' gives a 'User', which the property cannot hold",
+                "'NotACaster' does not implement CasterInterface",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_message_names_a_handler_of_it() {
+        let bus = "<?php\nnamespace Raxos\\Contract\\MessageBus;\ninterface MessageInterface {}\n/** @template TMessage of MessageInterface */\ninterface HandlerInterface {}\nnamespace Raxos\\MessageBus\\Attribute;\n#[\\Attribute] class Handler { public function __construct(public string $handler) {} }\n";
+        let handlers = "<?php\nnamespace App;\nuse Raxos\\Contract\\MessageBus\\HandlerInterface;\n/** @implements HandlerInterface<Ping> */\nclass PingHandler implements HandlerInterface {}\n/** @implements HandlerInterface<Pong> */\nclass PongHandler implements HandlerInterface {}\nclass Plain {}\n";
+        let code = "<?php\nnamespace App;\nuse Raxos\\Contract\\MessageBus\\MessageInterface;\nuse Raxos\\MessageBus\\Attribute\\Handler;\n#[Handler(PingHandler::class)] class Ping implements MessageInterface {}\n#[Handler(PingHandler::class)] class Pong implements MessageInterface {}\n#[Handler(Plain::class)] class Pang implements MessageInterface {}\n";
+        let mut files = RAXOS.to_vec();
+        files.extend_from_slice(&[
+            ("vendor/raxos/message-bus/Bus.php", bus),
+            ("src/Handlers.php", handlers),
+        ]);
+        let fixture = Fixture::framework(&files).with_current(code);
+        let root = php_syntax::parse(code).syntax();
+        let externals = Externals::none();
+        let settings = InspectionSettings::default();
+        let env = InspectionEnv {
+            index: &fixture.index,
+            text: code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        };
+        let found: Vec<String> = inspect(&env)
+            .into_iter()
+            .filter(|finding| finding.diagnostic.code == "message-handler-mismatch")
+            .map(|finding| finding.diagnostic.message)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "'PingHandler' handles 'Ping', not 'Pong'",
+                "'Plain' does not implement HandlerInterface"
+            ]
+        );
+    }
+}

@@ -33,7 +33,7 @@ The formatter follows PER Coding Style 2.0, with the [settings](./configuration.
 
 ## Frameworks
 
-Support turns on by the packages Composer installed: `laravel/framework` or `illuminate/*` for Laravel, `symfony/framework-bundle` for Symfony, `doctrine/orm` for Doctrine and `twig/twig` for Twig; Livewire, Inertia, Pennant, Filament, Messenger and the rest when their classes are installed. The server boots no framework. Names complete, hover, lead to their declaration and have usages; a missing one is only reported where the code is literal, so a route made in a loop or a computed config key is never called missing.
+Support turns on by the packages Composer installed: `laravel/framework` or `illuminate/*` for Laravel, `symfony/framework-bundle` for Symfony, `doctrine/orm` for Doctrine and `twig/twig` for Twig and `raxos/database` or `raxos/router` for Raxos; Livewire, Inertia, Pennant, Filament, Messenger and the rest when their classes are installed. The server boots no framework. Names complete, hover, lead to their declaration and have usages; a missing one is only reported where the code is literal, so a route made in a loop or a computed config key is never called missing.
 
 ### Laravel
 
@@ -54,6 +54,14 @@ Support turns on by the packages Composer installed: `laravel/framework` or `ill
 - Go to implementation on a Messenger message lists its handlers.
 - Workflow transitions, places and names lead to the workflow configuration.
 - The YAML of `config/`: parameters, environment variables, service references, the classes of services and the controllers of routes hover, complete and lead to their declarations, and are found as usages from PHP. A class that does not exist is reported.
+
+### Raxos
+
+- A `ModelArrayList` property with `#[HasMany]`, `#[HasManyThrough]` or `#[BelongsToMany]` holds the model the attribute names, so `$team->scans->first()->` completes without a `@var`. An inlay hint shows the type after the declaration.
+- Every relation is also a method that gives its query, so `$order->buyer()->` completes without an `@method` line. An `@method` that says the same is marked as redundant and can be removed; one for a property that is no relation, or with another model, is reported.
+- Column keys in `Model::col('created_on')`, property names in `only()`, `makeVisible()`, `makeHidden()` and `#[Visible]`, and relation names in `eagerLoad()` and `#[MapModelRelation]` complete, lead to their property and are reported when the model lacks them. A nested array below a relation key is read against the related model.
+- A `#[Macro]` callable that does not take the model or gives a class the property cannot hold, a `#[Caster]` that is no caster and a `#[Handler]` that does not handle its message are reported.
+- Hover on `#[Get]`, `#[Post]` or `#[Controller]` shows the whole path, with the prefixes of the parent controllers. A `$name` in a path that no parameter fills, a `#[MapModelRelation]` parent no controller provides and a route without a return type are reported.
 
 ### Templates
 

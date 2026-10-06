@@ -32,7 +32,7 @@ php-language-server --stdio
 ## Limits
 
 - PHP 8.6 syntax is known; a project that names no level is read at 8.5 until 8.6 is released.
-- Frameworks and packages are modeled where they give strings and members meaning: Laravel, Eloquent, Livewire, Inertia, Pennant, Filament, Symfony, Doctrine, API Platform's serialization groups, Messenger and Workflow. Other packages get what their declarations and PHPDoc say.
+- Frameworks and packages are modeled where they give strings and members meaning: Laravel, Eloquent, Livewire, Inertia, Pennant, Filament, Symfony, Doctrine, API Platform's serialization groups, Messenger, Workflow and the Raxos ORM. Other packages get what their declarations and PHPDoc say.
 - Usages are found in the project, and in installed packages when `usages.packages` asks for them, across PHP, Blade, Twig and the YAML of a Symfony project. Strings count when a framework gives them meaning or when they hold a qualified class name; other strings and ordinary comments do not.
 - Nothing is run: dynamic code, such as variable variables and members made at run time, gives `mixed`, and a name built at run time is never reported as missing.
 

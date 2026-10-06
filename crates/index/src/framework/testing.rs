@@ -400,3 +400,82 @@ pub const VALIDATION: &[(&str, &str)] = &[
         "<?php\nreturn new class {\n    public function up() {\n        Schema::create('users', function (Blueprint $table) {\n            $table->id();\n            $table->string('email');\n        });\n    }\n};\n",
     ),
 ];
+
+/// Enough of the Raxos ORM for models, their relations and their keys.
+pub const RAXOS: &[(&str, &str)] = &[
+    (
+        "vendor/raxos/database/src/Orm/Attribute/Attributes.php",
+        r#"<?php
+namespace Raxos\Database\Orm\Attribute;
+#[\Attribute] class Table { public function __construct(public string $name) {} }
+#[\Attribute] class Column { public function __construct(public ?string $key = null) {} }
+#[\Attribute] class PrimaryKey extends Column {}
+#[\Attribute] class ForeignKey extends Column {}
+#[\Attribute] class Alias { public function __construct(public ?string $alias = null) {} }
+#[\Attribute] class Computed {}
+#[\Attribute] class Hidden {}
+#[\Attribute] class Visible { public function __construct(public array|string|null $only = null) {} }
+#[\Attribute] class Macro { public function __construct(public \Closure $callback, public bool $isCached = true) {} }
+#[\Attribute] class Embedded { public function __construct(public ?string $prefix = null) {} }
+#[\Attribute] class BelongsTo { public function __construct(public ?string $referenceKey = null) {} }
+#[\Attribute] class HasOne { public function __construct(public ?string $referenceKey = null) {} }
+#[\Attribute] class HasMany { public function __construct(public string $referenceModel, public ?string $referenceKey = null, public ?string $orderBy = null) {} }
+#[\Attribute] class HasManyThrough { public function __construct(public string $referenceModel, public string $linkingModel) {} }
+#[\Attribute] class BelongsToMany { public function __construct(public string $referenceModel, public ?string $linkingTable = null) {} }
+"#,
+    ),
+    (
+        "vendor/raxos/database/src/Orm/Model.php",
+        r#"<?php
+namespace Raxos\Database\Orm;
+use Raxos\Contract\Database\Query\QueryInterface;
+abstract class Model {
+    public function __call(string $name, array $arguments): QueryInterface {}
+    public static function col(string $key): ColumnRef {}
+    public static function column(string $key, ?string $table = null): ColumnRef {}
+    /** @return QueryInterface<static> */
+    public static function select(): QueryInterface {}
+    public function only(array|string $keys): static {}
+    public function makeVisible(array|string $keys): static {}
+    public function makeHidden(array|string $keys): static {}
+}
+class ColumnRef {}
+/**
+ * @template TKey of array-key
+ * @template TValue of Model
+ */
+class ModelArrayList {
+    /** @return TValue|null */
+    public function first(): mixed {}
+    public function only(array|string $keys): static {}
+    public function makeVisible(array|string $keys): static {}
+    public function makeHidden(array|string $keys): static {}
+    public function column(string $key): static {}
+}
+"#,
+    ),
+    (
+        "vendor/raxos/router/src/Attribute/Attributes.php",
+        r#"<?php
+namespace Raxos\Router\Attribute;
+#[\Attribute] class Controller { public function __construct(public string $prefix = '/') {} }
+#[\Attribute] class Child { public function __construct(public string $controller) {} }
+#[\Attribute] class Get { public function __construct(string $path = '/') {} }
+#[\Attribute] class Post { public function __construct(string $path = '/') {} }
+#[\Attribute] class MapModelRelation { public function __construct(public string $parentInstanceName, public string $relationKey) {} }
+"#,
+    ),
+    (
+        "vendor/raxos/contract/src/Database/Query/QueryInterface.php",
+        r#"<?php
+namespace Raxos\Contract\Database\Query;
+/** @template TModel */
+interface QueryInterface {
+    public function where(mixed $lhs, mixed $cmp = null, mixed $rhs = null): static;
+    public function eagerLoad(array|string $relations): static;
+    /** @return TModel|null */
+    public function single(): mixed;
+}
+"#,
+    ),
+];

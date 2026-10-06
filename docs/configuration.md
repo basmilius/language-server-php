@@ -20,6 +20,7 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
 | `stubsPath`                 | none    | A folder of phpstorm-stubs to read instead of downloading them                           |
 | `inlayHints.parameterNames` | `true`  | Names of parameters before arguments                                                     |
 | `inlayHints.closureTypes`   | `true`  | The types of closure parameters and returns                                              |
+| `inlayHints.propertyTypes`  | `true`  | The type arguments a framework gives a property, such as the model of a relation         |
 | `inspections`               |         | Per inspection code: `false` or `'off'`, a severity, or `{ enabled, severity }`          |
 | `format`                    |         | The [formatter](#formatter)                                                              |
 | `usages.packages`           | `false` | Find usages and incoming calls also read the installed packages                          |

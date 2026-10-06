@@ -7,6 +7,7 @@ use super::abilities::Abilities;
 use super::config::ConfigKeys;
 use super::env::EnvNames;
 use super::layouts::{Layouts, attribute_key, component_template, kebab, props_of, slots_of};
+use super::raxos::orm::{ModelProperty, ModelPropertyKind, Models, properties_of};
 use super::routes::Routes;
 use super::symfony::doctrine::Entities;
 use super::symfony::events::EventNames;
@@ -73,6 +74,12 @@ pub enum KeyKind {
     WorkflowTransition,
     /// A place of a Symfony workflow.
     WorkflowPlace,
+    /// A column of the Raxos model the scope names, by its key, alias or property name.
+    ModelColumn,
+    /// Any property the Raxos ORM knows of the model the scope names: a column, relation or macro.
+    ModelProperty,
+    /// A relation of the Raxos model the scope names.
+    ModelRelation,
 }
 
 impl KeyKind {
@@ -114,6 +121,9 @@ impl KeyKind {
             "workflow" => KeyKind::Workflow,
             "workflow-transition" => KeyKind::WorkflowTransition,
             "workflow-place" => KeyKind::WorkflowPlace,
+            "model-column" => KeyKind::ModelColumn,
+            "model-property" => KeyKind::ModelProperty,
+            "model-relation" => KeyKind::ModelRelation,
             _ => return None,
         })
     }
@@ -148,6 +158,9 @@ impl KeyKind {
             KeyKind::Workflow => "workflow",
             KeyKind::WorkflowTransition => "workflow transition",
             KeyKind::WorkflowPlace => "workflow place",
+            KeyKind::ModelColumn => "model column",
+            KeyKind::ModelProperty => "model property",
+            KeyKind::ModelRelation => "model relation",
         }
     }
 
@@ -201,6 +214,11 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
     let frameworks = index.frameworks();
     let mut out = Vec::new();
     match kind {
+        KeyKind::ModelColumn | KeyKind::ModelProperty | KeyKind::ModelRelation => {
+            if let Some(model) = scope {
+                out.extend(model_candidates(index, kind, model));
+            }
+        }
         KeyKind::Field => {
             if let Some(class) = scope {
                 out.extend(
@@ -562,11 +580,71 @@ fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
     out
 }
 
+/// Whether a property of a Raxos model can be named where this kind of key is written.
+fn model_fits(kind: KeyKind, property: &ModelProperty) -> bool {
+    match kind {
+        KeyKind::ModelColumn => property.is_column(),
+        KeyKind::ModelRelation => matches!(property.kind, ModelPropertyKind::Relation { .. }),
+        _ => true,
+    }
+}
+
+/// The names a Raxos model answers to for a kind: the key of a column, else the property's name.
+fn model_candidates(index: &Index, kind: KeyKind, model: &str) -> Vec<Candidate> {
+    properties_of(index, model)
+        .iter()
+        .filter(|(_, property)| model_fits(kind, property))
+        .map(|(_, property)| match (&property.kind, kind) {
+            (ModelPropertyKind::Column { key, .. }, KeyKind::ModelColumn) => {
+                candidate(key, (key != &property.name).then(|| format!("${}", property.name)))
+            }
+            (ModelPropertyKind::Relation { target, .. }, _) => candidate(
+                &property.name,
+                target
+                    .as_deref()
+                    .map(|target| crate::types::short_name(target).to_string()),
+            ),
+            _ => candidate(&property.name, None),
+        })
+        .collect()
+}
+
+/// The property of a Raxos model a key names, under any of its names.
+fn model_definition(index: &Index, kind: KeyKind, model: &str, key: &str) -> Option<Definition> {
+    let models = index.section::<Models>();
+    properties_of(index, model)
+        .into_iter()
+        .find(|(_, property)| model_fits(kind, property) && property.answers_to(key))
+        .and_then(|(declaring, property)| {
+            let info = models.get(&declaring)?;
+            Some(definition(
+                &info.path,
+                property.name_span,
+                format!("${}", property.name),
+            ))
+        })
+}
+
+/// Whether a key names nothing a Raxos model has, which the ORM throws for at run time. A model
+/// the project does not declare is never said to miss anything.
+pub fn is_missing_model_key(index: &Index, kind: KeyKind, model: &str, key: &str) -> bool {
+    let properties = properties_of(index, model);
+    !properties.is_empty()
+        && !properties
+            .iter()
+            .any(|(_, property)| model_fits(kind, property) && property.answers_to(key))
+}
+
 /// Where a name is declared.
 pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>) -> Vec<Definition> {
     let frameworks = index.frameworks();
     let mut out = Vec::new();
     match kind {
+        KeyKind::ModelColumn | KeyKind::ModelProperty | KeyKind::ModelRelation => {
+            if let Some(model) = scope {
+                out.extend(model_definition(index, kind, model, key));
+            }
+        }
         KeyKind::Field => {
             if let Some(class) = scope {
                 out.extend(
