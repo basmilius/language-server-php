@@ -579,6 +579,19 @@ Limits: `$loop` is a `stdClass`, since the type layer has no object shapes, so i
 
 `cargo run --release -p php-analysis --example blade_survey -- <project> <stubs>` reads every template of a project and asks hover, definition and completion at a spread of offsets. On `laravelio/laravel.io` (199 templates with Livewire's) the templates are read in 5 ms together, the longest (392 lines) in 0.1 ms; 155,130 requests take 0.46 ms on average and none panics. The slowest requests (about 100 ms) are completions at a place that offers every class, which take as long in a PHP file. Of the 1,362 variables in the templates' PHP, 1,106 have no type when a template is read alone and 672 with what the places that render it give it, which takes 3 ms per template on average and 46 ms for the slowest (a component used from many templates). Most of what is left is Laravel's own pagination templates, which are rendered from inside the framework, Livewire views, and values the type layer cannot type at the call site (a paginator). Finding the 100 usages of a model method across 38 files, templates included, takes 29 ms.
 
+### Twig templates
+
+A document with the language id `twig` (or a path ending in `.twig`) is read as Twig (`crates/analysis/src/twig/`), not as PHP. The lexer follows Twig's: markup, `{{ }}` and `{% %}` with their `-` and `~`, `{# #}` comments, `{% verbatim %}` and `{% raw %}` left as markup, strings that may hold a `}}`. Expressions are read by precedence as Twig does (`~` binds tighter than `+`, `is` and `is not` tests, `??`, `?:`, arrow functions, hashes with shorthand keys, named arguments), and never fail: what is missing is a hole, which completion needs while a person types. The tags that matter are read by their shape (`extends`, `include`, `embed`, `use`, `import`, `from`, `block` in both forms, `for`, `set`, `macro`, `apply`); any other tag is read as the expressions in it.
+
+What a template names:
+
+- templates: the strings of `extends`, `include`, `embed`, `use`, `import`, `from`, `form_theme` and of a list or a condition among them, which complete, lead to the file and have usages;
+- blocks: `{% block name %}` and `block('name')`, which complete from the blocks of the template's parents and lead to them (`framework/twig.rs` reads the parent and the blocks of every template), and whose usages are the blocks of that name in every template;
+- functions, filters and tests: the ones the extensions of the project and its packages declare, read from `new TwigFunction('name', callable, options)` (and `TwigFilter`, `TwigTest`) in every class that implements `Twig\Extension\ExtensionInterface`, Twig's own `CoreExtension` among them, from `#[AsTwigFunction]`, `#[AsTwigFilter]` and `#[AsTwigTest]` on the methods of the project's classes, and with patterns such as `render_*`. They complete after `|`, `is` and where a name stands alone, hover with the PHP that runs for them, and lead to it;
+- the strings the PHP behind a function or a filter takes as a name: Twig's arguments are laid onto the PHP method's parameters (after the environment, the charset and the context the options say Twig passes, and with a filter's subject first), and the overlay says which name it takes, so `path('blog_index')` is a route, `'post.title'|trans` a translation and `include('blog/_post.html.twig')` a template, with completion, definition and usages in both directions: finding the usages of a route from its `#[Route]` lists the `path()` calls of the templates too. The overlay has `RoutingExtension::getPath` and `getUrl`, `TranslationExtension::trans` and `createTranslatable`, and `CoreExtension::include` and `source`.
+
+The templates of the project are part of the index of words, so a search reads only the ones that may hold a name. On `symfony/symfony-demo` the 32 templates are read in 2 ms together; 202 functions, filters and tests are declared and every one of the 277 the templates call is found among them; finding the usages of the 8 route names its PHP marks goes from 12 places to 35; 20,583 requests at a spread of offsets take 0.02 ms each on average, and none panics (`cargo run --release -p php-analysis --example twig_survey -- <project> <stubs>`).
+
 ## Build, test and run
 
 ```sh
@@ -642,7 +655,7 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Twig as a language of its own (variables, tags, filters and functions, template inheritance), and YAML and Twig documents for the strings that are completed in PHP now. Livewire and Inertia.
+- The variables of Twig templates and their types, diagnostics in Twig, and YAML documents for the strings that are completed in PHP now. Livewire and Inertia.
 - DQL and the Doctrine query builder (aliases, fields in `->andWhere('u.email')`), Eloquent query strings (`with('author')`, `where('author.name')`, `whereHas`), validation rule strings and `$casts` strings.
 - Other frameworks and packages in the same overlay format (Livewire, Filament, Pennant, API Platform, Symfony Messenger and Workflow), and the container of Laravel's `bootstrap/app.php` and `bind` calls outside providers.
 - Composer autoload maps beyond PSR-4 and PSR-0 (classmap authoritative, `files` reading by name), and the `@psalm-type` aliases of phase 5's list.

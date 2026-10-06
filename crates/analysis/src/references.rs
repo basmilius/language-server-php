@@ -139,6 +139,9 @@ pub fn symbols_in_current(
     current: &Current,
     offset: u32,
 ) -> Option<(TextRange, Vec<Symbol>)> {
+    if crate::twig::is_template(current.path) {
+        return crate::twig::symbols_at(index, Some(current.path), current.text, offset);
+    }
     if crate::blade::is_template(current.path) {
         let given = crate::blade::data::given(index, sources, current.path);
         return crate::blade::symbols_at(index, Some(current.path), current.text, &given, offset);
@@ -163,6 +166,9 @@ fn hits_in_text(
     root: Option<&SyntaxNode>,
     query: &Query,
 ) -> Vec<Hit> {
+    if crate::twig::is_template(path) {
+        return crate::twig::hits(index, Some(path), text, query);
+    }
     if crate::blade::is_template(path) {
         let typed = matches!(
             query.symbol,

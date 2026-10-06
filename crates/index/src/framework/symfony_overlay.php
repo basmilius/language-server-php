@@ -61,6 +61,38 @@ class Environment
 
 }
 
+namespace Twig\Extension {
+
+class CoreExtension
+{
+    /** @key template $template */
+    public static function include($env, $context, $template, $variables = [], $withContext = true, $ignoreMissing = false, $sandboxed = false) {}
+    /** @key template $name */
+    public static function source($env, $name, $ignoreMissing = false) {}
+}
+
+}
+
+namespace Symfony\Bridge\Twig\Extension {
+
+class RoutingExtension
+{
+    /** @key route */
+    public function getPath(string $name, array $parameters = [], bool $relative = false) {}
+    /** @key route */
+    public function getUrl(string $name, array $parameters = [], bool $schemeRelative = false) {}
+}
+
+class TranslationExtension
+{
+    /** @key translation */
+    public function trans($message, $arguments = [], ?string $domain = null, ?string $locale = null, ?int $count = null) {}
+    /** @key translation */
+    public function createTranslatable(string $message, array $parameters = [], ?string $domain = null) {}
+}
+
+}
+
 namespace Symfony\Contracts\Translation {
 
 interface TranslatorInterface

@@ -31,6 +31,7 @@ pub mod routes;
 pub mod source;
 pub mod symfony;
 pub mod translations;
+pub mod twig;
 pub mod validation;
 pub mod views;
 pub mod yaml;

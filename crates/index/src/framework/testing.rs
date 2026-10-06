@@ -326,3 +326,27 @@ pub const DOCTRINE: &[(&str, &str)] = &[
         "<?php namespace Doctrine\\Bundle\\DoctrineBundle\\Repository;\n/**\n * @template T of object\n * @template-extends \\Doctrine\\ORM\\EntityRepository<T>\n */\nclass ServiceEntityRepository extends \\Doctrine\\ORM\\EntityRepository {}",
     ),
 ];
+
+/// Twig's extension classes and the ones of Symfony's bridge that take names.
+pub const TWIG: &[(&str, &str)] = &[
+    (
+        "vendor/symfony/twig/Extension.php",
+        "<?php namespace Twig\\Extension; interface ExtensionInterface {} abstract class AbstractExtension implements ExtensionInterface {}",
+    ),
+    (
+        "vendor/symfony/twig/Callables.php",
+        "<?php namespace Twig; class TwigFunction {} class TwigFilter {} class TwigTest {}",
+    ),
+    (
+        "vendor/symfony/twig/CoreExtension.php",
+        "<?php\nnamespace Twig\\Extension;\nuse Twig\\{TwigFilter, TwigFunction, TwigTest};\nfinal class CoreExtension extends AbstractExtension {\n    public function getFilters(): array { return [new TwigFilter('upper', 'strtoupper'), new TwigFilter('length', [self::class, 'length'], ['needs_charset' => true])]; }\n    public function getFunctions(): array { return [new TwigFunction('include', [self::class, 'include'], ['needs_environment' => true, 'needs_context' => true])]; }\n    public function getTests(): array { return [new TwigTest('even', null)]; }\n    /** Counts. */\n    public static function length(string $charset, $thing): int {}\n    public static function include($env, $context, $template, $variables = []) {}\n}\n",
+    ),
+    (
+        "vendor/symfony/twig-bridge/RoutingExtension.php",
+        "<?php\nnamespace Symfony\\Bridge\\Twig\\Extension;\nuse Twig\\Extension\\AbstractExtension;\nuse Twig\\TwigFunction;\nfinal class RoutingExtension extends AbstractExtension {\n    public function getFunctions(): array { return [new TwigFunction('path', $this->getPath(...))]; }\n    public function getPath(string $name, array $parameters = [], bool $relative = false): string {}\n}\n",
+    ),
+    (
+        "vendor/symfony/twig-bridge/TranslationExtension.php",
+        "<?php\nnamespace Symfony\\Bridge\\Twig\\Extension;\nuse Twig\\Extension\\AbstractExtension;\nuse Twig\\TwigFilter;\nfinal class TranslationExtension extends AbstractExtension {\n    public function getFilters(): array { return [new TwigFilter('trans', [$this, 'trans'])]; }\n    public function trans($message, $arguments = [], ?string $domain = null): string {}\n}\n",
+    ),
+];

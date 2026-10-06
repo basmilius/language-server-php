@@ -23,7 +23,7 @@ fn item_kind(kind: KeyKind) -> ItemKind {
         KeyKind::Template => ItemKind::Module,
         KeyKind::Event => ItemKind::Constant,
         KeyKind::EntityField => ItemKind::Property,
-        KeyKind::Section | KeyKind::Stack => ItemKind::Module,
+        KeyKind::Section | KeyKind::Stack | KeyKind::Block => ItemKind::Module,
         KeyKind::Slot | KeyKind::Attribute => ItemKind::Property,
     }
 }

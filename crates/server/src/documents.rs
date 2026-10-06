@@ -25,6 +25,8 @@ pub struct Document {
     pub indexed_version: Option<i32>,
     /// A Blade template: only the names it holds and the PHP in it are read.
     pub blade: bool,
+    /// A Twig template, which is no PHP at all.
+    pub twig: bool,
 }
 
 impl Document {
@@ -41,6 +43,7 @@ impl Document {
             parsed: None,
             indexed_version: None,
             blade: false,
+            twig: false,
         }
     }
 

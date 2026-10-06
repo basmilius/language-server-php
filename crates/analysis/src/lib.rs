@@ -34,6 +34,7 @@ pub mod semantic_tokens;
 pub mod signature;
 mod symbols;
 pub mod target;
+pub mod twig;
 pub mod workspace_symbols;
 
 pub use diagnostics::{Diagnostic, DiagnosticSeverity, diagnostics};

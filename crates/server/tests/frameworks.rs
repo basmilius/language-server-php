@@ -649,3 +649,55 @@ fn a_blade_template_publishes_what_is_certainly_wrong() {
     assert_eq!(codes, ["syntax", "unbalanced-directive", "unknown-route"], "{found:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_twig_template_follows_its_names_and_is_found_from_php() {
+    let disk = symfony();
+    for (path, text) in php_index::framework::testing::TWIG {
+        disk.write(&format!("project/{path}"), text);
+    }
+    disk.write("project/templates/base.html.twig", "{% block body %}{% endblock %}\n");
+    let page = "{% extends 'base.html.twig' %}\n{% block body %}<a href=\"{{ path('blog_index') }}\">{{ title|upper }}</a>{% endblock %}\n";
+    disk.write("project/templates/blog/index.html.twig", page);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/templates/blog/index.html.twig");
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "twig", "version": 1, "text": page } }),
+    );
+    let parent = client.at("textDocument/definition", &uri, 0, 14);
+    assert_eq!(
+        parent[0]["uri"],
+        disk.uri("project/templates/base.html.twig"),
+        "{parent}"
+    );
+    let route = client.at("textDocument/definition", &uri, 1, 40);
+    assert_eq!(
+        route[0]["uri"],
+        disk.uri("project/src/Controller/BlogController.php"),
+        "{route}"
+    );
+    let filter = client.at("textDocument/hover", &uri, 1, 64);
+    assert!(
+        filter["contents"]["value"]
+            .as_str()
+            .is_some_and(|text| text.contains("upper")),
+        "{filter}"
+    );
+
+    let controller = disk.uri("project/src/Controller/BlogController.php");
+    client.open(
+        &controller,
+        &std::fs::read_to_string(disk.path("project/src/Controller/BlogController.php")).expect("read"),
+    );
+    let found = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": controller },
+            "position": { "line": 8, "character": 25 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    assert_eq!(places(&found), ["index.html.twig:1"], "{found}");
+    client.shutdown();
+}

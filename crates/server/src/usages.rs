@@ -121,12 +121,19 @@ impl Server<'_> {
         if built {
             return;
         }
-        let paths: Vec<PathBuf> = project
+        let mut paths: Vec<PathBuf> = project
             .index
             .files()
             .filter(|file| file.origin == origin)
             .map(|file| file.path.clone())
             .collect();
+        let frameworks = project.index.frameworks();
+        if !packages && (frameworks.symfony || frameworks.twig) {
+            let templates = project
+                .index
+                .section::<php_index::framework::symfony::templates::Templates>();
+            paths.extend(templates.templates.iter().map(|template| template.path.clone()));
+        }
         let kept = storage
             .filter(|_| !project.root.as_os_str().is_empty())
             .map(|storage| project.words_path(&storage, packages));

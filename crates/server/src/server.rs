@@ -605,6 +605,9 @@ impl<'a> Server<'a> {
     }
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
+        if self.documents.get(uri)?.twig {
+            return Some(Vec::new());
+        }
         if self.documents.get(uri)?.blade {
             return self.template_diagnostics(uri);
         }
@@ -720,8 +723,10 @@ impl<'a> Server<'a> {
                 let item = params.text_document;
                 self.documents.open(item.uri.clone(), item.version, item.text);
                 let is_blade = item.language_id == "blade" || item.uri.as_str().ends_with(".blade.php");
+                let is_twig = item.language_id == "twig" || item.uri.as_str().ends_with(".twig");
                 if let Some(document) = self.documents.get_mut(&item.uri) {
                     document.blade = is_blade;
+                    document.twig = is_twig && !is_blade;
                 }
                 self.sync_symbols(&item.uri);
                 self.request_configuration(&item.uri)?;
@@ -1005,6 +1010,15 @@ impl<'a> Server<'a> {
         if document.indexed_version == Some(document.version) {
             return;
         }
+        if document.twig {
+            document.indexed_version = Some(document.version);
+            let project = self.workspace.project_for_mut(&path);
+            project.words.update(&path, &document.text);
+            project
+                .index
+                .set_open_text(&path, Some(std::sync::Arc::from(document.text.as_str())));
+            return;
+        }
         let symbols = php_index::extract::extract(
             &document.parse().syntax(),
             php_index::extract::ExtractOptions::default(),
@@ -1034,6 +1048,9 @@ impl<'a> Server<'a> {
             project.words.update_from_disk(&path);
         }
         project.index.set_open_text(&path, None);
+        if php_analysis::twig::is_template(&path) {
+            return;
+        }
         match index_file(&path, origin) {
             Some(symbols) => project.index.set_file(path, origin, std::sync::Arc::new(symbols)),
             None => project.index.remove_file(&path),
@@ -1076,6 +1093,9 @@ impl<'a> Server<'a> {
                 let project = self.workspace.project_for_mut(&path);
                 if project.index.frameworks().any() && project.contains(&path) {
                     project.index.framework_file_changed(&path);
+                }
+                if php_analysis::twig::is_template(&path) && self.documents.get(&change.uri).is_none() {
+                    self.workspace.project_for_mut(&path).words.update_from_disk(&path);
                 }
                 continue;
             }

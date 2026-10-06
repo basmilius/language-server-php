@@ -15,6 +15,7 @@ use super::symfony::services::Services;
 use super::symfony::templates::Templates;
 use super::symfony::translations::SfTranslations;
 use super::translations::Translations;
+use super::twig::TwigShapes;
 use super::views::Views;
 use crate::index::Index;
 use crate::model::Span;
@@ -49,6 +50,9 @@ pub enum KeyKind {
     Slot,
     /// An attribute of the component the scope names, which fills one of its props.
     Attribute,
+    /// A block of a Twig template; the scope is the template it is written in, whose parents
+    /// declare it.
+    Block,
 }
 
 impl KeyKind {
@@ -92,6 +96,7 @@ impl KeyKind {
             KeyKind::Stack => "stack",
             KeyKind::Slot => "slot",
             KeyKind::Attribute => "component attribute",
+            KeyKind::Block => "block",
         }
     }
 
@@ -298,6 +303,14 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 out.extend(slots_of(&text).iter().map(|(name, _)| candidate(name, None)));
             }
         }
+        KeyKind::Block => {
+            let mut seen = std::collections::HashSet::new();
+            for (_, block, _) in twig_blocks(index, scope) {
+                if seen.insert(block.clone()) {
+                    out.push(candidate(&block, None));
+                }
+            }
+        }
         KeyKind::Attribute => {
             if let Some(tag) = scope {
                 out.extend(
@@ -307,6 +320,46 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 );
             }
         }
+    }
+    out
+}
+
+/// The blocks a template can fill: those of its parents, nearest first. Without a template, every
+/// block of every template.
+fn twig_blocks(index: &Index, template: Option<&str>) -> Vec<(std::path::PathBuf, String, Span)> {
+    let shapes = index.section::<TwigShapes>();
+    let templates = index.section::<Templates>();
+    let Some(name) = template else {
+        return shapes
+            .all()
+            .flat_map(|(path, shape)| {
+                shape
+                    .blocks
+                    .iter()
+                    .map(move |(block, span)| (path.clone(), block.clone(), *span))
+            })
+            .collect();
+    };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut parent = templates
+        .find(name)
+        .and_then(|found| shapes.of(&found.path))
+        .and_then(|shape| shape.extends.clone());
+    while let Some(next) = parent.filter(|next| seen.insert(next.clone())) {
+        let Some(found) = templates.find(&next) else {
+            break;
+        };
+        let Some(shape) = shapes.of(&found.path) else {
+            break;
+        };
+        out.extend(
+            shape
+                .blocks
+                .iter()
+                .map(|(block, span)| (found.path.clone(), block.clone(), *span)),
+        );
+        parent = shape.extends.clone();
     }
     out
 }
@@ -511,6 +564,12 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                 }
             }
         }
+        KeyKind::Block => out.extend(
+            twig_blocks(index, scope)
+                .into_iter()
+                .filter(|(_, block, _)| block == key)
+                .map(|(path, _, span)| definition(&path, span, "")),
+        ),
         KeyKind::Attribute => {
             if let Some(tag) = scope {
                 let wanted = attribute_key(key);

@@ -215,7 +215,11 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let hover = php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?;
+        let hover = if document.twig {
+            php_analysis::twig::hover_at(&project.index, path.as_deref(), &document.text, offset)?
+        } else {
+            php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
+        };
         Some(Hover {
             contents: HoverContents::Markup(markdown(hover.markdown)),
             range: Some(mapper.range(hover.range)),
@@ -240,8 +244,11 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let places =
-            php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset);
+        let places = if document.twig {
+            php_analysis::twig::definitions_at(&project.index, path.as_deref(), &document.text, offset)
+        } else {
+            php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
+        };
         let mut sources = TextCache::new(self, Some(uri));
         let locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
@@ -252,7 +259,7 @@ impl Server<'_> {
         if self
             .documents
             .get(&position.text_document.uri)
-            .is_some_and(|document| document.blade)
+            .is_some_and(|document| document.blade || document.twig)
         {
             return self.blade_hover(&position.text_document.uri, position.position);
         }
@@ -289,7 +296,7 @@ impl Server<'_> {
         if self
             .documents
             .get(&params.text_document_position_params.text_document.uri)
-            .is_some_and(|document| document.blade)
+            .is_some_and(|document| document.blade || document.twig)
         {
             return self.blade_definition(&params);
         }
@@ -387,7 +394,16 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let list = if document.blade {
+        let list = if document.twig {
+            php_analysis::twig::complete_at(
+                &project.index,
+                path.as_deref(),
+                &document.text,
+                offset,
+                CompletionOptions::default(),
+            )
+            .unwrap_or_default()
+        } else if document.blade {
             php_analysis::blade::complete_at(
                 &project.index,
                 path.as_deref(),

@@ -81,6 +81,14 @@ fn main() {
         .filter(|file| file.origin == Origin::Project)
         .map(|file| file.path.clone())
         .collect();
+    let mut own = own;
+    own.extend(
+        index
+            .section::<php_index::framework::symfony::templates::Templates>()
+            .templates
+            .iter()
+            .map(|template| template.path.clone()),
+    );
     let started = Instant::now();
     let mut words = WordIndex::default();
     words.build(own.clone(), None);
@@ -94,7 +102,7 @@ fn main() {
     let mut keys: BTreeSet<(String, String)> = BTreeSet::new();
     let mut symbols: BTreeMap<(String, String), Symbol> = BTreeMap::new();
     for path in &own {
-        if path.to_string_lossy().ends_with(".blade.php") {
+        if path.to_string_lossy().ends_with(".blade.php") || php_analysis::twig::is_template(path) {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(path) else {
