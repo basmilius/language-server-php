@@ -767,6 +767,11 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
             relation_string_hits(ctx, name, query, &mut hits);
         }
     }
+    if let Symbol::Property { name, .. } = &query.symbol {
+        if ctx.index.frameworks().symfony {
+            dql_hits(ctx, name, query, &mut hits);
+        }
+    }
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits
@@ -801,6 +806,40 @@ fn relation_string_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut
                     symbol,
                 });
             }
+        }
+    }
+}
+
+/// The fields DQL names: `u.email` is a usage of the property `email` of the entity `u` stands for.
+fn dql_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut Vec<Hit>) {
+    for part in crate::frameworks::dql::parts_with(ctx, name) {
+        let crate::frameworks::dql::Part::Field {
+            entity,
+            name: field,
+            range,
+        } = part
+        else {
+            continue;
+        };
+        if field != name {
+            continue;
+        }
+        let Some(found) = ctx.index.find_property(&Type::class(entity), &field) else {
+            continue;
+        };
+        let symbol = Symbol::Property {
+            class: found.class.decl.name.clone(),
+            name: found.member.name.clone(),
+        };
+        if query.matches(&symbol) {
+            hits.push(Hit {
+                range,
+                kind: HitKind::Reference,
+                access: Access::Read,
+                dollar: false,
+                via_alias: false,
+                symbol,
+            });
         }
     }
 }

@@ -15,7 +15,8 @@ pub(super) fn run(cx: &Cx) {
         .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
         || cx.on("unknown-relation")
         || cx.on("unknown-validation-rule")
-        || cx.on("unknown-cast");
+        || cx.on("unknown-cast")
+        || cx.on("unknown-entity-field");
     if !wanted {
         return;
     }
@@ -39,6 +40,9 @@ pub(super) fn run(cx: &Cx) {
     }
     if cx.on("unknown-cast") {
         unknown_casts(cx);
+    }
+    if cx.on("unknown-entity-field") {
+        unknown_entity_fields(cx);
     }
     let relations = cx.on("unknown-relation")
         && cx.index.frameworks().eloquent
@@ -120,6 +124,31 @@ fn unknown_casts(cx: &Cx) {
             "unknown-cast",
             range,
             format!("A model has no cast '{cast}'"),
+            super::Fix::None,
+        );
+    }
+}
+
+/// The fields DQL names that the entity of their alias does not have, nor any entity below it.
+fn unknown_entity_fields(cx: &Cx) {
+    let entities = cx.index.section::<php_index::framework::symfony::doctrine::Entities>();
+    for part in crate::frameworks::dql::parts_in(&cx.file) {
+        let crate::frameworks::dql::Part::Field { entity, name, range } = part else {
+            continue;
+        };
+        if name.is_empty() || entities.find(&entity).is_none() {
+            continue;
+        }
+        let ty = php_index::Type::class(entity.clone());
+        if cx.index.find_property(&ty, &name).is_some() || super::members::a_subtype_declares(cx, &entity, &name, false)
+        {
+            continue;
+        }
+        let short = entity.rsplit('\\').next().unwrap_or(&entity);
+        cx.report(
+            "unknown-entity-field",
+            range,
+            format!("The entity '{short}' has no field '{name}'"),
             super::Fix::None,
         );
     }

@@ -112,7 +112,7 @@ impl Analyzer<'_> {
                 range: key.range,
             }];
         }
-        if let Some(found) = self.rule_target_at(offset) {
+        if let Some(found) = self.rule_target_at(offset).or_else(|| self.dql_target_at(offset)) {
             return found;
         }
         let Some(token) = token_at(&self.root, offset) else {
@@ -151,6 +151,28 @@ impl Analyzer<'_> {
                 scope: Some(table.clone()),
             },
             Part::Field { .. } => return None,
+        };
+        Some(vec![Found {
+            target,
+            range: part.range(),
+        }])
+    }
+
+    /// What DQL names under an offset: a field of an entity, or a class.
+    fn dql_target_at(&self, offset: u32) -> Option<Vec<Found>> {
+        if !self.index.frameworks().symfony {
+            return None;
+        }
+        let ctx = crate::context::FileContext::new(self.index, &self.root);
+        let part = crate::frameworks::dql::part_at(&ctx, offset)?;
+        use crate::frameworks::dql::Part;
+        let target = match &part {
+            Part::Field { entity, name, .. } if !name.is_empty() => Target::Property {
+                receiver: Type::class(entity.clone()),
+                name: name.clone(),
+            },
+            Part::Field { .. } => return None,
+            Part::Class { name, .. } => Target::Class(name.clone()),
         };
         Some(vec![Found {
             target,

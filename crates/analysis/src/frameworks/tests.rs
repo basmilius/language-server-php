@@ -1193,3 +1193,125 @@ mod casts {
         assert_eq!(found, ["booleen"]);
     }
 }
+
+mod dql {
+    use php_index::framework::testing::{DOCTRINE, SYMFONY};
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::references::{Current, references_at};
+    use crate::testing::{CURSOR, Files, Fixture, split_cursor};
+
+    const USER: &str = "<?php namespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n#[ORM\\Entity]\nclass User {\n    #[ORM\\Id] private int $id;\n    #[ORM\\Column] private string $email;\n    #[ORM\\Column] private string $firstName;\n}\n";
+    const POST: &str = "<?php namespace App\\Entity;\nuse App\\Repository\\PostRepository;\nuse Doctrine\\ORM\\Mapping as ORM;\n#[ORM\\Entity(repositoryClass: PostRepository::class)]\nclass Post {\n    #[ORM\\Column] private string $title;\n    #[ORM\\ManyToOne(targetEntity: User::class)] private User $author;\n}\n";
+    const REPOSITORY: &str = "<?php namespace App\\Repository;\nuse App\\Entity\\Post;\nuse App\\Entity\\User;\nuse Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository;\nuse Doctrine\\ORM\\EntityManagerInterface;\n/** @extends ServiceEntityRepository<Post> */\nclass PostRepository extends ServiceEntityRepository {\n    public function latest() {\n        return $this->createQueryBuilder('p')\n            ->leftJoin('p.author', 'a')\n            ->andWhere('p.title = :title AND a.email IS NOT NULL')\n            ->orderBy('p.nope')\n            ->getQuery();\n    }\n    public function byEmail(EntityManagerInterface $em) {\n        return $em->createQuery('SELECT u FROM App\\Entity\\User u WHERE u.email = :e AND u.missing = 1');\n    }\n    public function pieces(EntityManagerInterface $em) {\n        return $em->createQuery('SELECT u FROM ' . User::class . ' u WHERE u.firstName = :name');\n    }\n}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = SYMFONY.to_vec();
+        files.extend_from_slice(DOCTRINE);
+        files.extend_from_slice(&[
+            ("config/bundles.php", "<?php return [];"),
+            ("src/Entity/User.php", USER),
+            ("src/Entity/Post.php", POST),
+            ("src/Repository/PostRepository.php", REPOSITORY),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    fn places(fixture: &Fixture, code: &str) -> Vec<String> {
+        let (_, root, offset) = split_cursor(code);
+        Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let file = fixture.sources.get(&path).cloned().unwrap_or_default();
+                format!(
+                    "{}: {}",
+                    path.file_name().expect("a name").to_string_lossy(),
+                    &file[place.span.start as usize..place.span.end as usize]
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_field_leads_to_the_property_of_its_alias() {
+        let fixture = fixture();
+        let at = |from: &str, to: &str| places(&fixture, &REPOSITORY.replacen(from, to, 1));
+        assert_eq!(at("'p.title", "'p.ti$0tle"), ["Post.php: $title"]);
+        assert_eq!(at("a.email IS", "a.em$0ail IS"), ["User.php: $email"]);
+        assert_eq!(at("u.email = :e", "u.em$0ail = :e"), ["User.php: $email"]);
+        assert_eq!(at("u.firstName", "u.first$0Name"), ["User.php: $firstName"]);
+        assert_eq!(at("App\\Entity\\User u", "App\\Entity\\Us$0er u"), ["User.php: User"]);
+    }
+
+    #[test]
+    fn a_field_completes_after_its_alias() {
+        let fixture = fixture();
+        let code = REPOSITORY.replacen("->orderBy('p.nope')", "->orderBy('p.$0')", 1);
+        let offset = code.find(CURSOR).expect("a cursor") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(labels, ["author", "title"]);
+    }
+
+    #[test]
+    fn a_field_the_entity_lacks_is_reported() {
+        let fixture = fixture();
+        let root = php_syntax::parse(REPOSITORY).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: REPOSITORY,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-entity-field")
+        .map(|finding| finding.diagnostic.message)
+        .collect();
+        assert_eq!(
+            found,
+            [
+                "The entity 'Post' has no field 'nope'",
+                "The entity 'User' has no field 'missing'"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_usages_of_a_field_are_in_the_queries() {
+        let fixture = fixture();
+        let path = std::path::PathBuf::from("/project/src/Entity/User.php");
+        let root = php_syntax::parse(USER).syntax();
+        let offset = USER.find("$email").expect("the field") as u32 + 2;
+        let found = references_at(
+            &fixture.index,
+            &Files(fixture.sources.clone()),
+            &Current {
+                path: &path,
+                text: USER,
+                root: &root,
+            },
+            offset,
+        )
+        .expect("usages");
+        let in_repository: Vec<&str> = found
+            .files
+            .iter()
+            .filter(|file| file.path.ends_with("PostRepository.php"))
+            .flat_map(|file| file.hits.iter())
+            .map(|hit| &REPOSITORY[usize::from(hit.range.start())..usize::from(hit.range.end())])
+            .collect();
+        assert_eq!(in_repository, ["email", "email"]);
+    }
+}

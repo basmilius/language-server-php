@@ -110,6 +110,9 @@ fn main() {
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut shown: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut lines = 0usize;
+    let mut dql = (0usize, 0usize);
+    // Counting reads every query a second time, so it stays out of the timing unless asked for.
+    let count_dql = std::env::var("DQL_PARTS").is_ok();
     for path in &paths {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -126,6 +129,17 @@ fn main() {
             ready: true,
             externals: &externals,
         };
+        let parts = if count_dql {
+            php_analysis::frameworks::dql::parts_in(&php_analysis::context::FileContext::new(&project.index, &root))
+        } else {
+            Vec::new()
+        };
+        for part in parts {
+            match part {
+                php_analysis::frameworks::dql::Part::Field { .. } => dql.0 += 1,
+                php_analysis::frameworks::dql::Part::Class { .. } => dql.1 += 1,
+            }
+        }
         for finding in inspect(&env) {
             let code = finding.diagnostic.code;
             *counts.entry(code).or_default() += 1;
@@ -154,6 +168,9 @@ fn main() {
         lines,
         started.elapsed().as_millis()
     );
+    if count_dql {
+        println!("DQL: {} fields and {} classes", dql.0, dql.1);
+    }
     for (code, count) in &counts {
         println!("{count:6}  {code}");
     }

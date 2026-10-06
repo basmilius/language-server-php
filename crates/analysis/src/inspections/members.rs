@@ -317,7 +317,7 @@ fn is_interface(cx: &Cx, class: &str) -> bool {
 
 /// Whether a class below this one declares the member. A value typed as the class may be one of
 /// those, and the type layer does not follow every `instanceof` that tells.
-fn a_subtype_declares(cx: &Cx, class: &str, member: &str, method: bool) -> bool {
+pub(super) fn a_subtype_declares(cx: &Cx, class: &str, member: &str, method: bool) -> bool {
     cx.index.all_subtypes(class).iter().any(|subtype| {
         let ty = Type::class(subtype.decl.name.clone());
         if method {

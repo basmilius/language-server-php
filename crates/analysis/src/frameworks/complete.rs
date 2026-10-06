@@ -43,7 +43,9 @@ pub fn complete_key(
     }
     let analyzer = Analyzer::new(index, root, offset);
     let Some(found) = key_at(&analyzer, offset) else {
-        return rule_items(&analyzer, text, offset, options).or_else(|| cast_items(&analyzer, text, offset, options));
+        return rule_items(&analyzer, text, offset, options)
+            .or_else(|| cast_items(&analyzer, text, offset, options))
+            .or_else(|| dql_items(&analyzer, text, offset, options));
     };
     if found.kind == KeyKind::Relation {
         // Each segment of `posts.comments` completes from the model the one before leads to.
@@ -126,6 +128,24 @@ fn cast_items(analyzer: &Analyzer<'_>, text: &str, offset: u32, options: Complet
         .map(|name| (name, ItemKind::Keyword))
         .collect();
     Some(name_items(names, typed, (start, end), "cast", options))
+}
+
+/// The fields of the entity an alias of DQL stands for, after its dot.
+fn dql_items(analyzer: &Analyzer<'_>, text: &str, offset: u32, options: CompletionOptions) -> Option<CompletionList> {
+    let ctx = crate::context::FileContext::new(analyzer.index, &analyzer.root);
+    let super::dql::Part::Field { entity, range, .. } = super::dql::part_at(&ctx, offset)? else {
+        return None;
+    };
+    let (start, end) = (u32::from(range.start()), u32::from(range.end()));
+    let typed = text.get(start as usize..offset as usize)?;
+    Some(key_items(
+        analyzer.index,
+        KeyKind::EntityField,
+        Some(&entity),
+        typed,
+        (start, end),
+        options,
+    ))
 }
 
 /// Plain names that fit what was typed, each replacing the text from `start` to `end`.

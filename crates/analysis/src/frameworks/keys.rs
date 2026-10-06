@@ -24,12 +24,12 @@ pub struct KeyString {
 }
 
 /// What a call, a `new` or an attribute is, as far as the arguments it takes are concerned.
-struct Callee {
-    declaring: Option<String>,
-    receiver: Option<String>,
-    receiver_type: Option<php_index::Type>,
-    method: String,
-    params: Vec<String>,
+pub(crate) struct Callee {
+    pub(crate) declaring: Option<String>,
+    pub(crate) receiver: Option<String>,
+    pub(crate) receiver_type: Option<php_index::Type>,
+    pub(crate) method: String,
+    pub(crate) params: Vec<String>,
 }
 
 /// Where a literal stands in the argument of a call.
@@ -63,7 +63,7 @@ fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place)> {
     }
 }
 
-fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
+pub(crate) fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
     let level = analyzer.index.level;
     match owner.kind() {
         CALL_EXPR => {
@@ -73,7 +73,7 @@ fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
             let Some(name) = callee.descendants().filter(|node| node.kind() == NAME).last() else {
                 return Vec::new();
             };
-            if !is_marked(&name.text().to_string()) {
+            if !is_marked(analyzer.index, &name.text().to_string()) {
                 return Vec::new();
             }
             let env = analyzer.env_around(owner);
@@ -103,7 +103,7 @@ fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
                 .collect()
         }
         NEW_EXPR | ATTRIBUTE => {
-            if !is_marked("__construct") {
+            if !is_marked(analyzer.index, "__construct") {
                 return Vec::new();
             }
             let Some(name) = owner.children().find(|child| child.kind() == NAME) else {
@@ -296,7 +296,7 @@ fn event_key(analyzer: &Analyzer<'_>, literal: &SyntaxNode, value: &str, span: p
     array.parent().filter(|node| node.kind() == RETURN_STATEMENT)?;
     let method = array.ancestors().find(|node| node.kind() == METHOD_DECLARATION)?;
     let name = method.children().find(|child| child.kind() == NAME)?.text().to_string();
-    if !is_marked(&name) {
+    if !is_marked(analyzer.index, &name) {
         return None;
     }
     let class = analyzer.class.as_ref()?.name.clone();

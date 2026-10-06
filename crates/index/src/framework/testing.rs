@@ -321,11 +321,19 @@ pub const SYMFONY: &[(&str, &str)] = &[
 pub const DOCTRINE: &[(&str, &str)] = &[
     (
         "vendor/orm/Entity.php",
-        "<?php namespace Doctrine\\ORM\\Mapping; #[\\Attribute] class Entity { public function __construct(public ?string $repositoryClass = null) {} } #[\\Attribute] class Column {}",
+        "<?php namespace Doctrine\\ORM\\Mapping; #[\\Attribute] class Entity { public function __construct(public ?string $repositoryClass = null) {} } #[\\Attribute] class Column {} #[\\Attribute] class Id {} #[\\Attribute] class ManyToOne { public function __construct(public ?string $targetEntity = null) {} } #[\\Attribute] class OneToMany { public function __construct(public ?string $mappedBy = null, public ?string $targetEntity = null) {} }",
     ),
     (
         "vendor/orm/EntityManagerInterface.php",
-        "<?php namespace Doctrine\\ORM;\ninterface EntityManagerInterface {\n    /**\n     * @template T of object\n     * @param class-string<T> $className\n     * @return EntityRepository<T>\n     */\n    public function getRepository(string $className): EntityRepository;\n}",
+        "<?php namespace Doctrine\\ORM;\ninterface EntityManagerInterface {\n    /**\n     * @template T of object\n     * @param class-string<T> $className\n     * @return EntityRepository<T>\n     */\n    public function getRepository(string $className): EntityRepository;\n    public function createQuery(string $dql = ''): Query;\n    public function createQueryBuilder(): QueryBuilder;\n}",
+    ),
+    (
+        "vendor/orm/QueryBuilder.php",
+        "<?php namespace Doctrine\\ORM;\nclass Query {\n    public function setDQL(string $dqlQuery): self {}\n    public function getResult(): mixed {}\n}\nclass QueryBuilder {\n    public function select(mixed ...$select): static {}\n    public function from(string $from, string $alias, ?string $indexBy = null): static {}\n    public function join(string $join, string $alias, ?string $conditionType = null, $condition = null, ?string $indexBy = null): static {}\n    public function leftJoin(string $join, string $alias, ?string $conditionType = null, $condition = null, ?string $indexBy = null): static {}\n    public function where(mixed ...$predicates): static {}\n    public function andWhere(mixed ...$where): static {}\n    public function orderBy($sort, ?string $order = null): static {}\n    public function expr(): Query\\Expr {}\n    public function getQuery(): Query {}\n}",
+    ),
+    (
+        "vendor/orm/Expr.php",
+        "<?php namespace Doctrine\\ORM\\Query;\nclass Expr {\n    public function eq(mixed $x, mixed $y): string {}\n    public function isNull(string $x): string {}\n}",
     ),
     (
         "vendor/orm/ObjectRepository.php",
@@ -333,7 +341,7 @@ pub const DOCTRINE: &[(&str, &str)] = &[
     ),
     (
         "vendor/orm/EntityRepository.php",
-        "<?php namespace Doctrine\\ORM;\n/**\n * @template T of object\n * @template-implements \\Doctrine\\Persistence\\ObjectRepository<T>\n */\nclass EntityRepository implements \\Doctrine\\Persistence\\ObjectRepository {\n    /** @return object|null The entity */\n    public function find(mixed $id, $lockMode = null, $lockVersion = null): object|null {}\n    public function findAll(): array {}\n    public function findBy(array $criteria, ?array $orderBy = null, $limit = null, $offset = null): array {}\n    public function findOneBy(array $criteria, ?array $orderBy = null): object|null {}\n    public function __call(string $method, array $arguments): mixed {}\n}",
+        "<?php namespace Doctrine\\ORM;\n/**\n * @template T of object\n * @template-implements \\Doctrine\\Persistence\\ObjectRepository<T>\n */\nclass EntityRepository implements \\Doctrine\\Persistence\\ObjectRepository {\n    /** @return object|null The entity */\n    public function find(mixed $id, $lockMode = null, $lockVersion = null): object|null {}\n    public function findAll(): array {}\n    public function findBy(array $criteria, ?array $orderBy = null, $limit = null, $offset = null): array {}\n    public function findOneBy(array $criteria, ?array $orderBy = null): object|null {}\n    public function createQueryBuilder(string $alias, ?string $indexBy = null): QueryBuilder {}\n    public function __call(string $method, array $arguments): mixed {}\n}",
     ),
     (
         "vendor/orm/ServiceEntityRepository.php",

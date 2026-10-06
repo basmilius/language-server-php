@@ -61,6 +61,15 @@ pub enum Marker {
     ReturnKeys { kind: String },
     /// The argument at `position` is an array of validation rules by field.
     Rules { position: usize },
+    /// The argument at `position`, or every argument, is DQL: a whole statement that names its own
+    /// entities, or a part of one that uses the aliases of the query builder around it.
+    Dql { position: Option<usize>, whole: bool },
+    /// The call gives the alias at `alias` to the entity at `entity`, a class name.
+    DqlFrom { entity: usize, alias: usize },
+    /// The call joins what the argument at `join` names, an association path or an entity, as `alias`.
+    DqlJoin { join: usize, alias: usize },
+    /// The call makes a query builder whose alias at `alias` stands for the repository's entity.
+    DqlAlias { alias: usize },
 }
 
 struct Entry {
@@ -116,6 +125,24 @@ fn markers() -> &'static HashMap<String, Vec<Entry>> {
                     },
                     "rules" => Marker::Rules {
                         position: words.next().and_then(|word| word.parse().ok()).unwrap_or(0),
+                    },
+                    "dql" | "dql-part" => Marker::Dql {
+                        position: words.next().and_then(|word| word.parse().ok()),
+                        whole: tag.name == "dql",
+                    },
+                    "dql-from" | "dql-join" => {
+                        let mut number = || words.next().and_then(|word| word.parse().ok());
+                        let (Some(first), Some(alias)) = (number(), number()) else {
+                            continue;
+                        };
+                        if tag.name == "dql-from" {
+                            Marker::DqlFrom { entity: first, alias }
+                        } else {
+                            Marker::DqlJoin { join: first, alias }
+                        }
+                    }
+                    "dql-alias" => Marker::DqlAlias {
+                        alias: words.next().and_then(|word| word.parse().ok()).unwrap_or(0),
                     },
                     _ => continue,
                 };
@@ -181,10 +208,16 @@ pub fn directive_markers(index: &Index, directive: &str) -> Vec<Marker> {
     markers_for(index, Some(BLADE_COMPILER), None, directive)
 }
 
-/// Whether a function or method of this name has a marker in some class, as a cheap test before the
-/// call is resolved.
-pub fn is_marked(name: &str) -> bool {
-    markers().contains_key(&name.to_ascii_lowercase())
+/// Whether a function or method of this name has a marker in some class of a framework the project
+/// has, as a cheap test before the call is resolved.
+pub fn is_marked(index: &Index, name: &str) -> bool {
+    let frameworks = index.frameworks();
+    markers().get(&name.to_ascii_lowercase()).is_some_and(|entries| {
+        entries.iter().any(|entry| match entry.owner {
+            Owner::Laravel => frameworks.laravel || frameworks.facades,
+            Owner::Symfony => frameworks.symfony,
+        })
+    })
 }
 
 /// The markers of a function, or of a method declared in `declaring` or a class above it, or called on

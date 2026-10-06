@@ -265,6 +265,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         "A cast of a model that is neither one the model knows by name nor a class",
     ),
     info(
+        "unknown-entity-field",
+        Warning,
+        true,
+        "A field DQL names that the entity of its alias does not have",
+    ),
+    info(
         "unknown-relation",
         Warning,
         true,

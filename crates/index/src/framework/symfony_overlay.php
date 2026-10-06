@@ -257,16 +257,162 @@ interface EntityManagerInterface
 {
     /** @repository */
     public function getRepository(string $className) {}
+    /** @dql 0 */
+    public function createQuery(string $dql = '') {}
+}
+
+class Query
+{
+    /** @dql 0 */
+    public function setDQL(string $dqlQuery) {}
+}
+
+class QueryBuilder
+{
+    /** @dql-part */
+    public function select(mixed ...$select) {}
+    /** @dql-part */
+    public function addSelect(mixed ...$select) {}
+    /** @dql-from 0 1 */
+    public function delete(?string $delete = null, ?string $alias = null) {}
+    /** @dql-from 0 1 */
+    public function update(?string $update = null, ?string $alias = null) {}
+    /** @dql-from 0 1 */
+    public function from(string $from, string $alias, ?string $indexBy = null) {}
+    /**
+     * @dql-join 0 1
+     * @dql-part 0
+     * @dql-part 3
+     */
+    public function join(string $join, string $alias, ?string $conditionType = null, $condition = null, ?string $indexBy = null) {}
+    /**
+     * @dql-join 0 1
+     * @dql-part 0
+     * @dql-part 3
+     */
+    public function innerJoin(string $join, string $alias, ?string $conditionType = null, $condition = null, ?string $indexBy = null) {}
+    /**
+     * @dql-join 0 1
+     * @dql-part 0
+     * @dql-part 3
+     */
+    public function leftJoin(string $join, string $alias, ?string $conditionType = null, $condition = null, ?string $indexBy = null) {}
+    /** @dql-part 0 */
+    public function set(string $key, mixed $value) {}
+    /** @dql-part */
+    public function where(mixed ...$predicates) {}
+    /** @dql-part */
+    public function andWhere(mixed ...$where) {}
+    /** @dql-part */
+    public function orWhere(mixed ...$where) {}
+    /** @dql-part */
+    public function groupBy(string ...$groupBy) {}
+    /** @dql-part */
+    public function addGroupBy(string ...$groupBy) {}
+    /** @dql-part */
+    public function having(mixed ...$having) {}
+    /** @dql-part */
+    public function andHaving(mixed ...$having) {}
+    /** @dql-part */
+    public function orHaving(mixed ...$having) {}
+    /** @dql-part 0 */
+    public function orderBy($sort, ?string $order = null) {}
+    /** @dql-part 0 */
+    public function addOrderBy($sort, ?string $order = null) {}
 }
 
 class EntityRepository
 {
+    /** @dql-alias 0 */
+    public function createQueryBuilder(string $alias, ?string $indexBy = null) {}
     /** @key entity-field */
     public function findBy(array $criteria, ?array $orderBy = null, $limit = null, $offset = null) {}
     /** @key entity-field */
     public function findOneBy(array $criteria, ?array $orderBy = null) {}
     /** @key entity-field */
     public function count(array $criteria = []) {}
+}
+
+}
+
+namespace Doctrine\ORM\Query {
+
+class Expr
+{
+    /** @dql-part */
+    public function andX(...$x) {}
+    /** @dql-part */
+    public function orX(...$x) {}
+    /** @dql-part */
+    public function asc(...$x) {}
+    /** @dql-part */
+    public function desc(...$x) {}
+    /** @dql-part */
+    public function eq(...$x) {}
+    /** @dql-part */
+    public function neq(...$x) {}
+    /** @dql-part */
+    public function lt(...$x) {}
+    /** @dql-part */
+    public function lte(...$x) {}
+    /** @dql-part */
+    public function gt(...$x) {}
+    /** @dql-part */
+    public function gte(...$x) {}
+    /** @dql-part */
+    public function avg(...$x) {}
+    /** @dql-part */
+    public function max(...$x) {}
+    /** @dql-part */
+    public function min(...$x) {}
+    /** @dql-part */
+    public function count(...$x) {}
+    /** @dql-part */
+    public function countDistinct(...$x) {}
+    /** @dql-part */
+    public function not(...$x) {}
+    /** @dql-part */
+    public function abs(...$x) {}
+    /** @dql-part */
+    public function mod(...$x) {}
+    /** @dql-part */
+    public function prod(...$x) {}
+    /** @dql-part */
+    public function diff(...$x) {}
+    /** @dql-part */
+    public function sum(...$x) {}
+    /** @dql-part */
+    public function quot(...$x) {}
+    /** @dql-part */
+    public function sqrt(...$x) {}
+    /** @dql-part */
+    public function in(...$x) {}
+    /** @dql-part */
+    public function notIn(...$x) {}
+    /** @dql-part */
+    public function isNull(...$x) {}
+    /** @dql-part */
+    public function isNotNull(...$x) {}
+    /** @dql-part */
+    public function like(...$x) {}
+    /** @dql-part */
+    public function notLike(...$x) {}
+    /** @dql-part */
+    public function concat(...$x) {}
+    /** @dql-part */
+    public function lower(...$x) {}
+    /** @dql-part */
+    public function upper(...$x) {}
+    /** @dql-part */
+    public function length(...$x) {}
+    /** @dql-part */
+    public function trim(...$x) {}
+    /** @dql-part */
+    public function between(...$x) {}
+    /** @dql-part */
+    public function isMemberOf(...$x) {}
+    /** @dql-part */
+    public function isInstanceOf(...$x) {}
 }
 
 }

@@ -884,3 +884,36 @@ fn a_cast_key_leads_to_its_column_and_an_unknown_cast_is_reported() {
     assert_eq!(unknown.len(), 1, "{diagnostics:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_dql_field_leads_to_its_property_and_an_unknown_one_is_reported() {
+    let disk = symfony();
+    let book = "<?php\nnamespace App\\Entity;\n\nuse App\\Repository\\BookRepository;\nuse Doctrine\\ORM\\Mapping as ORM;\n\n#[ORM\\Entity(repositoryClass: BookRepository::class)]\nclass Book\n{\n    #[ORM\\Column]\n    private string $title;\n}\n";
+    let repository = "<?php\nnamespace App\\Repository;\n\nuse App\\Entity\\Book;\nuse Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository;\n\n/** @extends ServiceEntityRepository<Book> */\nclass BookRepository extends ServiceEntityRepository\n{\n    public function titled()\n    {\n        return $this->createQueryBuilder('b')->andWhere('b.title = :t')->orderBy('b.nope');\n    }\n}\n";
+    disk.write("project/src/Entity/Book.php", book);
+    disk.write("project/src/Repository/BookRepository.php", repository);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/src/Repository/BookRepository.php");
+    client.open(&uri, repository);
+    let found = client.at("textDocument/definition", &uri, 11, 60);
+    assert_eq!(found[0]["uri"], disk.uri("project/src/Entity/Book.php"), "{found}");
+    assert_eq!(found[0]["range"]["start"]["line"], 10, "{found}");
+    let diagnostics = client.diagnostics(&uri);
+    let unknown: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "unknown-entity-field")
+        .collect();
+    assert_eq!(unknown.len(), 1, "{diagnostics:?}");
+    let entity = disk.uri("project/src/Entity/Book.php");
+    client.open(&entity, book);
+    let usages = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": entity },
+            "position": { "line": 10, "character": 21 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    assert_eq!(places(&usages), ["BookRepository.php:11"], "{usages}");
+    client.shutdown();
+}
