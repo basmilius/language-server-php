@@ -21,11 +21,11 @@ Types follow declarations, PHPDoc with generics and array shapes, narrowing by c
 
 ## Rename and refactors
 
-Rename checks the new name and conflicts, follows methods and properties through the class hierarchy, updates promoted parameters and named arguments, and changes PHPDoc references. A class that is alone in its file, named after it and found through PSR-4 also renames its file, for a client that announces `documentChanges` and the rename resource operation. Names in ordinary strings and comments stay as they are, and so do the usages in installed packages.
+Rename checks the new name and conflicts, follows methods and properties through the class hierarchy, updates promoted parameters and named arguments, and changes PHPDoc references and the strings that name the symbol: a qualified class name (`'App\Models\User'`, `'App\Http\Home@show'`), a relation segment, a DQL field, a `wire:` attribute. Strings in a `migrations` folder are left alone, since they record what a database holds. A class that is alone in its file, named after it and found through Composer also renames its file, for a client that announces `documentChanges` and the rename resource operation. Ordinary strings and comments stay as they are, and so do the usages in installed packages.
 
-Find usages also works on the strings a framework reads as names: from `route('home')`, `@include('partials.nav')` or `__('auth.failed')`, or from the place that declares the name, such as `->name('home')` or a key of a config file, it lists every call and Blade directive that names the same thing. With `usages.packages` on, find usages and incoming calls also search the installed packages. Rename does not change these strings.
+Find usages also works on the strings a framework reads as names: from `route('home')`, `@include('partials.nav')` or `__('auth.failed')`, or from the place that declares the name, such as `->name('home')`, a key of a config file or a column in a migration, it lists every call, template and configuration line that names the same thing. These keys themselves are not renamed. With `usages.packages` on, find usages and incoming calls also search the installed packages.
 
-Code actions offer quick fixes of inspections and imports, and refactors: extract variable, constant, field, method, parameter and interface, inline variable and method, move a class, change signature, pull up, push down and rewrite intentions. Expensive refactors are worked out on `codeAction/resolve`, where an unsafe one returns an error with the reason. Extract interface writes a new file, which needs a client that can create files in a workspace edit. A preview of a rename that moves a namespace is not done.
+Code actions offer quick fixes of inspections and imports, and refactors: extract variable, constant, field, method, parameter and interface, inline variable and method, move a class, change signature, pull up, push down and rewrite intentions. Expensive refactors are worked out on `codeAction/resolve`, where an unsafe one returns an error with the reason. Extract interface writes a new file, which needs a client that can create files in a workspace edit (see [clients](./clients.md)). A preview of a rename that moves a namespace is not done.
 
 ## Formatting
 
@@ -33,18 +33,33 @@ The formatter follows PER Coding Style 2.0, with the [settings](./configuration.
 
 ## Frameworks
 
-Support turns on by the packages Composer installed: `laravel/framework` or `illuminate/*` for Laravel, `symfony/framework-bundle` for Symfony and `doctrine/orm` for Doctrine repositories. The server boots no framework.
+Support turns on by the packages Composer installed: `laravel/framework` or `illuminate/*` for Laravel, `symfony/framework-bundle` for Symfony, `doctrine/orm` for Doctrine and `twig/twig` for Twig; Livewire, Inertia, Pennant, Filament, Messenger and the rest when their classes are installed. The server boots no framework. Names complete, hover, lead to their declaration and have usages; a missing one is only reported where the code is literal, so a route made in a loop or a computed config key is never called missing.
 
-- Laravel: facades, Eloquent attributes from migrations and schema dumps, casts, relations, accessors, scopes, builders and factories, the container, and the strings that name config keys, routes, views, translations, environment variables, abilities and form request fields, relation and column strings of queries, validation rules and the keys and values of `$casts`, with completion and navigation. Livewire components (`<livewire:...>`, `@livewire()`) lead to their class, and `wire:model` and `wire:click` in a component's view to its properties and methods. Inertia page names lead to the page component and a missing one is reported. Pennant features lead to where they are defined, in PHP and in `@feature`. Filament columns, fields and entries lead to the column of the resource's model.
-- Symfony: services from YAML and PHP configuration, routes, templates, translations, parameters and events, and the fields DQL and the Doctrine query builder name (`->andWhere('p.title = :title')`). Serialization groups in contexts and `#[ApiResource]` lead to the `#[Groups]` that declare them. Go to implementation on a Messenger message lists its handlers. Workflow transitions, places and names lead to the workflow configuration.
-- Doctrine: repositories and the fields of entities.
-- Symfony configuration in YAML: parameters, environment variables, service references, the classes of services and the controllers of routes hover, complete and lead to their declarations, and are found as usages from PHP. A class that does not exist is reported.
+### Laravel
 
-Blade templates are read as a whole. The PHP in them knows its variables: the ones `@foreach`, `@php`, `@props` and `@inject` make, and the ones the controllers, mailables, components, `@include` and component tags that render the template pass it. Hover, definition, completion, usages, highlights and rename work in that PHP, sections and stacks lead to the layout, attributes and slots to the component, and finding the usages of a class or a method also finds the templates. A template gets diagnostics for PHP that does not parse, block directives that do not close, and views, routes, config keys and translations the project does not have.
+- Facades, the container (bindings in providers, `bootstrap/app.php` and elsewhere in `app/`), and the logged in user.
+- Eloquent: attributes from migrations and schema dumps, casts, relations, accessors, scopes, builders and factories.
+- Strings: config keys, routes, views, translations, environment variable names (never their values), abilities and form request fields.
+- Queries: relation strings (`with('posts.comments')`), column strings (`where('email')`, `orderBy('users.name')`), validation rules (`'required|email|unique:users,email'`) and the keys and values of `$casts`.
+- Livewire: `<livewire:...>` and `@livewire()` lead to the component, its attributes to the properties they fill, and `wire:model` and `wire:click` in a component's view to its properties and methods.
+- Inertia: page names lead to the page component, and a missing one is reported.
+- Pennant: features lead to where they are defined, in PHP and in `@feature`.
+- Filament: the names of columns, fields and entries lead to the column of the resource's model.
 
-Twig templates (language id `twig`) complete and lead to the templates they extend, include and import, the blocks of their parents, the functions, filters and tests of the project's and the packages' Twig extensions, and the routes and translations named in `path()`, `url()` and `|trans`. Their variables have the types the controllers that render them pass, so `post.title` hovers, completes and leads to `getTitle()`, and finding the usages of a route, a translation or a getter lists the templates too. A Twig template gets diagnostics for what does not parse, tags that do not close, templates and routes the project does not have, and functions, filters and tests no extension declares.
+### Symfony
 
-A missing name is only reported where the code is literal: a route made in a loop or a computed config key is never called missing. Environment support reads the names of variables, never their values.
+- Services, parameters, routes, templates, translations and events, from PHP, YAML and attributes.
+- Doctrine: repositories, the fields of entities, and DQL and the query builder (`->andWhere('p.title = :title')`), with their aliases and joins.
+- Serialization groups in contexts and `#[ApiResource]` lead to the `#[Groups]` that declare them.
+- Go to implementation on a Messenger message lists its handlers.
+- Workflow transitions, places and names lead to the workflow configuration.
+- The YAML of `config/`: parameters, environment variables, service references, the classes of services and the controllers of routes hover, complete and lead to their declarations, and are found as usages from PHP. A class that does not exist is reported.
+
+### Templates
+
+Blade templates are read as a whole. The PHP in them knows its variables: the ones `@foreach`, `@php`, `@props` and `@inject` make, and the ones the controllers, mailables, components, Livewire components, `@include` and component tags that render the template pass it. Hover, definition, completion, usages, highlights and rename work in that PHP, sections and stacks lead to the layout, attributes and slots to the component, and finding the usages of a class or a method also finds the templates. A template gets diagnostics for PHP that does not parse, block directives that do not close, and views, routes, config keys and translations the project does not have.
+
+Twig templates complete and lead to the templates they extend, include and import, the blocks of their parents, the functions, filters and tests of the project's and the packages' extensions, and the routes, translations and workflow transitions their functions and filters name. Their variables have the types the controllers that render them pass, so `post.title` hovers, completes and leads to `getTitle()`, and finding the usages of a route, a translation or a getter lists the templates too. A Twig template gets diagnostics for what does not parse, tags that do not close, templates and routes the project does not have, and functions, filters and tests no extension declares.
 
 ## Tests
 

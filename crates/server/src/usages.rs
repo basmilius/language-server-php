@@ -428,7 +428,7 @@ impl Server<'_> {
             }
         }
         let mut notes = vec![
-            "Rename changes names in code and doc comments. Strings and other comments are not changed.".to_string(),
+            "Rename changes names in code, doc comments and the strings that name them. Other strings and comments are not changed.".to_string(),
         ];
         let mut operations: Vec<DocumentChangeOperation> = Vec::new();
         if let Some(moved) = &file_move {

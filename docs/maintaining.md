@@ -35,7 +35,7 @@ cargo test --locked --test corpus
 cargo run --release -p php-syntax --example corpus -- phpt --oracle --verbose
 ```
 
-It pins phpstorm-stubs and the test folders of php-src. The `--oracle` mode compares the parser with `php -l` of the PHP on the path; note that interpreter's version with the result. Without the corpus its tests report a skip. `NATIVE.md` lists the benchmarks, the memory and type coverage tools and earlier measurements, which hold for their own machines.
+It pins phpstorm-stubs and the test folders of php-src. The `--oracle` mode compares the parser with `php -l` of the PHP on the path; note that interpreter's version with the result. Without the corpus its tests report a skip. `MEASUREMENTS.md` lists the benchmarks, the tools that measure a project and what they found, which hold for their own machines and dates.
 
 ## Releases
 

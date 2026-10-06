@@ -1,6 +1,6 @@
 # Third-party material
 
-The Cargo workspace declares MIT. Its complete source and lockfile are retained from source revision `9729144f0df3f25628f20cc283dee54f8d9e8162`. `NATIVE.md` preserves the original account of how the implementation was developed. Rust dependencies retain their own licenses; Cargo.lock pins their versions and registry checksums. Native asset generation follows the server's runtime dependency graph for each target and includes those crates' upstream license and notice files under `third-party/`, together with a dependency manifest and Cargo.lock. Development-only dependencies are excluded.
+The Cargo workspace declares MIT. Its complete source and lockfile are retained from source revision `9729144f0df3f25628f20cc283dee54f8d9e8162`. The repository's history from that revision on records how the implementation was developed. Rust dependencies retain their own licenses; Cargo.lock pins their versions and registry checksums. Native asset generation follows the server's runtime dependency graph for each target and includes those crates' upstream license and notice files under `third-party/`, together with a dependency manifest and Cargo.lock. Development-only dependencies are excluded.
 
 JetBrains/phpstorm-stubs is Apache-2.0 and is not bundled in this repository or its binary. The server and corpus script pin commit `e4f5f6c3de39f3bab3e9f3fca4b8cdb8b061e681`. A host installing stubs must retain the upstream LICENSE and completion marker; the existing server fetcher keeps the LICENSE when extracting PHP files.
 

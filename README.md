@@ -1,6 +1,6 @@
 # language-server-php
 
-A language server for PHP 8.1 through 8.5, written in Rust, that speaks LSP over stdio. It indexes a project with its Composer packages and the standard library, and answers completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and the tests a file can run, with support for PHPUnit, Pest, Laravel and Symfony. It reads code and never runs it.
+A language server for PHP 8.1 through 8.6, written in Rust, that speaks LSP over stdio. It indexes a project with its Composer packages and the standard library, and answers completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and the tests a file can run, with support for PHPUnit, Pest, Laravel and Symfony. It reads code and never runs it.
 
 ## Install
 
@@ -27,14 +27,14 @@ php-language-server --stdio
 | [Distribution](./docs/distribution.md)        | Release archives and the descriptor an installer pins           |
 | [Maintaining](./docs/maintaining.md)          | The crates, checks, corpus and releases                         |
 
-[NATIVE.md](./NATIVE.md) describes the implementation, measurements and what is left to do.
+[NATIVE.md](./NATIVE.md) describes how the implementation works and what is left to do, and [MEASUREMENTS.md](./MEASUREMENTS.md) what it was measured to do.
 
 ## Limits
 
-- Twig templates follow their templates, blocks, functions, filters, the routes and translations they name and the variables controllers pass, with diagnostics. Blade templates are read as a whole: scope, `@foreach`, `@props`, the variables controllers, includes and components pass, sections, stacks, slots, usages, rename and diagnostics.
-- Framework strings and templates are read where a framework gives them meaning: Inertia page names, Pennant features, Filament columns, Livewire components and their `wire:` attributes, Eloquent relation and column strings, validation rules, casts, DQL and the Doctrine query builder, serialization groups and workflow names. Other packages are not modeled.
-- Usages are found in the project, and in installed packages when `usages.packages` asks for them. Strings count when they name a route, a config key, a view, a translation or another name a framework declares, in PHP and Blade; ordinary strings and comments, Twig and YAML do not.
-- Dynamic code, such as variable variables and members made at run time, gives `mixed`.
+- PHP 8.6 syntax is known; a project that names no level is read at 8.5 until 8.6 is released.
+- Frameworks and packages are modeled where they give strings and members meaning: Laravel, Eloquent, Livewire, Inertia, Pennant, Filament, Symfony, Doctrine, API Platform's serialization groups, Messenger and Workflow. Other packages get what their declarations and PHPDoc say.
+- Usages are found in the project, and in installed packages when `usages.packages` asks for them, across PHP, Blade, Twig and the YAML of a Symfony project. Strings count when a framework gives them meaning or when they hold a qualified class name; other strings and ordinary comments do not.
+- Nothing is run: dynamic code, such as variable variables and members made at run time, gives `mixed`, and a name built at run time is never reported as missing.
 
 ## License
 

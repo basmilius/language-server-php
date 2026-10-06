@@ -1,6 +1,7 @@
 //! Rename: which names can change, what a new name has to satisfy, and the edits that follow from
-//! the places a symbol is used. Strings and comments are left alone, and so is everything outside
-//! the project's own files.
+//! the places a symbol is used. Ordinary comments and strings are left alone, except a string that
+//! names the symbol (a class name, a relation, a DQL field), and so is everything outside the
+//! project's own files.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

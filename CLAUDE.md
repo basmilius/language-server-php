@@ -1,6 +1,6 @@
 # basmilius/language-server-php
 
-A PHP language server in Rust that speaks LSP over stdio. `README.md` and `docs/` are for people who use it, `NATIVE.md` holds the implementation notes and measurements, and this file is for agents who work on it.
+A PHP language server in Rust that speaks LSP over stdio. `README.md` and `docs/` are for people who use it, `NATIVE.md` says how the implementation works and why, `MEASUREMENTS.md` holds what it was measured to do (dated, per project), `docs/clients.md` lists what a client has to send and announce, and this file is for agents who work on it.
 
 It moved here from `basmilius/adecore` (`packages/php-language-server`), which took it from Ruimte at revision `9729144f0df3f25628f20cc283dee54f8d9e8162` (`sourceRevision` in `native-source.json`). It is not on npm: an app downloads a release archive pinned by its descriptor, or builds a checkout with cargo.
 
@@ -25,6 +25,11 @@ cargo build --release --locked && python3 scripts/handshake.py target/release/ph
 - The version lives in `Cargo.toml` and `native-source.json`; `test-native-release.py` fails when they differ. The tag is `v<version>`.
 - A release starts as a draft: `gh release create v<version> --draft --notes-file <notes>`, then `gh workflow run release.yml -f version=<version>`. The workflow tags the commit, builds every platform, attaches the archives, checksums and descriptor, and publishes the release last.
 - Push and release only when Bas asks.
+
+## Documentation
+
+- A change in behavior updates `NATIVE.md` (how and why, no numbers), `docs/` where a user sees it, and `docs/clients.md` when a client has to do something new.
+- A measurement goes into `MEASUREMENTS.md` with its date and project, replacing the one it supersedes.
 
 ## Conventions
 
