@@ -572,6 +572,32 @@ fn watched_files_update_the_index() {
 }
 
 #[test]
+fn the_class_map_is_watched_by_its_own_glob() {
+    let disk = Disk::new();
+    let (mut client, _) = Client::start_in(
+        json!({ "window": { "workDoneProgress": true }, "workspace": { "didChangeWatchedFiles": { "dynamicRegistration": true } } }),
+        disk.options(),
+        json!(disk.uri("project")),
+    );
+    let registration = client.wait_for(|message| match message {
+        Message::Request(request) if request.method == "client/registerCapability" => Some(request.clone()),
+        _ => None,
+    });
+    let patterns: Vec<String> = registration.params["registrations"][0]["registerOptions"]["watchers"]
+        .as_array()
+        .expect("watchers")
+        .iter()
+        .filter_map(|watcher| watcher["globPattern"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        patterns.contains(&"**/vendor/composer/autoload_classmap.php".to_string()),
+        "{patterns:?}"
+    );
+    client.send(Response::new_ok(registration.id, Value::Null));
+    client.shutdown();
+}
+
+#[test]
 fn open_documents_win_over_the_disk() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);

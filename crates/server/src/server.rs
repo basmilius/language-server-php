@@ -53,10 +53,12 @@ use crate::workspace::{FolderChange, Internal, Workspace};
 /// How many files read from the cache file stay in memory, the most recently used ones.
 /// What the server asks the client to watch: the PHP files and Composer's, and the files of the
 /// frameworks that are not PHP and that names in strings are read from.
-const WATCHED_FILES: [&str; 13] = [
+const WATCHED_FILES: [&str; 14] = [
     "**/*.php",
     "**/composer.json",
     "**/vendor/composer/installed.json",
+    // A client that lets `vendor` through only for a glob that names it would drop this under `**/*.php`.
+    "**/vendor/composer/autoload_classmap.php",
     "**/.env",
     "**/.env.*",
     "**/lang/**",
