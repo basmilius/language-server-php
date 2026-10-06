@@ -202,6 +202,7 @@ impl Server<'_> {
     /// The hover over a name or a piece of PHP in a Blade template.
     fn blade_hover(&mut self, uri: &Uri, position: lsp_types::Position) -> Option<Hover> {
         let path = uri_to_path(uri);
+        let given = self.template_given(uri);
         let encoding = self.encoding;
         let document = self.documents.get(uri)?;
         let mapper = Mapper {
@@ -214,7 +215,7 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let hover = php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, offset)?;
+        let hover = php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?;
         Some(Hover {
             contents: HoverContents::Markup(markdown(hover.markdown)),
             range: Some(mapper.range(hover.range)),
@@ -226,6 +227,7 @@ impl Server<'_> {
         let position = &params.text_document_position_params;
         let uri = &position.text_document.uri;
         let path = uri_to_path(uri);
+        let given = self.template_given(uri);
         let encoding = self.encoding;
         let document = self.documents.get(uri)?;
         let mapper = Mapper {
@@ -238,7 +240,8 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let places = php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, offset);
+        let places =
+            php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset);
         let mut sources = TextCache::new(self, Some(uri));
         let locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
@@ -371,6 +374,7 @@ impl Server<'_> {
         let uri = position.text_document.uri;
         self.sync_symbols(&uri);
         let path = uri_to_path(&uri);
+        let given = self.template_given(&uri);
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let mapper = Mapper {
@@ -388,6 +392,7 @@ impl Server<'_> {
                 &project.index,
                 path.as_deref(),
                 &document.text,
+                &given,
                 offset,
                 CompletionOptions::default(),
             )

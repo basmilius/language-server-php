@@ -146,6 +146,9 @@ pub(crate) struct Server<'a> {
     internal_sender: Sender<Internal>,
     internal_receiver: Receiver<Internal>,
     progress: Progress,
+    /// What the places that render a template give it, by template, until a file other than the
+    /// template itself changes.
+    pub(crate) given_cache: HashMap<PathBuf, Vec<(String, php_index::Type)>>,
 }
 
 /// Whether Composer's autoload maps point at a file that exists for the class, which the index
@@ -263,6 +266,7 @@ impl<'a> Server<'a> {
                     .unwrap_or(false),
                 ..Progress::default()
             },
+            given_cache: HashMap::new(),
         }
     }
 
@@ -692,6 +696,9 @@ impl<'a> Server<'a> {
                 let uri = params.text_document.uri;
                 if let Some(document) = self.documents.get_mut(&uri) {
                     document.apply_changes(params.text_document.version, &params.content_changes, self.encoding);
+                    if let Some(path) = uri_to_path(&uri) {
+                        self.given_cache.retain(|template, _| *template == path);
+                    }
                     self.mark_dirty(uri);
                 }
             }
@@ -699,6 +706,7 @@ impl<'a> Server<'a> {
                 let params: DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
                 let uri = params.text_document.uri;
                 self.documents.close(&uri);
+                self.given_cache.clear();
                 self.dirty.retain(|dirty| *dirty != uri);
                 self.reindex_from_disk(&uri);
                 if !self.pull_diagnostics {
@@ -866,6 +874,7 @@ impl<'a> Server<'a> {
             Internal::Project { root, event } => match event {
                 IndexEvent::Discovered(count) => self.job_progress(0, count),
                 IndexEvent::Files(files) => {
+                    self.given_cache.clear();
                     let count = files.len();
                     if let Some(project) = self.workspace.project_by_root(&root) {
                         project.apply(files);
@@ -996,6 +1005,7 @@ impl<'a> Server<'a> {
     }
 
     fn watched_files_changed(&mut self, params: DidChangeWatchedFilesParams) -> Result<(), BoxError> {
+        self.given_cache.clear();
         let mut composer_roots: Vec<PathBuf> = Vec::new();
         let mut folders: Vec<PathBuf> = Vec::new();
         for change in params.changes {

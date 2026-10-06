@@ -429,7 +429,7 @@ fn check_conflicts(index: &Index, current: &Current, symbol: &Symbol, new_name: 
                         scope: *scope,
                     },
                 );
-                crate::blade::hits(index, Some(current.path), current.text, &query)
+                crate::blade::hits(index, Some(current.path), current.text, &[], &query)
             } else {
                 crate::refs::variable_hits(&FileContext::new(index, current.root), *scope, new_name)
             };

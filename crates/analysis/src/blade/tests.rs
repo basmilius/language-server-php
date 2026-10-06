@@ -24,7 +24,7 @@ fn fixture() -> Fixture {
 fn places(template: &str) -> Vec<String> {
     let offset = template.find(CURSOR).expect("a cursor") as u32;
     let text = template.replacen(CURSOR, "", 1);
-    definitions_at(&fixture().index, None, &text, offset)
+    definitions_at(&fixture().index, None, &text, &[], offset)
         .into_iter()
         .map(|place| {
             place
@@ -43,7 +43,7 @@ fn places(template: &str) -> Vec<String> {
 fn completions(template: &str) -> Vec<String> {
     let offset = template.find(CURSOR).expect("a cursor") as u32;
     let text = template.replacen(CURSOR, "", 1);
-    complete_at(&fixture().index, None, &text, offset, CompletionOptions::default())
+    complete_at(&fixture().index, None, &text, &[], offset, CompletionOptions::default())
         .map(|list| list.items.into_iter().map(|item| item.label).collect())
         .unwrap_or_default()
 }
@@ -125,9 +125,16 @@ fn no_prefix_of_a_template_breaks_the_reading() {
     for end in (0..=template.len()).filter(|end| template.is_char_boundary(*end)) {
         let text = &template[..end];
         for offset in (0..=text.len()).filter(|offset| text.is_char_boundary(*offset)) {
-            let _ = definitions_at(&fixture.index, None, text, offset as u32);
-            let _ = hover_at(&fixture.index, None, text, offset as u32);
-            let _ = complete_at(&fixture.index, None, text, offset as u32, CompletionOptions::default());
+            let _ = definitions_at(&fixture.index, None, text, &[], offset as u32);
+            let _ = hover_at(&fixture.index, None, text, &[], offset as u32);
+            let _ = complete_at(
+                &fixture.index,
+                None,
+                text,
+                &[],
+                offset as u32,
+                CompletionOptions::default(),
+            );
         }
     }
 }
@@ -137,7 +144,7 @@ fn hovers_the_php_in_a_template() {
     let template = "{{ \\App\\Models\\User::cou$0nt() }}";
     let offset = template.find(CURSOR).expect("a cursor") as u32;
     let text = template.replacen(CURSOR, "", 1);
-    let hover = hover_at(&fixture().index, None, &text, offset).expect("a hover");
+    let hover = hover_at(&fixture().index, None, &text, &[], offset).expect("a hover");
     assert!(hover.markdown.contains("count"), "{}", hover.markdown);
     assert_eq!(
         &text[usize::from(hover.range.start())..usize::from(hover.range.end())],
@@ -148,7 +155,7 @@ fn hovers_the_php_in_a_template() {
 fn hover(template: &str) -> String {
     let offset = template.find(CURSOR).expect("a cursor") as u32;
     let text = template.replacen(CURSOR, "", 1);
-    hover_at(&fixture().index, None, &text, offset)
+    hover_at(&fixture().index, None, &text, &[], offset)
         .map(|hover| hover.markdown)
         .unwrap_or_default()
 }
@@ -305,6 +312,7 @@ fn a_variable_of_a_template_is_highlighted_in_it() {
     let offset = template.find("$item ").expect("the variable") as u32 + 2;
     let hits = highlights_at(
         &fixture.index,
+        &crate::references::NoSources,
         &Current {
             path: &path,
             text: template,
@@ -365,10 +373,87 @@ fn a_variable_and_a_method_are_renamed_from_a_template() {
         edits(method, "fullName"),
         ["User.php: name -> fullName", "users.blade.php: name -> fullName"]
     );
-    let prepared = prepare_rename(&fixture.index, Some(&path), view, method as u32).expect("prepared");
+    let prepared = prepare_rename(&fixture.index, Some(&path), view, &[], method as u32).expect("prepared");
     assert_eq!(
         &view[usize::from(prepared.range.start())..usize::from(prepared.range.end())],
         "name"
     );
-    assert!(prepare_rename(&fixture.index, Some(&path), view, 3).is_err());
+    assert!(prepare_rename(&fixture.index, Some(&path), view, &[], 3).is_err());
+}
+
+mod given {
+    use php_index::framework::testing::HELPERS;
+
+    use crate::blade::data::given;
+    use crate::testing::{Files, Fixture};
+
+    const FILES: &[(&str, &str)] = &[
+        (
+            "app/Models/User.php",
+            "<?php namespace App\\Models; class User { public function name(): string {} }",
+        ),
+        ("app/Models/Post.php", "<?php namespace App\\Models; class Post {}"),
+        (
+            "vendor/laravel/Component.php",
+            "<?php namespace Illuminate\\View; abstract class Component { abstract public function render(); }",
+        ),
+        (
+            "app/Http/Controllers/UserController.php",
+            "<?php\nnamespace App\\Http\\Controllers;\nuse App\\Models\\{Post, User};\nclass UserController {\n    public function show(User $user) {\n        $posts = [new Post()];\n        return view('users.show', compact('posts'))->with('user', $user)->withCount(3);\n    }\n    public function other() { return view('users.show', ['user' => null, 'title' => 'x']); }\n}\n",
+        ),
+        (
+            "app/View/Components/Alert.php",
+            "<?php\nnamespace App\\View\\Components;\nuse Illuminate\\View\\Component;\nclass Alert extends Component {\n    public string $type = 'info';\n    protected int $hidden = 1;\n    public function render() { return view('components.alert'); }\n}\n",
+        ),
+        ("resources/views/components/alert.blade.php", "{{ $type }}"),
+        (
+            "resources/views/users/show.blade.php",
+            "@foreach ($posts as $post) @include('partials.row', ['extra' => 1]) @endforeach\n@each('partials.item', $posts, 'entry')\n<x-badge :person=\"$user\" label=\"Hi\" show-count />",
+        ),
+        ("resources/views/partials/row.blade.php", "{{ $post }}"),
+        ("resources/views/partials/item.blade.php", "{{ $entry }}"),
+        (
+            "resources/views/components/badge.blade.php",
+            "@props(['person', 'label'])\n{{ $person }}",
+        ),
+    ];
+
+    fn given_to(template: &str) -> Vec<String> {
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(FILES);
+        let fixture = Fixture::framework(&files);
+        let sources = Files(fixture.sources.clone());
+        let path = std::path::PathBuf::from("/project").join(template);
+        given(&fixture.index, &sources, &path)
+            .into_iter()
+            .filter(|(name, _)| !matches!(name.as_str(), "errors" | "__env" | "app" | "loop"))
+            .map(|(name, ty)| format!("{name}: {}", ty.display(true)))
+            .collect()
+    }
+
+    #[test]
+    fn a_controller_gives_its_data_compact_and_with() {
+        assert_eq!(
+            given_to("resources/views/users/show.blade.php"),
+            ["count: int", "posts: list<Post>", "title: string", "user: ?User"]
+        );
+    }
+
+    #[test]
+    fn an_include_passes_on_everything_and_each_names_the_item() {
+        let row = given_to("resources/views/partials/row.blade.php");
+        assert!(row.contains(&"post: Post".to_string()), "{row:?}");
+        assert!(row.contains(&"extra: int".to_string()), "{row:?}");
+        assert!(row.contains(&"user: ?User".to_string()), "{row:?}");
+        assert_eq!(given_to("resources/views/partials/item.blade.php"), ["entry: Post"]);
+    }
+
+    #[test]
+    fn a_component_is_given_its_attributes_or_its_properties() {
+        assert_eq!(
+            given_to("resources/views/components/badge.blade.php"),
+            ["label: string", "person: ?User", "showCount: bool"]
+        );
+        assert_eq!(given_to("resources/views/components/alert.blade.php"), ["type: string"]);
+    }
 }

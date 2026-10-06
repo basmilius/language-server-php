@@ -71,7 +71,7 @@ fn every_prefix_of_a_file_is_answered() {
         };
         for offset in [length.saturating_sub(1), length, length / 2] {
             let _ = signature_help(&fixture.index, &root, offset);
-            let _ = highlights_at(&fixture.index, &current, offset);
+            let _ = highlights_at(&fixture.index, &crate::references::NoSources, &current, offset);
             let _ = prepare_rename(&fixture.index, &root, text, offset);
             let _ = prepare_call_hierarchy(&fixture.index, &root, offset);
             let _ = prepare_type_hierarchy(&fixture.index, &root, offset);

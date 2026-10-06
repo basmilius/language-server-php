@@ -103,7 +103,7 @@ fn main() {
                 root: &root,
             };
             for offset in &offsets {
-                for hit in highlights_at(index, &current, *offset) {
+                for hit in highlights_at(index, &php_analysis::references::NoSources, &current, *offset) {
                     assert!(u32::from(hit.range.end()) <= length, "highlight out of range");
                 }
                 let _ = prepare_rename(index, &root, &text, *offset);

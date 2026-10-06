@@ -45,18 +45,19 @@ fn is_separator(byte: u8) -> bool {
 }
 
 /// Calls `found` with the hash of every word of a text and of every compound run, the separators at
-/// either end of a run left off.
+/// either end of a run left off. Each tail of a run that starts at a word is a run too, so the
+/// `articles.summary` of `<x-articles.summary>` is found.
 fn scan(text: &str, mut found: impl FnMut(u32)) {
     let bytes = text.as_bytes();
     let mut index = 0;
+    let mut starts: Vec<usize> = Vec::new();
     while index < bytes.len() {
         let byte = bytes[index];
         if !is_word_byte(byte) && !is_separator(byte) {
             index += 1;
             continue;
         }
-        let start = index;
-        let mut words = 0;
+        starts.clear();
         while index < bytes.len() && (is_word_byte(bytes[index]) || is_separator(bytes[index])) {
             if is_word_byte(bytes[index]) {
                 let word_start = index;
@@ -64,19 +65,19 @@ fn scan(text: &str, mut found: impl FnMut(u32)) {
                     index += 1;
                 }
                 found(hash_word(&bytes[word_start..index]));
-                words += 1;
+                starts.push(word_start);
             } else {
                 index += 1;
             }
         }
-        if words > 1 {
-            let run = &bytes[start..index];
-            let first = run.iter().position(|byte| !is_separator(*byte)).unwrap_or(0);
-            let last = run
+        if starts.len() > 1 {
+            let end = bytes[..index]
                 .iter()
                 .rposition(|byte| !is_separator(*byte))
-                .map_or(run.len(), |at| at + 1);
-            found(hash_word(&run[first..last]));
+                .map_or(index, |at| at + 1);
+            for start in &starts[..starts.len() - 1] {
+                found(hash_word(&bytes[*start..end]));
+            }
         }
     }
 }
@@ -375,7 +376,8 @@ mod tests {
         assert!(words.may_contain("app.name"));
         assert!(words.may_contain("users"));
         assert!(!words.may_contain("admin.users"));
-        assert!(!words.may_contain("users.index"));
+        assert!(words.may_contain("users.index"));
+        assert!(FileWords::new("<x-articles.summary :a=\"$b\" />").may_contain("articles.summary"));
         assert!(!words.may_contain("admin.posts.index"));
     }
 

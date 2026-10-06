@@ -90,6 +90,26 @@ impl Server<'_> {
         wanted
     }
 
+    /// What the places that render a template give it, for a request about an open template.
+    pub(crate) fn template_given(&mut self, uri: &Uri) -> Vec<(String, php_index::Type)> {
+        let Some(path) = uri_to_path(uri) else {
+            return Vec::new();
+        };
+        if !self.documents.get(uri).is_some_and(|document| document.blade) {
+            return Vec::new();
+        }
+        if let Some(given) = self.given_cache.get(&path) {
+            return given.clone();
+        }
+        self.ensure_words(&path);
+        let open = self.documents.texts();
+        let project = self.workspace.project_for(&path);
+        let sources = ProjectSources::new(open, &project.words);
+        let given = php_analysis::blade::data::given(&project.index, &sources, &path);
+        self.given_cache.insert(path, given.clone());
+        given
+    }
+
     fn ensure_words_of(&mut self, path: &Path, packages: bool) {
         let storage = self.workspace.storage.clone();
         let project = self.workspace.project_for_mut(path);
@@ -183,6 +203,13 @@ impl Server<'_> {
         let uri = position.text_document.uri;
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
+        let blade = self.documents.get(&uri)?.blade;
+        if blade {
+            if let Some(path) = &path {
+                self.ensure_words(path);
+            }
+        }
+        let open = if blade { self.documents.texts() } else { HashMap::new() };
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
@@ -197,8 +224,10 @@ impl Server<'_> {
             None => &self.workspace.loose,
         };
         let current_path = path.unwrap_or_default();
+        let sources = ProjectSources::new(open, &project.words);
         let hits = highlights_at(
             &project.index,
+            &sources,
             &Current {
                 path: &current_path,
                 text: &document.text,
@@ -274,6 +303,7 @@ impl Server<'_> {
         let uri = params.text_document.uri;
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
+        let given = self.template_given(&uri);
         let encoding = self.encoding;
         let Some(document) = self.documents.get_mut(&uri) else {
             return Ok(None);
@@ -290,7 +320,7 @@ impl Server<'_> {
             None => &self.workspace.loose,
         };
         let prepared = if document.blade {
-            php_analysis::blade::prepare_rename(&project.index, path.as_deref(), &document.text, offset)?
+            php_analysis::blade::prepare_rename(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             prepare_rename(&project.index, &root, &document.text, offset)?
         };

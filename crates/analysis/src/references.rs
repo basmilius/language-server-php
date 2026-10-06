@@ -23,6 +23,19 @@ pub trait Sources: Sync {
     fn text(&self, path: &Path) -> Option<String>;
 }
 
+/// No files at all, for a question that is about the current file alone.
+pub struct NoSources;
+
+impl Sources for NoSources {
+    fn candidates(&self, _word: &str) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
+    fn text(&self, _path: &Path) -> Option<String> {
+        None
+    }
+}
+
 /// The file a question is asked in, as the front end holds it.
 pub struct Current<'a> {
     pub path: &'a Path,
@@ -120,24 +133,47 @@ fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(Tex
 }
 
 /// The symbols under a position of the file a question is asked in, a Blade template included.
-pub fn symbols_in_current(index: &Index, current: &Current, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
+pub fn symbols_in_current(
+    index: &Index,
+    sources: &dyn Sources,
+    current: &Current,
+    offset: u32,
+) -> Option<(TextRange, Vec<Symbol>)> {
     if crate::blade::is_template(current.path) {
-        return crate::blade::symbols_at(index, Some(current.path), current.text, offset);
+        let given = crate::blade::data::given(index, sources, current.path);
+        return crate::blade::symbols_at(index, Some(current.path), current.text, &given, offset);
     }
     symbols_at(index, current.root, offset).or_else(|| declared_key_at(index, current, offset))
 }
 
 /// Every place that names what is under a position.
 pub fn references_at(index: &Index, sources: &dyn Sources, current: &Current, offset: u32) -> Option<References> {
-    let (range, symbols) = symbols_in_current(index, current, offset)?;
+    let (range, symbols) = symbols_in_current(index, sources, current, offset)?;
     let files = hits_of_symbols(index, sources, current, &symbols);
     Some(References { range, symbols, files })
 }
 
-/// The places of a query in one file, which is a Blade template or PHP.
-fn hits_in_text(index: &Index, path: &Path, text: &str, root: Option<&SyntaxNode>, query: &Query) -> Vec<Hit> {
+/// The places of a query in one file, which is a Blade template or PHP. A member is found in a
+/// template through the types of its variables, which the places that render it give.
+fn hits_in_text(
+    index: &Index,
+    sources: &dyn Sources,
+    path: &Path,
+    text: &str,
+    root: Option<&SyntaxNode>,
+    query: &Query,
+) -> Vec<Hit> {
     if crate::blade::is_template(path) {
-        return crate::blade::hits(index, Some(path), text, query);
+        let typed = matches!(
+            query.symbol,
+            Symbol::Method { .. } | Symbol::Property { .. } | Symbol::ClassConst { .. } | Symbol::Parameter { .. }
+        );
+        let given = if typed {
+            crate::blade::data::given(index, sources, path)
+        } else {
+            Vec::new()
+        };
+        return crate::blade::hits(index, Some(path), text, &given, query);
     }
     let parsed;
     let root = match root {
@@ -173,7 +209,7 @@ fn hits_of_symbol(index: &Index, sources: &dyn Sources, current: &Current, symbo
     if let Symbol::Variable { name, scope } = symbol {
         let hits = if crate::blade::is_template(current.path) {
             let query = Query::new(index, symbol.clone());
-            crate::blade::hits(index, Some(current.path), current.text, &query)
+            crate::blade::hits(index, Some(current.path), current.text, &[], &query)
         } else {
             variable_hits(&FileContext::new(index, current.root), *scope, name)
         };
@@ -205,7 +241,7 @@ pub fn find_hits(index: &Index, sources: &dyn Sources, current: Option<&Current>
         .par_iter()
         .filter_map(|path| {
             let text = sources.text(path)?;
-            let hits = hits_in_text(index, path, &text, None, query);
+            let hits = hits_in_text(index, sources, path, &text, None, query);
             (!hits.is_empty()).then(|| FileHits {
                 path: path.clone(),
                 hits,
@@ -213,7 +249,7 @@ pub fn find_hits(index: &Index, sources: &dyn Sources, current: Option<&Current>
         })
         .collect();
     if let Some(current) = current {
-        let own = hits_in_text(index, current.path, current.text, Some(current.root), query);
+        let own = hits_in_text(index, sources, current.path, current.text, Some(current.root), query);
         if !own.is_empty() {
             out.push(FileHits {
                 path: current.path.to_path_buf(),
@@ -269,8 +305,8 @@ fn parameter_body_hits(index: &Index, sources: &dyn Sources, current: &Current, 
 }
 
 /// The places of the current file that name what is under a position.
-pub fn highlights_at(index: &Index, current: &Current, offset: u32) -> Vec<Hit> {
-    let Some((_, symbols)) = symbols_in_current(index, current, offset) else {
+pub fn highlights_at(index: &Index, sources: &dyn Sources, current: &Current, offset: u32) -> Vec<Hit> {
+    let Some((_, symbols)) = symbols_in_current(index, sources, current, offset) else {
         return Vec::new();
     };
     let ctx = FileContext::new(index, current.root);
@@ -284,6 +320,7 @@ pub fn highlights_at(index: &Index, current: &Current, offset: u32) -> Vec<Hit> 
                 let query = Query::new(index, other.clone());
                 hits.extend(hits_in_text(
                     index,
+                    sources,
                     current.path,
                     current.text,
                     Some(current.root),

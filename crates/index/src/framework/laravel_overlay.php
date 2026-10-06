@@ -518,6 +518,47 @@ trait Authorizable
 
 // The directives of a Blade template are the methods of this class: the one named after a directive
 // says which of its arguments is a name.
+namespace Illuminate\Mail\Mailables {
+
+class Content
+{
+    /**
+     * @key view $view
+     * @key view $html
+     * @key view $text
+     * @key view $markdown
+     */
+    public function __construct($view = null, $html = null, $text = null, $markdown = null, $with = [], $htmlString = null) {}
+}
+
+}
+
+namespace Illuminate\Mail {
+
+class Mailable
+{
+    /** @key view */
+    public function view($view, array $data = []) {}
+    /** @key view */
+    public function markdown($view, array $data = []) {}
+    /** @key view */
+    public function text($textView, array $data = []) {}
+}
+
+}
+
+namespace Illuminate\Notifications\Messages {
+
+class MailMessage
+{
+    /** @key view */
+    public function view($view, array $data = []) {}
+    /** @key view */
+    public function markdown($view, array $data = []) {}
+}
+
+}
+
 namespace Illuminate\View\Compilers {
 
 class BladeCompiler

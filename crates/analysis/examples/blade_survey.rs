@@ -10,10 +10,28 @@ use std::time::{Duration, Instant};
 use php_analysis::blade::{self, Template};
 use php_analysis::completion::CompletionOptions;
 use php_analysis::infer::Analyzer;
+use php_analysis::references::Sources;
 use php_index::indexer::{self, IndexEvent};
-use php_index::{Project, StubFile, Type};
+use php_index::words::WordIndex;
+use php_index::{Origin, Project, StubFile, Type};
 use php_syntax::PhpVersion;
 use php_syntax::SyntaxKind::VARIABLE;
+
+struct Disk<'a> {
+    words: &'a WordIndex,
+}
+
+impl Sources for Disk<'_> {
+    fn candidates(&self, word: &str) -> Vec<std::path::PathBuf> {
+        self.words.candidates(word)
+    }
+
+    fn text(&self, path: &Path) -> Option<String> {
+        std::fs::read(path)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -67,18 +85,36 @@ fn main() {
             let _ = Template::read(index, Some(path), &text, &[]);
             let read = began.elapsed();
             let began = Instant::now();
-            let _ = blade::hover_at(index, Some(path), &text, offset);
+            let _ = blade::hover_at(index, Some(path), &text, &[], offset);
             let hover = began.elapsed();
             let began = Instant::now();
-            let _ = blade::definitions_at(index, Some(path), &text, offset);
+            let _ = blade::definitions_at(index, Some(path), &text, &[], offset);
             let definition = began.elapsed();
             let began = Instant::now();
-            let _ = blade::complete_at(index, Some(path), &text, offset, CompletionOptions::default());
+            let _ = blade::complete_at(index, Some(path), &text, &[], offset, CompletionOptions::default());
             let completion = began.elapsed();
             println!(
                 "round {round}: read {read:?}, hover {hover:?}, definition {definition:?}, completion {completion:?}"
             );
         }
+        return;
+    }
+    let mut words = WordIndex::default();
+    words.build(
+        index
+            .files()
+            .filter(|file| file.origin == Origin::Project)
+            .map(|file| file.path.clone())
+            .collect(),
+        None,
+    );
+    let sources = Disk { words: &words };
+    if let Ok(file) = std::env::var("BLADE_GIVEN") {
+        let began = Instant::now();
+        for (name, ty) in blade::data::given(index, &sources, Path::new(&file)) {
+            println!("${name}: {}", ty.display(true));
+        }
+        println!("in {:?}", began.elapsed());
         return;
     }
     let templates: Vec<_> = index
@@ -87,7 +123,8 @@ fn main() {
         .map(|file| file.path.clone())
         .collect();
     let (mut requests, mut slowest, mut total) = (0usize, Duration::ZERO, Duration::ZERO);
-    let (mut variables, mut untyped) = (0usize, 0usize);
+    let (mut variables, mut untyped, mut untyped_alone) = (0usize, 0usize, 0usize);
+    let (mut given_time, mut given_slowest, mut given_count) = (Duration::ZERO, Duration::ZERO, 0usize);
     let mut panics = 0;
     let mut read_time = Duration::ZERO;
     let mut largest = (0usize, Duration::ZERO);
@@ -96,31 +133,23 @@ fn main() {
             continue;
         };
         let began = Instant::now();
-        let template = Template::read(index, Some(path), &text, &[]);
+        let given = blade::data::given(index, &sources, path);
+        let took = began.elapsed();
+        given_time += took;
+        given_slowest = given_slowest.max(took);
+        given_count += given.len();
+        let alone = Template::read(index, Some(path), &text, &[]);
+        let began = Instant::now();
+        let template = Template::read(index, Some(path), &text, &given);
         let took = began.elapsed();
         read_time += took;
         if text.lines().count() > largest.0 {
             largest = (text.lines().count(), took);
         }
-        let root = template.root();
-        for token in root
-            .descendants_with_tokens()
-            .filter_map(|element| element.into_token())
-            .filter(|token| token.kind() == VARIABLE)
-        {
-            if !template.virt.is_copied(token.text_range()) {
-                continue;
-            }
-            let Some(node) = token.parent() else {
-                continue;
-            };
-            variables += 1;
-            let analyzer = Analyzer::new(index, &root, u32::from(token.text_range().start()));
-            let env = analyzer.env_around(&node);
-            if matches!(analyzer.type_of(&node, &env), Type::Unknown | Type::Mixed) {
-                untyped += 1;
-            }
-        }
+        let (counted, missing) = untyped_variables(index, &template);
+        variables += counted;
+        untyped += missing;
+        untyped_alone += untyped_variables(index, &alone).1;
         for offset in (0..text.len())
             .step_by(every)
             .filter(|offset| text.is_char_boundary(*offset))
@@ -128,9 +157,9 @@ fn main() {
             let offset = offset as u32;
             let began = Instant::now();
             let outcome = std::panic::catch_unwind(|| {
-                let _ = blade::hover_at(index, Some(path), &text, offset);
-                let _ = blade::definitions_at(index, Some(path), &text, offset);
-                let _ = blade::complete_at(index, Some(path), &text, offset, CompletionOptions::default());
+                let _ = blade::hover_at(index, Some(path), &text, &[], offset);
+                let _ = blade::definitions_at(index, Some(path), &text, &[], offset);
+                let _ = blade::complete_at(index, Some(path), &text, &[], offset, CompletionOptions::default());
             });
             let took = began.elapsed();
             if took > Duration::from_millis(40) {
@@ -152,5 +181,34 @@ fn main() {
         largest.1
     );
     println!("{requests} requests in {total:?}, the slowest three at one offset {slowest:?}, {panics} panics");
-    println!("{variables} variables, {untyped} without a type");
+    println!("given: {given_count} variables in {given_time:?}, the slowest template {given_slowest:?}");
+    println!("{variables} variables, {untyped} without a type, {untyped_alone} without what the template is given");
+}
+
+/// The variables of a template's PHP, and how many of them the type layer cannot type.
+fn untyped_variables(index: &php_index::Index, template: &Template) -> (usize, usize) {
+    let root = template.root();
+    let (mut variables, mut untyped) = (0, 0);
+    for token in root
+        .descendants_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| token.kind() == VARIABLE)
+    {
+        if !template.virt.is_copied(token.text_range()) {
+            continue;
+        }
+        let Some(node) = token.parent() else {
+            continue;
+        };
+        variables += 1;
+        let analyzer = Analyzer::new(index, &root, u32::from(token.text_range().start()));
+        let env = analyzer.env_around(&node);
+        if matches!(analyzer.type_of(&node, &env), Type::Unknown | Type::Mixed) {
+            untyped += 1;
+            if std::env::var("BLADE_UNTYPED").is_ok() {
+                eprintln!("untyped {}", token.text());
+            }
+        }
+    }
+    (variables, untyped)
 }

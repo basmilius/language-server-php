@@ -8,6 +8,7 @@
 //! mapped back.
 
 mod compile;
+pub mod data;
 pub mod scan;
 
 use std::path::Path;
@@ -101,7 +102,7 @@ impl Template {
                 Node::Directive(directive) => {
                     names.extend(directive_names(index, text, directive));
                     if directive.is("props") || directive.is("aware") {
-                        props(&mut builder, text, directive);
+                        props(&mut builder, text, directive, given);
                         continue;
                     }
                 }
@@ -145,8 +146,9 @@ fn declare(builder: &mut Builder<'_>, name: &str, ty: &Type) {
     builder.head(&format!("/** @var {written} ${name} */\n${name};\n"));
 }
 
-/// `@props(['type' => 'info', 'message'])`: each key is a variable, with its default.
-fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive) {
+/// `@props(['type' => 'info', 'message'])`: each key is a variable, with its default, unless the
+/// places that use the component say what it is given.
+fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive, given: &[(String, Type)]) {
     let Some((start, end)) = directive.args else {
         return;
     };
@@ -172,6 +174,9 @@ fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive) {
         let Some(name) = name.filter(|name| is_variable_name(name)) else {
             continue;
         };
+        if given.iter().any(|(known, _)| *known == name) {
+            continue;
+        }
         match value {
             Some(value) => {
                 builder.emit(&format!("${name} = ("));
@@ -184,7 +189,7 @@ fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive) {
     }
 }
 
-fn is_variable_name(name: &str) -> bool {
+pub(crate) fn is_variable_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     bytes
         .next()
@@ -250,8 +255,14 @@ fn place_to_source(virt: &Virtual, place: Place) -> Option<Place> {
 }
 
 /// Where the name or the PHP under an offset of a template is declared.
-pub fn definitions_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Vec<Place> {
-    let template = Template::read(index, path, text, &[]);
+pub fn definitions_at(
+    index: &Index,
+    path: Option<&Path>,
+    text: &str,
+    given: &[(String, Type)],
+    offset: u32,
+) -> Vec<Place> {
+    let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         return definitions(index, name.kind, &name.value, None)
             .into_iter()
@@ -273,8 +284,14 @@ pub fn definitions_at(index: &Index, path: Option<&Path>, text: &str, offset: u3
 }
 
 /// What the name or the PHP under an offset is.
-pub fn hover_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Option<HoverResult> {
-    let template = Template::read(index, path, text, &[]);
+pub fn hover_at(
+    index: &Index,
+    path: Option<&Path>,
+    text: &str,
+    given: &[(String, Type)],
+    offset: u32,
+) -> Option<HoverResult> {
+    let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         let sections: Vec<String> = crate::frameworks::keys::describe(index, name.kind, &name.value, None)
             .iter()
@@ -299,10 +316,11 @@ pub fn complete_at(
     index: &Index,
     path: Option<&Path>,
     text: &str,
+    given: &[(String, Type)],
     offset: u32,
     options: CompletionOptions,
 ) -> Option<CompletionList> {
-    let template = Template::read(index, path, text, &[]);
+    let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         let typed = text.get(name.start as usize..offset as usize)?;
         return Some(key_items(
@@ -329,8 +347,14 @@ pub fn complete_at(
 }
 
 /// What is under an offset of a template, for usages, highlights and rename.
-pub fn symbols_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
-    let template = Template::read(index, path, text, &[]);
+pub fn symbols_at(
+    index: &Index,
+    path: Option<&Path>,
+    text: &str,
+    given: &[(String, Type)],
+    offset: u32,
+) -> Option<(TextRange, Vec<Symbol>)> {
+    let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         return Some((
             range_of(name.start, name.end),
@@ -348,8 +372,8 @@ pub fn symbols_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -
 }
 
 /// The places of a template that name what a query asks for.
-pub fn hits(index: &Index, path: Option<&Path>, text: &str, query: &Query) -> Vec<Hit> {
-    let template = Template::read(index, path, text, &[]);
+pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Type)], query: &Query) -> Vec<Hit> {
+    let template = Template::read(index, path, text, given);
     let mut out = Vec::new();
     if let Symbol::Key { .. } = &query.symbol {
         for name in &template.names {
@@ -389,8 +413,14 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, query: &Query) -> Ve
 
 /// The name under an offset of a template, when it can be renamed: a variable or anything its PHP
 /// names that the project declares.
-pub fn prepare_rename(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Result<Prepared, String> {
-    let template = Template::read(index, path, text, &[]);
+pub fn prepare_rename(
+    index: &Index,
+    path: Option<&Path>,
+    text: &str,
+    given: &[(String, Type)],
+    offset: u32,
+) -> Result<Prepared, String> {
+    let template = Template::read(index, path, text, given);
     if template.name_at(offset).is_some() {
         return Err("A string that names a route, a key or a view cannot be renamed".to_string());
     }
@@ -414,12 +444,13 @@ pub fn rename(
     offset: u32,
     new_name: &str,
 ) -> Result<crate::rename::Rename, String> {
-    let prepared = prepare_rename(index, Some(current.path), current.text, offset)?;
+    let given = data::given(index, sources, current.path);
+    let prepared = prepare_rename(index, Some(current.path), current.text, &given, offset)?;
     if prepared.kind == RenameKind::Namespace {
         return Err("A namespace is renamed from its declaration".to_string());
     }
     let (_, symbols) =
-        symbols_at(index, Some(current.path), current.text, offset).ok_or("There is no name to rename here")?;
+        symbols_at(index, Some(current.path), current.text, &given, offset).ok_or("There is no name to rename here")?;
     crate::rename::rename_symbols(index, sources, current, &symbols, prepared.kind, new_name)
 }
 

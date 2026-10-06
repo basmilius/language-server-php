@@ -607,3 +607,26 @@ fn a_blade_template_knows_its_variables_and_renames_them() {
     assert!(edits.iter().all(|edit| edit["newText"] == "$member"), "{renamed}");
     client.shutdown();
 }
+
+#[test]
+fn a_template_knows_what_its_controller_passes() {
+    let disk = laravel();
+    disk.write(
+        "project/app/Http/Controllers/PostController.php",
+        "<?php\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\User;\n\nclass PostController\n{\n    public function index(User $author)\n    {\n        return view('posts.index', ['author' => $author]);\n    }\n}\n",
+    );
+    let text = "<h1>{{ $author->name }}</h1>\n";
+    disk.write("project/resources/views/posts/index.blade.php", text);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/resources/views/posts/index.blade.php");
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "blade", "version": 1, "text": text } }),
+    );
+    let hover = client.at("textDocument/hover", &uri, 0, 9);
+    let shown = hover["contents"]["value"].as_str().unwrap_or_default();
+    assert!(shown.contains("User"), "{hover}");
+    let items = complete_at(&mut client, &uri, 0, 16);
+    assert!(items.contains(&"posts".to_string()), "{items:?}");
+    client.shutdown();
+}
