@@ -167,6 +167,17 @@ impl Analyzer<'_> {
             Target::Key { kind, name, scope } => {
                 crate::frameworks::keys::describe(self.index, *kind, name, scope.as_deref())
             }
+            Target::TypeAlias { class, name } => self
+                .index
+                .type_alias(class, name, 0)
+                .map(|(declaring, alias)| Description {
+                    title: format!("{}::{name}", declaring.decl.name),
+                    signature: format!("type {name} = {}", alias.ty.display(false)),
+                    doc: None,
+                    place: Some(place_of(declaring.file, alias.name_span)),
+                })
+                .into_iter()
+                .collect(),
             Target::Variable { name, ty } => vec![Description {
                 title: format!("${name}"),
                 signature: format!("{} ${name}", ty.display(true)),
@@ -339,6 +350,10 @@ impl Analyzer<'_> {
                     }
                 }
                 Target::Constant(_) | Target::Dataset(_) | Target::Key { .. } => continue,
+                Target::TypeAlias { class, name } => match self.index.type_alias(class, name, 0) {
+                    Some((_, alias)) => alias.ty,
+                    None => continue,
+                },
                 Target::Parameter { callee, name } => match self.parameter_type(callee, name) {
                     Some(ty) => ty,
                     None => continue,

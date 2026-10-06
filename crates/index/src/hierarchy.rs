@@ -57,6 +57,45 @@ impl<T: Clone> Found<'_, T> {
 }
 
 impl Index {
+    /// The type aliases a class's docs may name: its own `@psalm-type` and `@phpstan-type`, and the
+    /// ones it imports from other classes, read where they are declared.
+    pub fn type_aliases(&self, class: &str) -> Vec<(String, Type)> {
+        let Some(found) = self.class(class) else {
+            return Vec::new();
+        };
+        let Some(doc) = found.decl.doc.as_deref() else {
+            return Vec::new();
+        };
+        let mut out: Vec<(String, Type)> = doc
+            .type_aliases
+            .iter()
+            .map(|alias| (alias.name.clone(), alias.ty.clone()))
+            .collect();
+        for import in &doc.type_imports {
+            if let Some(ty) = self.imported_alias(&import.class, &import.name, 0) {
+                out.push((import.alias.clone(), ty));
+            }
+        }
+        out
+    }
+
+    fn imported_alias(&self, class: &str, name: &str, depth: usize) -> Option<Type> {
+        self.type_alias(class, name, depth).map(|(_, alias)| alias.ty)
+    }
+
+    /// The declaration of a type alias a class's docs may name, with the class that declares it: its
+    /// own, or the one an import follows to.
+    pub fn type_alias(&self, class: &str, name: &str, depth: usize) -> Option<(Class<'_>, crate::model::TypeAlias)> {
+        let found = self.class(class)?;
+        let doc = found.decl.doc.as_deref()?;
+        if let Some(alias) = doc.type_aliases.iter().find(|alias| alias.name == name) {
+            return Some((found, alias.clone()));
+        }
+        // An alias the class imports itself, under the name asked for.
+        let import = doc.type_imports.iter().find(|import| import.alias == name)?;
+        (depth < 4).then(|| self.type_alias(&import.class, &import.name, depth + 1))?
+    }
+
     /// The class and everything above it, in the order PHP looks members up: the class, its traits,
     /// its parent chain, its interfaces, then the classes its doc comments mix in.
     pub fn ancestors(&self, ty: &Type) -> Vec<Ancestor<'_>> {
@@ -144,6 +183,9 @@ impl Index {
             }
         };
         let mut subst = HashMap::new();
+        if class.decl.doc.as_ref().is_some_and(|doc| !doc.type_imports.is_empty()) {
+            subst.extend(self.type_aliases(&class.decl.name));
+        }
         for (index, template) in class.decl.doc.iter().flat_map(|doc| doc.templates.iter()).enumerate() {
             if let Some(arg) = args.get(index) {
                 subst.insert(template.name.clone(), arg.clone());

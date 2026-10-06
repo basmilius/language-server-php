@@ -84,6 +84,7 @@ impl Analyzer<'_> {
             parent: class.parent.clone(),
             is_trait: class.kind == php_index::ClassKind::Trait,
             templates: Vec::new(),
+            aliases: Vec::new(),
         });
         let mut cx = TypeContext::new(&self.resolver);
         if let Some(scope) = &class_scope {
@@ -104,6 +105,7 @@ impl Analyzer<'_> {
             parent: class.parent.clone(),
             is_trait: class.kind == php_index::ClassKind::Trait,
             templates: self.class_template_names(),
+            aliases: self.class_type_aliases(),
         });
         let (callable, _) = php_index::extract::callable_at(function, &self.resolver, class_scope.as_ref());
         let level = self.level();
@@ -204,6 +206,13 @@ impl Analyzer<'_> {
         inherited.members().iter().all(
             |member| matches!(member, Type::Class { name, .. } if self.index.is_subclass_of(name, parent.as_str())),
         )
+    }
+
+    fn class_type_aliases(&self) -> Vec<(String, Type)> {
+        self.class
+            .as_ref()
+            .map(|class| self.index.type_aliases(&class.name))
+            .unwrap_or_default()
     }
 
     fn class_template_names(&self) -> Vec<String> {
@@ -369,6 +378,7 @@ impl Analyzer<'_> {
                 SyntaxElement::Token(token) if token.kind() == DOC_COMMENT => {
                     let mut cx = TypeContext::new(&self.resolver);
                     cx.class_name = self.class.as_ref().map(|class| class.name.as_str());
+                    cx.aliases = self.class_type_aliases();
                     return parse_var_comment(token.text(), &cx);
                 }
                 _ => return None,

@@ -47,6 +47,7 @@ pub struct ClassScope {
     pub parent: Option<Name>,
     pub is_trait: bool,
     pub templates: Vec<String>,
+    pub aliases: Vec<(String, Type)>,
 }
 
 fn span(range: TextRange) -> Span {
@@ -260,6 +261,7 @@ impl Extractor {
             cx.parent_name = scope.parent.as_deref();
             cx.in_trait = scope.is_trait;
             cx.templates = scope.templates.clone();
+            cx.aliases = scope.aliases.clone();
         }
         cx
     }
@@ -611,19 +613,35 @@ impl Extractor {
             parent,
             is_trait: kind == ClassKind::Trait,
             templates: Vec::new(),
+            aliases: Vec::new(),
         };
-        // The class doc names the templates the members' docs may use, so it is read twice: once
-        // for the names, and again with them in scope.
+        // The class doc names the templates and type aliases the members' docs may use, so it is
+        // read twice: once for the names, and again with them in scope. An imported alias is a
+        // template the hierarchy binds to the type of the class it comes from.
         let first_pass = self.parse_doc(node, Some(&scope));
-        scope.templates = first_pass
-            .as_ref()
-            .map(|doc| doc.templates.iter().map(|template| template.name.clone()).collect())
-            .unwrap_or_default();
-        let doc = if scope.templates.is_empty() {
+        if let Some(doc) = &first_pass {
+            scope.templates = doc.templates.iter().map(|template| template.name.clone()).collect();
+            scope
+                .templates
+                .extend(doc.type_imports.iter().map(|import| import.alias.clone()));
+            scope.aliases = doc
+                .type_aliases
+                .iter()
+                .map(|alias| (alias.name.clone(), alias.ty.clone()))
+                .collect();
+        }
+        let mut doc = if scope.templates.is_empty() && scope.aliases.is_empty() {
             first_pass
         } else {
             self.parse_doc(node, Some(&scope))
         };
+        if let (Some(doc), Some(token)) = (doc.as_mut(), doc_of(node)) {
+            let base = u32::from(token.text_range().start());
+            for alias in &mut doc.type_aliases {
+                alias.name_span.start += base;
+                alias.name_span.end += base;
+            }
+        }
         let attributes = self.attributes(node);
         let availability = self.availability(doc.as_deref(), &attributes);
 

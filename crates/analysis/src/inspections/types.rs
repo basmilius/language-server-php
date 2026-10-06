@@ -312,6 +312,7 @@ pub(crate) fn callable_of(analyzer: &Analyzer<'_>, function: &SyntaxNode) -> php
         parent: class.parent.clone(),
         is_trait: class.kind == php_index::ClassKind::Trait,
         templates: Vec::new(),
+        aliases: Vec::new(),
     });
     php_index::extract::callable_at(function, &analyzer.resolver, class_scope.as_ref()).0
 }

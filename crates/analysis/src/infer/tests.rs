@@ -427,3 +427,33 @@ fn a_template_of_an_omitted_argument_is_what_its_default_is() {
     assert_eq!(var(&fixture, code, "a"), "?int");
     assert_eq!(var(&fixture, code, "b"), "int|string");
 }
+
+#[test]
+fn type_aliases_are_read_where_they_are_declared_and_imported() {
+    let fixture = Fixture::new(&[
+        (
+            "Shapes.php",
+            "<?php\nnamespace App;\n/**\n * @psalm-type Point = array{x: int, y: int}\n * @phpstan-type Line array{from: Point, to: Point}\n */\nclass Shapes {\n    /** @return Line */\n    public function line() {}\n}\n",
+        ),
+        (
+            "Canvas.php",
+            "<?php\nnamespace App;\n/**\n * @psalm-import-type Point from Shapes\n * @phpstan-import-type Line from Shapes as Segment\n */\nclass Canvas {\n    /** @return Point */\n    public function origin() {}\n    /** @param Segment $segment */\n    public function draw($segment) {\n        /** @var Point $end */\n        $end = $segment['to'];\n        $0\n    }\n}\n",
+        ),
+    ]);
+    let canvas = fixture
+        .sources
+        .get(&std::path::PathBuf::from("/project/Canvas.php"))
+        .cloned()
+        .expect("canvas");
+    assert_eq!(
+        var(&fixture, &canvas, "segment"),
+        "array{from: array{x: int, y: int}, to: array{x: int, y: int}}"
+    );
+    assert_eq!(var(&fixture, &canvas, "end"), "array{x: int, y: int}");
+    let code = "<?php\nnamespace App;\nfunction f(Shapes $shapes, Canvas $canvas) {\n    $line = $shapes->line();\n    $origin = $canvas->origin();\n    $0\n}\n";
+    assert_eq!(
+        var(&fixture, code, "line"),
+        "array{from: array{x: int, y: int}, to: array{x: int, y: int}}"
+    );
+    assert_eq!(var(&fixture, code, "origin"), "array{x: int, y: int}");
+}

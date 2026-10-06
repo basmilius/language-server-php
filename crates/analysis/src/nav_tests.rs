@@ -259,3 +259,64 @@ fn implementations_from_a_declaration_name() {
     let found = places(code, |analyzer, offset| analyzer.implementations(offset));
     assert_eq!(found.len(), 1, "{found:?}");
 }
+
+#[test]
+fn names_in_doc_comments_lead_to_their_declarations() {
+    let fixture = Fixture::new(&[
+        (
+            "Shapes.php",
+            "<?php\nnamespace App;\n/**\n * @psalm-type Point = array{x: int, y: int}\n */\nclass Shapes {\n    public function size(): int {}\n}\n",
+        ),
+        ("Foo.php", "<?php\nnamespace App;\nclass Foo {}\n"),
+    ]);
+    let places = |code: &str| -> Vec<String> {
+        let (_, root, offset) = split_cursor(code);
+        Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+                text[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect()
+    };
+    assert_eq!(
+        places("<?php\nnamespace App;\n/** @return Fo$0o */\nfunction f() {}\n"),
+        ["Foo"]
+    );
+    assert_eq!(
+        places("<?php\nnamespace App;\n/** @see Shapes::si$0ze() */\nfunction f() {}\n"),
+        ["size"]
+    );
+    let canvas = "<?php\nnamespace App;\n/** @psalm-import-type Point from Shapes */\nclass Canvas {\n    /** @return Poi$0nt */\n    public function origin() {}\n}\n";
+    let fixture = Fixture::new(&[
+        (
+            "Shapes.php",
+            "<?php\nnamespace App;\n/**\n * @psalm-type Point = array{x: int, y: int}\n */\nclass Shapes {}\n",
+        ),
+        ("Canvas.php", &canvas.replace("$0", "")),
+    ]);
+    let (_, root, offset) = split_cursor(canvas);
+    let analyzer = Analyzer::new(&fixture.index, &root, offset);
+    let found: Vec<String> = analyzer
+        .definitions(offset)
+        .into_iter()
+        .map(|place| {
+            let path = place.path.expect("a file");
+            let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+            format!(
+                "{}: {}",
+                path.display(),
+                &text[place.span.start as usize..place.span.end as usize]
+            )
+        })
+        .collect();
+    assert_eq!(found, ["/project/Shapes.php: Point"]);
+    let hover = analyzer.hover(offset).expect("a hover");
+    assert!(
+        hover.markdown.contains("type Point = array{x: int, y: int}"),
+        "{}",
+        hover.markdown
+    );
+}

@@ -632,6 +632,30 @@ fn reads_the_classes_of_composer_s_generated_class_map() {
 }
 
 #[test]
+fn a_type_alias_types_what_its_docs_name_and_leads_to_its_declaration() {
+    let disk = Disk::new();
+    disk.write("project/composer.json", r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#);
+    disk.write(
+        "project/src/Shapes.php",
+        "<?php\nnamespace App;\n\n/**\n * @psalm-type Point = array{x: int, y: int}\n */\nclass Shapes\n{\n}\n",
+    );
+    let canvas = "<?php\nnamespace App;\n\n/** @phpstan-import-type Point from Shapes */\nclass Canvas\n{\n    /** @return Point */\n    public function origin() {}\n}\n";
+    disk.write("project/src/Canvas.php", canvas);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/src/Canvas.php");
+    client.open(&uri, canvas);
+    let definition = client.at("textDocument/definition", &uri, 6, 18);
+    assert_eq!(definition[0]["uri"], disk.uri("project/src/Shapes.php"), "{definition}");
+    assert_eq!(definition[0]["range"]["start"]["line"], 4, "{definition}");
+    let page = disk.uri("project/src/page.php");
+    client.open(&page, "<?php\nnamespace App;\nfunction page(Canvas $canvas) {\n    $point = $canvas->origin();\n    return $point;\n}\n");
+    let hover = client.at("textDocument/hover", &page, 4, 13);
+    let text = hover["contents"]["value"].as_str().expect("markdown");
+    assert!(text.contains("array{x: int, y: int}"), "{text}");
+    client.shutdown();
+}
+
+#[test]
 fn finds_usages_and_highlights_across_the_project() {
     let disk = Disk::new();
     disk.write(

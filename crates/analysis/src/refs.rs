@@ -460,7 +460,7 @@ pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol
             }
             Target::Dataset(name) => push(Symbol::Dataset(name)),
             Target::Key { kind, name, scope } => push(Symbol::Key { kind, name, scope }),
-            Target::Variable { .. } => {}
+            Target::Variable { .. } | Target::TypeAlias { .. } => {}
         }
     }
     out

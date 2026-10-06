@@ -100,6 +100,23 @@ pub struct Template {
     pub description: String,
 }
 
+/// `@psalm-type Name = Type` on a class.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeAlias {
+    pub name: String,
+    pub ty: Type,
+    /// Where the name is written, in the file once the extractor has placed the comment.
+    pub name_span: Span,
+}
+
+/// `@psalm-import-type Name from Class as Alias`: a type alias of another class used under `alias`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeImport {
+    pub alias: String,
+    pub name: String,
+    pub class: Name,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocParam {
     pub name: String,
@@ -167,6 +184,10 @@ pub struct Doc {
     pub var: Option<(Type, Option<String>, String)>,
     pub throws: Vec<(Type, String)>,
     pub templates: Vec<Template>,
+    /// `@psalm-type` and `@phpstan-type` of a class, which its own docs read in place.
+    pub type_aliases: Vec<TypeAlias>,
+    /// The aliases a class takes from others, which its docs read as templates the hierarchy binds.
+    pub type_imports: Vec<TypeImport>,
     pub extends: Vec<Type>,
     pub implements: Vec<Type>,
     pub uses: Vec<Type>,

@@ -422,6 +422,7 @@ fn doc_type_of_node(cx: &Cx, node: &SyntaxNode, writer: &mut ClassWriter) -> Str
         parent: class.parent.clone(),
         is_trait: class.kind == php_index::ClassKind::Trait,
         templates: Vec::new(),
+        aliases: Vec::new(),
     });
     let mut context = php_index::phpdoc::TypeContext::new(&analyzer.resolver);
     if let Some(scope) = &scope {

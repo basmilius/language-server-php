@@ -17,7 +17,7 @@ Positions are UTF-8 when the client offers it and UTF-16 otherwise. A document i
 
 Completion offers variables, members by the visibility of the place, classes, functions, constants, enum cases, named arguments, keywords, attributes and methods to override. A class from elsewhere comes with its `use` line as an additional edit. At most 300 items come back, with `isIncomplete` set when there were more. The trigger characters are `$`, `>`, `:`, `\`, `#` and `[`.
 
-Types follow declarations, PHPDoc with generics and array shapes, narrowing by conditions, closure arguments, return types read from bodies and `@psalm-assert`. What cannot be known, such as variable variables, is `mixed`, which offers nothing rather than a wrong guess.
+Types follow declarations, PHPDoc with generics and array shapes, narrowing by conditions, closure arguments, return types read from bodies, `@psalm-assert`, and `@psalm-type` and `@phpstan-type` aliases with their imports. What cannot be known, such as variable variables, is `mixed`, which offers nothing rather than a wrong guess.
 
 ## Rename and refactors
 

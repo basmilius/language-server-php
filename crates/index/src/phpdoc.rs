@@ -3,7 +3,10 @@
 
 use php_syntax::PhpVersion;
 
-use crate::model::{AssertWhen, Doc, DocAssert, DocMethod, DocParam, DocProperty, RawTag, Template, encode_version};
+use crate::model::{
+    AssertWhen, Doc, DocAssert, DocMethod, DocParam, DocProperty, RawTag, Span, Template, TypeAlias, TypeImport,
+    encode_version,
+};
 use crate::resolve::NameResolver;
 use crate::types::{CallableParam, CallableType, Conditional, ShapeField, Type};
 
@@ -16,6 +19,8 @@ pub struct TypeContext<'a> {
     pub in_trait: bool,
     /// Names of `@template` in scope.
     pub templates: Vec<String>,
+    /// The type aliases of the class, by name.
+    pub aliases: Vec<(String, Type)>,
 }
 
 impl<'a> TypeContext<'a> {
@@ -26,6 +31,7 @@ impl<'a> TypeContext<'a> {
             parent_name: None,
             in_trait: false,
             templates: Vec::new(),
+            aliases: Vec::new(),
         }
     }
 
@@ -33,6 +39,9 @@ impl<'a> TypeContext<'a> {
     pub fn class_type(&self, raw: &str) -> Type {
         if self.templates.iter().any(|name| name == raw) {
             return Type::Template(raw.to_string());
+        }
+        if let Some((_, ty)) = self.aliases.iter().find(|(name, _)| name == raw) {
+            return ty.clone();
         }
         match raw.to_ascii_lowercase().as_str() {
             "self" => match self.class_name {
@@ -757,6 +766,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
         parent_name: cx.parent_name,
         in_trait: cx.in_trait,
         templates: cx.templates.clone(),
+        aliases: cx.aliases.clone(),
     };
     for (name, text) in &tags {
         if is_tag(name, "template")
@@ -771,6 +781,30 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
                 scoped.templates.push(template.name.clone());
                 doc.templates.push(template);
             }
+        }
+    }
+
+    // Then the type aliases, in order, so that one may use an alias above it.
+    for (name, text) in &tags {
+        match name.as_str() {
+            "psalm-import-type" | "phpstan-import-type" => {
+                if let Some(import) = parse_type_import(text, &scoped) {
+                    scoped.templates.push(import.alias.clone());
+                    doc.type_imports.push(import);
+                }
+            }
+            "psalm-type" | "phpstan-type" => {
+                if let Some((alias, ty)) = parse_type_alias(text, &scoped) {
+                    scoped.aliases.push((alias.clone(), ty.clone()));
+                    let name_span = alias_span(raw, &alias);
+                    doc.type_aliases.push(TypeAlias {
+                        name: alias,
+                        ty,
+                        name_span,
+                    });
+                }
+            }
+            _ => {}
         }
     }
 
@@ -860,6 +894,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
                 }
             }
             "template" | "template-covariant" | "template-contravariant" => {}
+            "type" | "import-type" if vendor => {}
             _ => doc.tags.push(RawTag {
                 name: name.clone(),
                 text: text.trim().to_string(),
@@ -867,6 +902,60 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
         }
     }
     doc
+}
+
+/// `Name = Type`, or `Name Type` as PHPStan also takes it.
+fn parse_type_alias(text: &str, cx: &TypeContext) -> Option<(String, Type)> {
+    let text = text.trim_start();
+    let end = text
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(text.len());
+    let name = &text[..end];
+    if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    let rest = text[end..].trim_start();
+    let rest = rest.strip_prefix('=').unwrap_or(rest).trim_start();
+    let (ty, _) = parse_type_prefix(rest, cx)?;
+    Some((name.to_string(), ty))
+}
+
+/// Where the name of an alias is written in the comment, counted from its start.
+fn alias_span(raw: &str, alias: &str) -> Span {
+    for (at, _) in raw.match_indices("-type") {
+        let before = &raw[..at];
+        if !(before.ends_with("@psalm") || before.ends_with("@phpstan")) {
+            continue;
+        }
+        let rest = &raw[at + "-type".len()..];
+        let trimmed = rest.trim_start();
+        let follows = trimmed
+            .strip_prefix(alias)
+            .is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'));
+        if follows && trimmed.len() < rest.len() {
+            let start = (raw.len() - trimmed.len()) as u32;
+            return Span {
+                start,
+                end: start + alias.len() as u32,
+            };
+        }
+    }
+    Span::default()
+}
+
+/// `Name from Class`, with `as Alias` to use it under another name.
+fn parse_type_import(text: &str, cx: &TypeContext) -> Option<TypeImport> {
+    let mut words = text.split_whitespace();
+    let name = words.next()?.to_string();
+    if !words.next()?.eq_ignore_ascii_case("from") {
+        return None;
+    }
+    let class = cx.resolver.resolve_class(words.next()?);
+    let alias = match words.next() {
+        Some(word) if word.eq_ignore_ascii_case("as") => words.next()?.to_string(),
+        _ => name.clone(),
+    };
+    Some(TypeImport { alias, name, class })
 }
 
 fn rest_text(text: &str, used: usize) -> String {

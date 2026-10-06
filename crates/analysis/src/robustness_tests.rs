@@ -24,6 +24,9 @@ use function strlen;
  * @template T of User
  * @property-read int $size
  * @method static static make(int ...$flags)
+ * @psalm-type Row = array{id: int, tags: list<string>}
+ * @phpstan-import-type Shape from Base as Outline
+ * @see Base::run()
  */
 abstract class Controller extends Base implements \Countable
 {

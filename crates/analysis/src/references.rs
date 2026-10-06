@@ -68,12 +68,36 @@ pub fn symbols_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(Text
     if let Some(found) = key_symbol_at(index, root, offset) {
         return Some(found);
     }
+    if let Some(found) = symbols_in_text_at(index, root, offset) {
+        return Some(found);
+    }
     let token = token_at(root, offset)?;
     let symbols = symbols_of_token(&ctx, &token);
     if symbols.is_empty() {
         return None;
     }
     Some((ast::last_segment_of_token(&token), symbols))
+}
+
+/// What a name inside a doc comment or a string stands for: a class or member a doc names, a
+/// field of DQL, a validation rule.
+fn symbols_in_text_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
+    use php_syntax::SyntaxKind::{DOC_COMMENT, STRING_LITERAL};
+    let in_text = match root.token_at_offset(php_syntax::TextSize::from(offset)) {
+        php_syntax::TokenAtOffset::None => false,
+        php_syntax::TokenAtOffset::Single(token) => matches!(token.kind(), DOC_COMMENT | STRING_LITERAL),
+        php_syntax::TokenAtOffset::Between(left, right) => [left, right]
+            .iter()
+            .any(|token| matches!(token.kind(), DOC_COMMENT | STRING_LITERAL)),
+    };
+    if !in_text {
+        return None;
+    }
+    let analyzer = crate::infer::Analyzer::new(index, root, offset);
+    let found = analyzer.targets_at(offset);
+    let range = found.first()?.range;
+    let symbols = crate::refs::from_targets(&analyzer, found.into_iter().map(|found| found.target).collect());
+    (!symbols.is_empty()).then_some((range, symbols))
 }
 
 /// A string that names a route, a config key or the like.

@@ -38,6 +38,11 @@ pub enum Target {
     },
     /// A Pest dataset, by the name it is declared and used under.
     Dataset(String),
+    /// A `@psalm-type` alias, by the class that declares it.
+    TypeAlias {
+        class: Name,
+        name: String,
+    },
     /// A string that names a config key, a route, a view and the like.
     Key {
         kind: php_index::framework::keys::KeyKind,
@@ -115,6 +120,9 @@ impl Analyzer<'_> {
         if let Some(found) = self.rule_target_at(offset).or_else(|| self.dql_target_at(offset)) {
             return found;
         }
+        if let Some(found) = self.doc_target_at(offset) {
+            return vec![found];
+        }
         let Some(token) = token_at(&self.root, offset) else {
             return Vec::new();
         };
@@ -156,6 +164,84 @@ impl Analyzer<'_> {
             target,
             range: part.range(),
         }])
+    }
+
+    /// What a name in a doc comment stands for: a class, a type alias of the class around, a member
+    /// or function after `@see`, or what `@property` and `@method` declare.
+    fn doc_target_at(&self, offset: u32) -> Option<Found> {
+        use crate::doc_refs::{DocItemKind, MemberKind, doc_items};
+        let token = match self.root.token_at_offset(php_syntax::TextSize::from(offset)) {
+            TokenAtOffset::Single(token) => token,
+            TokenAtOffset::Between(left, right) => {
+                [right, left].into_iter().find(|token| token.kind() == DOC_COMMENT)?
+            }
+            TokenAtOffset::None => return None,
+        };
+        if token.kind() != DOC_COMMENT {
+            return None;
+        }
+        let base = u32::from(token.text_range().start());
+        let item = doc_items(token.text(), base)
+            .into_iter()
+            .find(|item| item.start <= offset && offset <= item.end)?;
+        let own_class = || {
+            self.class
+                .as_ref()
+                .filter(|class| !class.anonymous)
+                .map(|class| class.name.clone())
+        };
+        let class_type = |raw: &str| match raw.to_ascii_lowercase().as_str() {
+            "self" | "static" | "this" => self.this_type(),
+            _ => Type::class(self.resolver.resolve_class(raw)),
+        };
+        let target = match &item.kind {
+            DocItemKind::Class(raw) => {
+                let alias = own_class()
+                    .filter(|_| !raw.contains('\\'))
+                    .and_then(|class| self.index.type_alias(&class, raw, 0));
+                match alias {
+                    Some((declaring, alias)) => Target::TypeAlias {
+                        class: declaring.decl.name.clone(),
+                        name: alias.name,
+                    },
+                    None => match class_type(raw) {
+                        Type::Class { name, .. } => Target::Class(name),
+                        _ => return None,
+                    },
+                }
+            }
+            DocItemKind::Member { class, name, kind, .. } => {
+                let receiver = class_type(class);
+                let name = name.clone();
+                match kind {
+                    MemberKind::Method => Target::Method { receiver, name },
+                    MemberKind::Property => Target::Property { receiver, name },
+                    MemberKind::Constant => Target::ClassConst { receiver, name },
+                }
+            }
+            DocItemKind::Function(name) => {
+                let candidates = self.resolver.function_candidates(name);
+                Target::Function(self.index.first_function(&candidates)?.decl.name.clone())
+            }
+            DocItemKind::PropertyDecl(name) => Target::Property {
+                receiver: self.this_type(),
+                name: name.clone(),
+            },
+            DocItemKind::MethodDecl(name) => Target::Method {
+                receiver: self.this_type(),
+                name: name.clone(),
+            },
+            DocItemKind::Tag(_) | DocItemKind::Variable(_) | DocItemKind::Template(_) => return None,
+        };
+        let range = match &item.kind {
+            // A qualified name is named by its last segment, as in code.
+            DocItemKind::Class(raw) => {
+                let last = raw.rfind('\\').map_or(0, |at| at + 1) as u32;
+                crate::ast::range_of(item.start + last, item.end)
+            }
+            _ => crate::ast::range_of(item.start, item.end),
+        };
+        Some(Found { target, range })
     }
 
     /// What DQL names under an offset: a field of an entity, or a class.
