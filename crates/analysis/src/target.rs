@@ -364,6 +364,26 @@ impl Analyzer<'_> {
         out
     }
 
+    /// The type a variable gets where it is written to: the target of an assignment holds what is
+    /// assigned, the variable of a `foreach` what the loop gives its body. `None` elsewhere.
+    fn written_type(&self, variable: &SyntaxNode, name: &str) -> Option<Type> {
+        let parent = variable.parent()?;
+        if parent.kind() == ASSIGN_EXPR && parent.children().next().as_ref() == Some(variable) {
+            let mut env = (*self.env_around(&parent)).clone();
+            self.apply_expr(&parent, &mut env);
+            return env.get(name).cloned();
+        }
+        let foreach = variable
+            .ancestors()
+            .take_while(|node| !crate::ast::is_function_like(node.kind()))
+            .find(|node| node.kind() == FOREACH_STATEMENT)?;
+        let body = foreach.children().last()?;
+        if body.text_range().contains_range(variable.text_range()) {
+            return None;
+        }
+        self.env_at(start(&body) + 1).get(name).cloned()
+    }
+
     fn variable_targets(&self, token: &SyntaxToken) -> Vec<Target> {
         let Some(parent) = token.parent() else {
             return Vec::new();
@@ -391,8 +411,9 @@ impl Analyzer<'_> {
                         .into_iter()
                         .collect();
                 }
-                let env = self.env_around(&parent);
-                let ty = env.get(&name).cloned().unwrap_or(Type::Unknown);
+                let ty = self
+                    .written_type(&parent, &name)
+                    .unwrap_or_else(|| self.env_around(&parent).get(&name).cloned().unwrap_or(Type::Unknown));
                 vec![Target::Variable { name, ty }]
             }
             PROPERTY_ELEMENT => vec![Target::Property {

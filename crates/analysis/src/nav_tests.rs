@@ -125,6 +125,14 @@ fn hover_on_members_functions_variables_and_constants() {
     );
     let variable = hover("<?php\nuse App\\User;\nfunction f(User $u) { $u$0; }\n");
     assert_eq!(variable, "**$u**\n\n```php\nUser $u\n```");
+    let assigned = hover("<?php\nuse App\\User;\nfunction f(User $u) { $na$0me = $u->name; }\n");
+    assert_eq!(assigned, "**$name**\n\n```php\nstring $name\n```");
+    let reassigned = hover("<?php\nuse App\\User;\nfunction f(User $u) { $x = 1; $x$0 = $u; }\n");
+    assert_eq!(reassigned, "**$x**\n\n```php\nUser $x\n```");
+    let looped = hover(
+        "<?php\nuse App\\User;\n/** @param list<User> $users */\nfunction f(array $users) { foreach ($users as $us$0er) {} }\n",
+    );
+    assert_eq!(looped, "**$user**\n\n```php\nUser $user\n```");
     let constant = hover("<?php\nuse App\\User;\nUser::RO$0LE;\n");
     assert!(constant.contains("public const string ROLE = 'user'"), "{constant}");
     assert_eq!(hover("<?php\n$x = 1 +$0 2;\n"), "<none>");
