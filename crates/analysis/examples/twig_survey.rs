@@ -89,6 +89,7 @@ fn main() {
     let mut unknown: BTreeMap<String, usize> = BTreeMap::new();
     let (mut requests, mut total, mut slowest, mut panics) = (0usize, Duration::ZERO, Duration::ZERO, 0usize);
     let mut read_time = Duration::ZERO;
+    let mut findings = 0usize;
     let mut paths: Vec<std::path::PathBuf> = index
         .files()
         .filter(|file| file.origin == php_index::Origin::Project)
@@ -109,6 +110,22 @@ fn main() {
         let template = Template::read(index, Some(path), &text);
         read_time += began.elapsed();
         names += template.names.len();
+        for found in twig::diagnostics(
+            index,
+            Some(path),
+            &text,
+            &php_analysis::inspections::InspectionSettings::default(),
+            true,
+        ) {
+            findings += 1;
+            let line = text[..usize::from(found.range.start())].matches('\n').count() + 1;
+            println!(
+                "{}  {}:{line}  {}",
+                found.code,
+                path.strip_prefix(&project.root).unwrap_or(path).display(),
+                found.message
+            );
+        }
         let began = Instant::now();
         let given = twig::data::given(index, &sources, path);
         given_time += began.elapsed();
@@ -156,7 +173,10 @@ fn main() {
             slowest = slowest.max(took);
         }
     }
-    println!("{} templates read in {read_time:?}", templates.len());
+    println!(
+        "{} templates read in {read_time:?}, {findings} findings",
+        templates.len()
+    );
     println!("given: {given_count} variables in {given_time:?}; {resolved} of {attributes} attributes have a type");
     println!("{requests} requests in {total:?}, the slowest three at one offset {slowest:?}, {panics} panics");
     println!(

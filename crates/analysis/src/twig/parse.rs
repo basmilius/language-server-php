@@ -371,6 +371,12 @@ impl<'a> Parser<'a> {
         }
         let args = if self.peek_text() == Some("(") {
             self.arguments()
+        } else if self.starts_lone_argument() {
+            // A test of one argument may take it without parentheses: `is same as null`.
+            vec![Arg {
+                name: None,
+                value: self.unary(),
+            }]
         } else {
             Vec::new()
         };
@@ -388,6 +394,38 @@ impl<'a> Parser<'a> {
             }
         } else {
             test
+        }
+    }
+
+    fn starts_lone_argument(&self) -> bool {
+        let Some(token) = self.peek() else {
+            return false;
+        };
+        match token.kind {
+            Kind::Number | Kind::Str => true,
+            Kind::Name => !matches!(
+                token.text(self.source),
+                "and"
+                    | "or"
+                    | "xor"
+                    | "not"
+                    | "in"
+                    | "is"
+                    | "matches"
+                    | "starts"
+                    | "ends"
+                    | "has"
+                    | "if"
+                    | "else"
+                    | "with"
+                    | "only"
+                    | "as"
+                    | "b-and"
+                    | "b-or"
+                    | "b-xor"
+            ),
+            Kind::Punct => matches!(token.text(self.source), "[" | "{"),
+            _ => false,
         }
     }
 
@@ -624,7 +662,7 @@ impl<'a> Parser<'a> {
                 Some("[") => {
                     self.at += 1;
                     let index = if self.peek_text() == Some(":") {
-                        Expr::Missing(self.here())
+                        Expr::Number
                     } else {
                         self.expression_bp(0)
                     };
@@ -761,6 +799,10 @@ mod tests {
         assert_eq!(shape(&parse_one("a['b'].c(d: 1) ?? 'e'")), "(a['b'].c(d: 1) ?? 'e')");
         assert_eq!(shape(&parse_one("1..5")), "(1 .. 1)");
         assert_eq!(shape(&parse_one("x is divisible by(3)")), "(x is divisible by)");
+        assert_eq!(
+            shape(&parse_one("x is not same as null and y")),
+            "((not (x is same as)) and y)"
+        );
     }
 
     #[test]

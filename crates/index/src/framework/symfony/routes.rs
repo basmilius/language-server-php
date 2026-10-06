@@ -105,11 +105,20 @@ impl Section for SfRoutes {
                 routes.read_php(index, &path, "");
             }
         }
+        // A kernel that loads its routes itself may import what no file names (the routes of the
+        // plugins it finds).
+        let kernel = index.framework_root().join("src").join("Kernel.php");
+        if index
+            .read_text(&kernel)
+            .is_some_and(|text| text.contains("function configureRoutes"))
+        {
+            routes.incomplete = true;
+        }
         routes
     }
 
     fn depends_on(root: &Path, path: &Path) -> bool {
-        is_config(root, path)
+        path == root.join("src").join("Kernel.php") || is_config(root, path)
     }
 }
 

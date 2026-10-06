@@ -290,3 +290,64 @@ mod variables {
         assert!(hover.markdown.contains("vars"), "{}", hover.markdown);
     }
 }
+
+fn findings(template: &str) -> Vec<String> {
+    let fixture = fixture();
+    diagnostics(
+        &fixture.index,
+        Some(Path::new(PAGE)),
+        template,
+        &crate::inspections::InspectionSettings::default(),
+        true,
+    )
+    .into_iter()
+    .map(|found| {
+        format!(
+            "{} `{}`",
+            found.code,
+            &template[usize::from(found.range.start())..usize::from(found.range.end())]
+        )
+    })
+    .collect()
+}
+
+#[test]
+fn what_does_not_parse_is_reported() {
+    assert_eq!(findings("<p>{{ post.title </p>"), ["syntax `{{`"]);
+    assert_eq!(findings("{{ a b }}"), ["syntax `b`"]);
+    assert_eq!(findings("{{ a + }}"), ["syntax ``"]);
+    assert_eq!(findings("{{ post. }}"), ["syntax ``"]);
+    assert_eq!(findings("{% if %}{% endif %}"), ["syntax ``"]);
+    assert!(findings("{% if a is not same as null and b[:2] %}{{ x|default('y')|upper }}{% endif %}").is_empty());
+}
+
+#[test]
+fn blocks_that_do_not_close_are_reported() {
+    assert_eq!(
+        findings("{% if a %}{% for b in c %}{% endif %}"),
+        [
+            "unbalanced-directive `{% if a %}`",
+            "unbalanced-directive `{% for b in c %}`",
+            "unbalanced-directive `{% endif %}`"
+        ]
+    );
+    assert_eq!(findings("{% else %}"), ["unbalanced-directive `{% else %}`"]);
+    assert!(findings("{% block a 'x' %}{% set b = 1 %}{% set c %}d{% endset %}{% for e in f %}{% else %}{% endfor %}{% cache 'k' %}{% endcache %}").is_empty());
+}
+
+#[test]
+fn names_the_project_and_its_extensions_lack_are_reported() {
+    assert_eq!(
+        findings(
+            "{% include 'nope.html.twig' %}{{ path('missing') }}{{ x|nofilter }}{{ nofunction() }}{% if y is notatest %}{% endif %}"
+        ),
+        [
+            "unknown-template `nope.html.twig`",
+            "unknown-route `missing`",
+            "unknown-twig-filter `nofilter`",
+            "unknown-twig-function `nofunction`",
+            "unknown-twig-test `notatest`"
+        ]
+    );
+    assert!(findings("{% from 'macros.html.twig' import input %}{{ input() }}{% macro own() %}{% endmacro %}{{ parent() }}{% include '@Bundle/x.html.twig' %}").len() == 1, "only the template is unknown");
+}

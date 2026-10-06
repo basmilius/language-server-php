@@ -253,10 +253,28 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
     ),
     info("unknown-view", Warning, true, "A view that has no template"),
     info(
+        "unknown-twig-function",
+        Warning,
+        true,
+        "A Twig function no extension of the project or its packages declares",
+    ),
+    info(
+        "unknown-twig-filter",
+        Warning,
+        true,
+        "A Twig filter no extension of the project or its packages declares",
+    ),
+    info(
+        "unknown-twig-test",
+        Warning,
+        true,
+        "A Twig test no extension of the project or its packages declares",
+    ),
+    info(
         "unbalanced-directive",
         Error,
         true,
-        "A Blade block directive that is never closed, or one that closes nothing",
+        "A Blade directive or a Twig tag that opens a block that is never closed, or one that closes nothing",
     ),
     info("unknown-template", Warning, true, "A Twig template that does not exist"),
     info(

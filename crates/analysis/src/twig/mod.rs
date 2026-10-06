@@ -5,6 +5,7 @@
 //! filters and tests are the ones the Twig extensions of the project and its packages declare.
 
 pub mod data;
+mod diagnostics;
 pub mod lex;
 pub mod parse;
 pub mod types;
@@ -25,6 +26,7 @@ use crate::infer::Analyzer;
 use crate::nav::{HoverResult, Place, hover_markdown};
 use crate::refs::{Access, Hit, HitKind, Query, Symbol};
 use crate::target::Target;
+pub use diagnostics::diagnostics;
 use lex::{Kind, Token, lex};
 use parse::{Arg, Expr, HashKey, Parser};
 
@@ -115,6 +117,8 @@ pub struct Template {
     pub bare: Vec<(u32, u32)>,
     /// The name of the template itself, when it is one of the project's.
     pub name: Option<String>,
+    /// The delimiters that are not closed and the tokens no tag or expression takes.
+    pub errors: Vec<SyntaxError>,
 }
 
 /// The tags whose only argument is a template, perhaps with `with` and `only` after it.
@@ -123,7 +127,8 @@ const TEMPLATE_TAGS: &[&str] = &["extends", "include", "embed", "use", "form_the
 impl Template {
     pub fn read(index: &Index, path: Option<&Path>, text: &str) -> Template {
         let tokens = lex(text);
-        let items = items(text, &tokens);
+        let mut errors = Vec::new();
+        let items = items(text, &tokens, &mut errors);
         let name = path.and_then(|path| {
             index
                 .section::<Templates>()
@@ -139,6 +144,7 @@ impl Template {
             calls: Vec::new(),
             bare: Vec::new(),
             name,
+            errors,
         };
         template.collect(index, &extensions);
         template
@@ -355,7 +361,10 @@ fn callable_names(index: &Index, callable: &TwigCallable, subject: Option<&Expr>
 }
 
 /// The outputs and tags of a template, with the expressions of each read.
-fn items(source: &str, tokens: &[Token]) -> Vec<Item> {
+/// A syntax error, with where it is.
+pub type SyntaxError = (u32, u32, String);
+
+fn items(source: &str, tokens: &[Token], errors: &mut Vec<SyntaxError>) -> Vec<Item> {
     let mut out = Vec::new();
     let mut at = 0;
     while at < tokens.len() {
@@ -381,15 +390,28 @@ fn items(source: &str, tokens: &[Token]) -> Vec<Item> {
                 } else {
                     inner.last().map_or(token.end, |last| last.end)
                 };
+                if !closed {
+                    let opener = if token.kind == Kind::VarStart { "{{" } else { "{%" };
+                    errors.push((token.start, token.end, format!("'{opener}' is not closed")));
+                }
                 if token.kind == Kind::VarStart {
-                    let expr = Parser::new(source, inner, end).expression();
+                    let mut parser = Parser::new(source, inner, end);
+                    let expr = parser.expression();
+                    if let Some(rest) = parser.peek().filter(|_| closed) {
+                        errors.push((rest.start, rest.end, format!("Unexpected '{}'", rest.text(source))));
+                    }
                     out.push(Item::Output {
                         expr,
                         start: token.start,
                         end,
                     });
-                } else if let Some(tag) = tag(source, inner, token.start, end) {
+                } else if let Some((tag, rest)) = tag(source, inner, token.start, end) {
+                    if let Some(rest) = rest.filter(|_| closed) {
+                        errors.push((rest.start, rest.end, format!("Unexpected '{}'", rest.text(source))));
+                    }
                     out.push(Item::Tag(tag));
+                } else if closed {
+                    errors.push((token.start, token.end, "A tag name is expected".to_string()));
                 }
                 at = if closed { close + 1 } else { close };
             }
@@ -399,7 +421,8 @@ fn items(source: &str, tokens: &[Token]) -> Vec<Item> {
     out
 }
 
-fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<Tag> {
+/// A tag, and the first token after what its shape takes, when there is one.
+fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<(Tag, Option<Token>)> {
     let first = tokens.first().filter(|token| token.kind == Kind::Name)?;
     let name = first.text(source).to_string();
     let mut parser = Parser::new(source, &tokens[1..], end);
@@ -502,6 +525,7 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<Tag> {
             TagBody::Import { template, names }
         }
         "apply" => TagBody::Other(vec![parser.filter_chain(Expr::Missing(first.end))]),
+        "if" | "elseif" => TagBody::Other(vec![parser.expression()]),
         _ => {
             let mut exprs = Vec::new();
             while !parser.at_end() {
@@ -517,14 +541,22 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<Tag> {
             TagBody::Other(exprs)
         }
     };
-    Some(Tag {
-        name,
-        name_start: first.start,
-        name_end: first.end,
-        start,
-        end,
+    let shaped = matches!(
         body,
-    })
+        TagBody::For { .. } | TagBody::Set { .. } | TagBody::Block { .. } | TagBody::Macro { .. }
+    ) || matches!(name.as_str(), "if" | "elseif");
+    let rest = if shaped { parser.peek().copied() } else { None };
+    Some((
+        Tag {
+            name,
+            name_start: first.start,
+            name_end: first.end,
+            start,
+            end,
+            body,
+        },
+        rest,
+    ))
 }
 
 /// The function, filter or test a call names, as the PHP behind it, else as the place the

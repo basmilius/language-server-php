@@ -30,7 +30,7 @@ php-language-server --stdio
 
 ## Limits
 
-- Twig templates follow their templates, blocks, functions, filters, the routes and translations they name and the variables controllers pass, but publish no diagnostics yet. Blade templates are read as a whole: scope, `@foreach`, `@props`, the variables controllers, includes and components pass, sections, stacks, slots, usages, rename and diagnostics.
+- Twig templates follow their templates, blocks, functions, filters, the routes and translations they name and the variables controllers pass, with diagnostics. Blade templates are read as a whole: scope, `@foreach`, `@props`, the variables controllers, includes and components pass, sections, stacks, slots, usages, rename and diagnostics.
 - Livewire, Inertia, DQL and the Doctrine query builder, Eloquent query strings and validation rule strings are not analyzed.
 - Usages are found in the project, and in installed packages when `usages.packages` asks for them. Strings count when they name a route, a config key, a view, a translation or another name a framework declares, in PHP and Blade; ordinary strings and comments, Twig and YAML do not.
 - Composer autoloading is read from PSR-4 and PSR-0; an authoritative classmap and `files` are not looked up by name. `@psalm-type` aliases are not read.

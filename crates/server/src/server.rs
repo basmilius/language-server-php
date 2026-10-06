@@ -605,10 +605,8 @@ impl<'a> Server<'a> {
     }
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
-        if self.documents.get(uri)?.twig {
-            return Some(Vec::new());
-        }
-        if self.documents.get(uri)?.blade {
+        let document = self.documents.get(uri)?;
+        if document.blade || document.twig {
             return self.template_diagnostics(uri);
         }
         let _document = php_analysis::document::enter(uri_to_path(uri).as_deref());
@@ -621,7 +619,7 @@ impl<'a> Server<'a> {
         })
     }
 
-    /// What is certainly wrong in an open Blade template.
+    /// What is certainly wrong in an open Blade or Twig template.
     fn template_diagnostics(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
         let path = uri_to_path(uri);
         let given = self.template_given(uri);
@@ -641,14 +639,18 @@ impl<'a> Server<'a> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let found = php_analysis::blade::diagnostics(
-            &project.index,
-            path.as_deref(),
-            &document.text,
-            &given,
-            &settings,
-            ready,
-        );
+        let found = if document.twig {
+            php_analysis::twig::diagnostics(&project.index, path.as_deref(), &document.text, &settings, ready)
+        } else {
+            php_analysis::blade::diagnostics(
+                &project.index,
+                path.as_deref(),
+                &document.text,
+                &given,
+                &settings,
+                ready,
+            )
+        };
         let mapper = Mapper {
             text: &document.text,
             index: &document.index,

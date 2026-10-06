@@ -339,7 +339,7 @@ pub const TWIG: &[(&str, &str)] = &[
     ),
     (
         "vendor/symfony/twig/CoreExtension.php",
-        "<?php\nnamespace Twig\\Extension;\nuse Twig\\{TwigFilter, TwigFunction, TwigTest};\nfinal class CoreExtension extends AbstractExtension {\n    public function getFilters(): array { return [new TwigFilter('upper', 'strtoupper'), new TwigFilter('length', [self::class, 'length'], ['needs_charset' => true])]; }\n    public function getFunctions(): array { return [new TwigFunction('include', [self::class, 'include'], ['needs_environment' => true, 'needs_context' => true])]; }\n    public function getTests(): array { return [new TwigTest('even', null)]; }\n    /** Counts. */\n    public static function length(string $charset, $thing): int {}\n    public static function include($env, $context, $template, $variables = []) {}\n}\n",
+        "<?php\nnamespace Twig\\Extension;\nuse Twig\\{TwigFilter, TwigFunction, TwigTest};\nfinal class CoreExtension extends AbstractExtension {\n    public function getFilters(): array { return [new TwigFilter('upper', 'strtoupper'), new TwigFilter('default', [self::class, 'default']), new TwigFilter('length', [self::class, 'length'], ['needs_charset' => true])]; }\n    public function getFunctions(): array { return [new TwigFunction('include', [self::class, 'include'], ['needs_environment' => true, 'needs_context' => true])]; }\n    public function getTests(): array { return [new TwigTest('even', null), new TwigTest('same as', null)]; }\n    /** Counts. */\n    public static function length(string $charset, $thing): int {}\n    public static function include($env, $context, $template, $variables = []) {}\n}\n",
     ),
     (
         "vendor/symfony/twig-bridge/RoutingExtension.php",

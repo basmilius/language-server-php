@@ -735,3 +735,29 @@ fn a_twig_template_knows_what_its_controller_passes() {
     assert!(items.contains(&"title".to_string()), "{items:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_twig_template_publishes_what_is_certainly_wrong() {
+    let disk = symfony();
+    for (path, text) in php_index::framework::testing::TWIG {
+        disk.write(&format!("project/{path}"), text);
+    }
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/templates/broken.html.twig");
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "twig", "version": 1, "text": "{% if a %}\n{{ path('nope') }}{{ b|nofilter }}\n" } }),
+    );
+    let found = client.diagnostics(&uri);
+    let mut codes: Vec<String> = found
+        .iter()
+        .map(|diagnostic| diagnostic["code"].as_str().unwrap_or_default().to_string())
+        .collect();
+    codes.sort();
+    assert_eq!(
+        codes,
+        ["unbalanced-directive", "unknown-route", "unknown-twig-filter"],
+        "{found:?}"
+    );
+    client.shutdown();
+}
