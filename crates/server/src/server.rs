@@ -1086,7 +1086,8 @@ impl<'a> Server<'a> {
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if name == "composer.json" || name == "installed.json" {
+            // `composer dump-autoload` writes the class map again without touching the other two.
+            if name == "composer.json" || name == "installed.json" || name == "autoload_classmap.php" {
                 if name == "composer.json" {
                     if let Some(folder) = self.workspace.folder_of(&path) {
                         if !folders.contains(&folder) {

@@ -602,6 +602,36 @@ fn reads_a_class_that_composer_points_at_but_the_index_skipped() {
 }
 
 #[test]
+fn reads_the_classes_of_composer_s_generated_class_map() {
+    let disk = Disk::new();
+    disk.write(
+        "project/composer.json",
+        r#"{"autoload":{"classmap":["lib/"]},"config":{"classmap-authoritative":true}}"#,
+    );
+    disk.write(
+        "project/lib/legacy.inc",
+        "<?php\n/** Found through the class map. */\nclass LegacyThing {}\n",
+    );
+    disk.write(
+        "project/vendor/composer/autoload_classmap.php",
+        "<?php\n\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\n\nreturn array(\n    'LegacyThing' => $baseDir . '/lib/legacy.inc',\n);\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/src/Page.php");
+    client.open(&uri, "<?php\nnew \\LegacyThing();\n");
+    let definition = client.at("textDocument/definition", &uri, 1, 8);
+    assert_eq!(definition[0]["uri"], disk.uri("project/lib/legacy.inc"), "{definition}");
+    let diagnostics = client.diagnostics(&uri);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "undefined-class"),
+        "{diagnostics:?}"
+    );
+    client.shutdown();
+}
+
+#[test]
 fn finds_usages_and_highlights_across_the_project() {
     let disk = Disk::new();
     disk.write(

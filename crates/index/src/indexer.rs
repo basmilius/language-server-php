@@ -1,7 +1,7 @@
 //! Indexes many files at once: finds them, reads the declarations of each in parallel, and reuses
 //! what the cache holds for files that did not change.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -140,8 +140,50 @@ pub fn discover_project(root: &Path, composer: Option<&Composer>, skip: &[PathBu
             }
         }
         files.extend(vendor.into_iter().map(|path| (path, Origin::Vendor)));
+        let known: HashSet<PathBuf> = files.iter().map(|(path, _)| path.clone()).collect();
+        let mut loaded: Vec<(PathBuf, Origin)> = composer_loaded(composer)
+            .into_iter()
+            .filter(|path| !known.contains(path) && !composer.excluded(path))
+            .map(|path| {
+                let own = path.starts_with(root) && !path.starts_with(&composer.vendor_dir);
+                (path, if own { Origin::Project } else { Origin::Vendor })
+            })
+            .collect();
+        loaded.sort();
+        loaded.dedup();
+        files.extend(loaded);
     }
     files
+}
+
+/// The files Composer loads that a walk of the folders leaves out: the project's own `files` and
+/// `classmap` entries in a folder the walk skips, and the files the generated class map names
+/// whatever their extension (`classmap` scanning takes `.inc` files too).
+fn composer_loaded(composer: &Composer) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = composer
+        .autoload
+        .files
+        .iter()
+        .filter(|path| path.is_file())
+        .cloned()
+        .collect();
+    for entry in &composer.autoload.classmap {
+        if entry.is_file() {
+            out.push(entry.clone());
+            continue;
+        }
+        for found in WalkDir::new(entry).follow_links(false).into_iter().flatten() {
+            if found.file_type().is_file() && is_php(found.path()) {
+                out.push(found.into_path());
+            }
+        }
+    }
+    out.extend(
+        crate::composer::read_generated_classmap(&composer.vendor_dir)
+            .into_values()
+            .filter(|path| !is_php(path) && path.is_file()),
+    );
+    out
 }
 
 /// The PHP files of the extension folders of the stubs.
@@ -392,6 +434,45 @@ mod tests {
             .map(|(path, _)| path.strip_prefix(root).expect("inside").to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec!["src/A.php", "tests/ATest.php"]);
+    }
+
+    #[test]
+    fn finds_the_files_composer_loads_that_a_walk_leaves_out() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let root = dir.path();
+        for path in ["src/A.php", "lib/legacy.inc", ".tools/helpers.php"] {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().expect("a parent")).expect("created");
+            fs::write(file, "<?php class X {}").expect("written");
+        }
+        fs::create_dir_all(root.join("vendor/composer")).expect("vendor");
+        fs::write(
+            root.join("vendor/composer/autoload_classmap.php"),
+            "<?php\nreturn array(\n    'Legacy' => $baseDir . '/lib/legacy.inc',\n    'App\\\\A' => $baseDir . '/src/A.php',\n);\n",
+        )
+        .expect("the class map");
+        let composer = Composer::from_json(
+            root,
+            &serde_json::json!({ "autoload": { "files": [".tools/helpers.php"] } }),
+        );
+        let found = discover_project(root, Some(&composer), &[]);
+        let names: Vec<(String, Origin)> = found
+            .iter()
+            .map(|(path, origin)| {
+                (
+                    path.strip_prefix(root).expect("inside").to_string_lossy().into_owned(),
+                    *origin,
+                )
+            })
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("src/A.php".to_string(), Origin::Project),
+                (".tools/helpers.php".to_string(), Origin::Project),
+                ("lib/legacy.inc".to_string(), Origin::Project),
+            ]
+        );
     }
 
     fn touch(root: &Path, relative: &str) {

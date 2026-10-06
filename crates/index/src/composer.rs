@@ -1,8 +1,9 @@
 //! Composer metadata: the language level a project asks for, the extensions it requires and the
 //! autoload maps that say which files define which names.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use php_syntax::PhpVersion;
 use serde_json::Value;
@@ -26,6 +27,20 @@ pub struct Package {
     pub autoload: Autoload,
 }
 
+/// The class map Composer generates in `vendor/composer/autoload_classmap.php`, by lowercase class
+/// name, read when something first asks for it. It holds every class when the autoloader is
+/// optimized, and the ones of `classmap` sections otherwise.
+#[derive(Clone, Debug, Default)]
+pub struct GeneratedClassmap(Arc<OnceLock<HashMap<String, PathBuf>>>);
+
+impl PartialEq for GeneratedClassmap {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for GeneratedClassmap {}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Composer {
     pub root: PathBuf,
@@ -42,6 +57,9 @@ pub struct Composer {
     pub requires_packages: bool,
     /// The packages `composer.json` requires, `require-dev` included, lowercase.
     pub requires: Vec<String>,
+    /// `config.classmap-authoritative`: the autoloader looks no further than its class map.
+    pub authoritative: bool,
+    pub generated: GeneratedClassmap,
 }
 
 impl Composer {
@@ -99,7 +117,19 @@ impl Composer {
             packages,
             requires_packages,
             requires,
+            authoritative: json
+                .pointer("/config/classmap-authoritative")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            generated: GeneratedClassmap::default(),
         }
+    }
+
+    /// Composer's generated class map.
+    pub fn generated_classmap(&self) -> &HashMap<String, PathBuf> {
+        self.generated
+            .0
+            .get_or_init(|| read_generated_classmap(&self.vendor_dir))
     }
 
     /// Whether the project requires a package or has it installed.
@@ -121,10 +151,19 @@ impl Composer {
                 .any(|package| package.name.to_ascii_lowercase().starts_with(&prefix))
     }
 
-    /// The files that may define a class, by the PSR-4 and PSR-0 maps of the project and its packages.
+    /// The files that may define a class: the one of the generated class map, then the ones of the
+    /// PSR-4 and PSR-0 maps of the project and its packages, which an authoritative class map rules out.
     pub fn class_candidates(&self, class: &str) -> Vec<PathBuf> {
         let class = class.trim_start_matches('\\');
-        let mut out = Vec::new();
+        let generated = self.generated_classmap();
+        let mut out: Vec<PathBuf> = generated
+            .get(&class.to_ascii_lowercase())
+            .cloned()
+            .into_iter()
+            .collect();
+        if self.authoritative && !generated.is_empty() {
+            return out;
+        }
         let maps = std::iter::once(&self.autoload).chain(self.packages.iter().map(|package| &package.autoload));
         for autoload in maps {
             let mut psr4: Vec<&(String, PathBuf)> = autoload
@@ -182,6 +221,40 @@ impl Composer {
             .flat_map(|package| package.autoload.exclude.iter())
             .any(|excluded| path.starts_with(excluded))
     }
+}
+
+/// Reads `autoload_classmap.php` as Composer writes it, one `'Class\\Name' => $vendorDir . '/path.php',`
+/// a line, the paths below `$vendorDir` or `$baseDir`, the folder above it.
+pub fn read_generated_classmap(vendor_dir: &Path) -> HashMap<String, PathBuf> {
+    let mut out = HashMap::new();
+    let Ok(text) = std::fs::read_to_string(vendor_dir.join("composer").join("autoload_classmap.php")) else {
+        return out;
+    };
+    let base_dir = vendor_dir.parent().unwrap_or(vendor_dir);
+    for line in text.lines() {
+        let Some((key, value)) = line.trim().split_once(" => ") else {
+            continue;
+        };
+        let Some(class) = key.strip_prefix('\'').and_then(|key| key.strip_suffix('\'')) else {
+            continue;
+        };
+        let value = value.trim_end_matches(',');
+        let (dir, rest) = if let Some(rest) = value.strip_prefix("$vendorDir . ") {
+            (vendor_dir, rest)
+        } else if let Some(rest) = value.strip_prefix("$baseDir . ") {
+            (base_dir, rest)
+        } else {
+            continue;
+        };
+        let Some(relative) = rest.strip_prefix('\'').and_then(|rest| rest.strip_suffix('\'')) else {
+            continue;
+        };
+        out.insert(
+            class.replace("\\\\", "\\").to_ascii_lowercase(),
+            dir.join(relative.trim_start_matches('/')),
+        );
+    }
+    out
 }
 
 fn merge(into: &mut Autoload, other: Autoload) {
@@ -416,6 +489,8 @@ mod tests {
             },
             requires_packages: false,
             requires: Vec::new(),
+            authoritative: false,
+            generated: GeneratedClassmap::default(),
             packages: vec![Package {
                 name: "old/lib".into(),
                 path: PathBuf::from("/p/vendor/old/lib"),
@@ -475,5 +550,33 @@ mod tests {
         .expect("written");
         let packages = read_installed(&vendor);
         assert_eq!(packages[0].autoload.classmap, vec![vendor.join("c/d/lib")]);
+    }
+
+    #[test]
+    fn the_generated_class_map_comes_first_and_an_authoritative_one_alone() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("vendor/composer")).expect("vendor");
+        std::fs::write(
+            root.join("vendor/composer/autoload_classmap.php"),
+            "<?php\n\n// autoload_classmap.php @generated by Composer\n\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\n\nreturn array(\n    'App\\\\Legacy\\\\Thing' => $baseDir . '/lib/thing.inc',\n    'Acme\\\\Tool' => $vendorDir . '/acme/tool/Tool.php',\n);\n",
+        )
+        .expect("the class map");
+        let json = |authoritative: bool| json!({ "autoload": { "psr-4": { "App\\": "src/" } }, "config": { "classmap-authoritative": authoritative } });
+        let composer = Composer::from_json(root, &json(false));
+        assert_eq!(
+            composer.class_candidates("App\\Legacy\\Thing"),
+            vec![root.join("lib/thing.inc"), root.join("src/Legacy/Thing.php")]
+        );
+        assert_eq!(
+            composer.class_candidates("acme\\tool"),
+            vec![root.join("vendor/acme/tool/Tool.php")]
+        );
+        let authoritative = Composer::from_json(root, &json(true));
+        assert_eq!(
+            authoritative.class_candidates("App\\Legacy\\Thing"),
+            vec![root.join("lib/thing.inc")]
+        );
+        assert!(authoritative.class_candidates("App\\Models\\User").is_empty());
     }
 }
