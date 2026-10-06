@@ -1700,3 +1700,49 @@ mod serializer_groups {
         assert_eq!(found, ["No property or method is in the group 'nope'"]);
     }
 }
+
+mod messenger {
+    use php_index::framework::testing::SYMFONY;
+
+    use crate::infer::Analyzer;
+    use crate::testing::{Fixture, split_cursor};
+
+    fn fixture() -> Fixture {
+        let mut files = SYMFONY.to_vec();
+        files.extend_from_slice(&[
+            ("config/bundles.php", "<?php return [];"),
+            (
+                "vendor/symfony/AsMessageHandler.php",
+                "<?php\nnamespace Symfony\\Component\\Messenger\\Attribute;\n#[\\Attribute]\nclass AsMessageHandler { public function __construct(?string $bus = null, ?string $fromTransport = null, ?string $handles = null, ?string $method = null) {} }\n",
+            ),
+            ("src/Message/SendEmail.php", "<?php\nnamespace App\\Message;\nclass SendEmail {}\n"),
+            (
+                "src/Handler/SendEmailHandler.php",
+                "<?php\nnamespace App\\Handler;\nuse App\\Message\\SendEmail;\nuse Symfony\\Component\\Messenger\\Attribute\\AsMessageHandler;\n#[AsMessageHandler]\nclass SendEmailHandler {\n    public function __invoke(SendEmail $message): void {}\n}\n",
+            ),
+            (
+                "src/Handler/Audit.php",
+                "<?php\nnamespace App\\Handler;\nuse App\\Message\\SendEmail;\nuse Symfony\\Component\\Messenger\\Attribute\\AsMessageHandler;\nclass Audit {\n    #[AsMessageHandler(handles: SendEmail::class)]\n    public function record(object $message): void {}\n}\n",
+            ),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn the_implementations_of_a_message_are_its_handlers() {
+        let fixture = fixture();
+        let code = "<?php\nuse App\\Message\\SendEmail;\nfunction send($bus) { $bus->dispatch(new Send$0Email()); }\n";
+        let (_, root, offset) = split_cursor(code);
+        let mut found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
+            .implementations(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+                text[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect();
+        found.sort();
+        assert_eq!(found, ["__invoke", "record"]);
+    }
+}

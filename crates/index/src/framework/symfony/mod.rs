@@ -3,6 +3,7 @@
 
 pub mod doctrine;
 pub mod events;
+pub mod messenger;
 pub mod routes;
 pub mod serializer;
 pub mod services;

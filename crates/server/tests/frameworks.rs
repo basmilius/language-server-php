@@ -1109,3 +1109,36 @@ fn a_serialization_group_leads_to_the_properties_in_it() {
     assert_eq!(unknown.len(), 1, "{diagnostics:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_message_s_implementations_are_its_handlers() {
+    let disk = symfony();
+    disk.write(
+        "project/vendor/symfony/messenger/AsMessageHandler.php",
+        "<?php\nnamespace Symfony\\Component\\Messenger\\Attribute;\n\n#[\\Attribute]\nclass AsMessageHandler\n{\n}\n",
+    );
+    disk.write(
+        "project/src/Message/Ping.php",
+        "<?php\nnamespace App\\Message;\n\nclass Ping\n{\n}\n",
+    );
+    disk.write(
+        "project/src/Handler/PingHandler.php",
+        "<?php\nnamespace App\\Handler;\n\nuse App\\Message\\Ping;\nuse Symfony\\Component\\Messenger\\Attribute\\AsMessageHandler;\n\n#[AsMessageHandler]\nclass PingHandler\n{\n    public function __invoke(Ping $ping): void {}\n}\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/src/Controller/PingController.php");
+    client.open(
+        &uri,
+        "<?php\nnamespace App\\Controller;\n\nuse App\\Message\\Ping;\n\nfunction ping($bus)\n{\n    $bus->dispatch(new Ping());\n}\n",
+    );
+    let found = client.at("textDocument/implementation", &uri, 7, 24);
+    assert!(
+        found
+            .as_array()
+            .expect("locations")
+            .iter()
+            .any(|place| place["uri"] == disk.uri("project/src/Handler/PingHandler.php")),
+        "{found}"
+    );
+    client.shutdown();
+}

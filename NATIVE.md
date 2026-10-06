@@ -648,6 +648,8 @@ Names in a doc comment lead somewhere now: a class in a type, `Class::member()` 
 
 **Serialization groups (Symfony's serializer and API Platform).** A group is declared by the `#[Groups]` on a property, a method or a class (`framework/symfony/serializer.rs`), whose strings are a key of their own through a marker on the attribute's constructor. A context names one under `AbstractNormalizer::GROUPS` or `'groups'`, in an argument named `normalizationContext`, `denormalizationContext`, `serializationContext` or `context` (API Platform's `#[ApiResource]` and operations, `#[MapRequestPayload]`, a controller's `json()`), or in an argument of `serialize()`, `deserialize()`, `normalize()`, `denormalize()` and `json()`. Definition lists every `#[Groups]` that names the group, completion offers the groups, find usages lists both, and `unknown-serializer-group` (warning) reports a group no attribute declares, never `Default`, and not in a project that maps groups in `config/serializer` or `config/api_platform`. A validation context uses the same key for validation groups and is left alone: the first version read every `GROUPS` key and reported the two validation groups of `api-platform/demo`, which is why the argument decides. On that demo 11 groups are named in 58 places and nothing is reported.
 
+**Symfony Messenger.** The handlers of each message are read from the project (`framework/symfony/messenger.rs`): a class marked `#[AsMessageHandler]` (its `__invoke`, or the `method:` the attribute names), a method marked so, and a class that implements `MessageHandlerInterface`; the message is the attribute's `handles:`, else the class of the method's first parameter. Go to implementation on a message class, where it is declared or in `$bus->dispatch(new Ping())`, lists its handlers next to its subclasses. Handlers configured in YAML are not read, and nothing is reported about a message without one, which another application may handle. None of the projects at hand uses Messenger, so this rests on the tests.
+
 ### Corpus
 
 ```sh
@@ -700,5 +702,5 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Other frameworks and packages in the same overlay format (Symfony Messenger and Workflow).
+- Other frameworks and packages in the same overlay format (Symfony Workflow).
 - A PHP 8.6 level, when its syntax exists.

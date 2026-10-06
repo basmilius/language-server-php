@@ -378,6 +378,14 @@ impl Analyzer<'_> {
             match &found.target {
                 Target::Class(name) => {
                     places.extend(self.index.all_subtypes(name).into_iter().map(class_place));
+                    // A message's handlers are what it is carried out by.
+                    let handlers = self
+                        .index
+                        .section::<php_index::framework::symfony::messenger::MessageHandlers>();
+                    places.extend(handlers.of(name).iter().map(|handler| Place {
+                        path: Some(handler.path.clone()),
+                        span: handler.name_span,
+                    }));
                 }
                 Target::Method { receiver, name } => {
                     for member in receiver.members() {
