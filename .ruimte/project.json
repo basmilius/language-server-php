@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "name": "Language Server: PHP",
+  "color": "#7c74ff",
+  "icon": {"kind":"lucide","value":"binary"},
+  "views": []
+}
