@@ -20,7 +20,7 @@ The first build fetches the crates from the registry. The binary is `target/rele
 php-language-server --stdio
 ```
 
-Without arguments it starts the same way. `--version` (or `-V`) prints `php-language-server 0.3.0` and `--help` the usage; an unknown argument exits with code 2. Stdout carries only the protocol, so read stderr apart.
+Without arguments it starts the same way. `--version` (or `-V`) prints `php-language-server 0.4.0` and `--help` the usage; an unknown argument exits with code 2. Stdout carries only the protocol, so read stderr apart.
 
 ## Connect
 
