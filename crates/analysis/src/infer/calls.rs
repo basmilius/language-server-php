@@ -287,9 +287,13 @@ impl Analyzer<'_> {
                 continue;
             }
             if let Some(found) = self.index.find_method(member, name) {
+                let mut callable = found.member.callable.clone();
+                if callable.doc_ret.is_none() {
+                    callable.doc_ret = self.inherited_return(member, &found.member.name, &callable);
+                }
                 out.push(ResolvedCallable {
                     name: format!("{}::{}", found.class.decl.name, found.member.name),
-                    callable: found.member.callable.clone(),
+                    callable,
                     doc: found.member.doc.clone(),
                     subst: found.subst.as_ref().clone(),
                     self_name: Some(found.self_name.clone()),
@@ -306,6 +310,17 @@ impl Analyzer<'_> {
             }
         }
         out
+    }
+
+    /// The documented return type of the nearest method this one overrides, read from the receiver,
+    /// for a method that documents none itself, as `{@inheritdoc}` on a trait method does.
+    fn inherited_return(&self, receiver: &Type, name: &str, callable: &Callable) -> Option<Type> {
+        let native = callable.native_return(self.level());
+        self.index.ancestors(receiver).iter().find_map(|ancestor| {
+            let documented = ancestor.class.decl.method(name)?.callable.doc_ret.as_ref()?;
+            let resolved = documented.substitute(&ancestor.subst, None, Some(&ancestor.self_name));
+            self.narrows(native, &resolved).then_some(resolved)
+        })
     }
 
     pub(super) fn call_type(&self, node: &SyntaxNode, env: &Env) -> Type {

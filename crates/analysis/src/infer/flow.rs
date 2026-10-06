@@ -193,7 +193,7 @@ impl Analyzer<'_> {
     }
 
     /// Whether `inherited` only says more than `native` already does, so taking it loses nothing.
-    fn narrows(&self, native: Option<&Type>, inherited: &Type) -> bool {
+    pub(super) fn narrows(&self, native: Option<&Type>, inherited: &Type) -> bool {
         let Some(native) = native else {
             return true;
         };

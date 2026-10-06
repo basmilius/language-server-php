@@ -469,3 +469,66 @@ fn a_partial_application_is_a_closure() {
     assert_eq!(var(&fixture, code, "rest"), "Closure");
     assert_eq!(var(&fixture, code, "named"), "Closure");
 }
+
+#[test]
+fn a_trait_method_inherits_the_documented_return_of_the_interface() {
+    let fixture = Fixture::new(&[(
+        "Raxos.php",
+        r#"<?php
+namespace Raxos;
+
+/**
+ * @template TKey of array-key
+ * @template TValue
+ */
+interface ArrayListInterface {
+    /**
+     * @param TValue|null $default
+     * @return TValue|null
+     */
+    public function first(?callable $predicate = null, mixed $default = null): mixed;
+}
+
+trait ArrayListable {
+    /**
+     * {@inheritdoc}
+     */
+    public function first(?callable $predicate = null, mixed $default = null): mixed {}
+}
+
+/**
+ * @template TKey of array-key
+ * @template TValue
+ * @implements ArrayListInterface<TKey, TValue>
+ */
+class ArrayList implements ArrayListInterface {
+    use ArrayListable;
+}
+
+/**
+ * @template TKey of array-key
+ * @template TValue of Model
+ * @implements ArrayListInterface<TKey, TValue>
+ */
+class ModelArrayList extends ArrayList {}
+
+class Model {}
+class Product extends Model { public string $id; }
+
+class AppTeam extends Model {
+    /** @var ModelArrayList<int, Product> */
+    public ModelArrayList $products;
+}
+"#,
+    )]);
+    let code = r#"<?php
+namespace Raxos;
+function f(AppTeam $team) {
+    $list = $team->products;
+    $first = $team->products->first();
+    $0
+}
+"#;
+    assert_eq!(var(&fixture, code, "list"), "ModelArrayList<int, Product>");
+    assert_eq!(var(&fixture, code, "first"), "?Product");
+}
