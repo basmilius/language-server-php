@@ -482,7 +482,8 @@ fn pseudo_method(pseudo: &DocMethod, class: &ClassDecl) -> Method {
             leveled_ret: None,
             by_ref_return: false,
             is_generator: false,
-            reads_all_arguments: false,
+            // `__call` takes whatever is passed, whatever the `@method` says.
+            reads_all_arguments: true,
         },
         doc: (!pseudo.description.is_empty()).then(|| {
             Box::new(Doc {

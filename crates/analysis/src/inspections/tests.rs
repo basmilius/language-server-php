@@ -709,3 +709,14 @@ fn doc_types_may_not_contradict_the_declared_ones() {
         .collect();
     assert_eq!(found, ["$a", "$b", "$c", "@return"]);
 }
+
+#[test]
+fn a_method_reached_through_call_is_neither_static_nor_counted() {
+    let files = [(
+        "A.php",
+        "<?php\n/**\n * @method static self subHour()\n */\nclass Date {\n    public function __call($name, $arguments) {}\n    public static function __callStatic($name, $arguments) {}\n    public static function make(): static {}\n}\n",
+    )];
+    let source = "<?php\nfunction f(Date $date) {\n    $date->subHour(1);\n    $date->make();\n}\n";
+    assert_eq!(only_in(&files, "wrong-argument-count", source), Vec::<String>::new());
+    assert_eq!(only_in(&files, "instance-call-of-static-method", source), ["make"]);
+}

@@ -150,7 +150,13 @@ fn check_method(
             );
         }
     }
+    // A method the class does not declare itself (a scope of a model, a `@method`) is reached
+    // through `__call` on an object, which is no static call.
+    let declared = found
+        .iter()
+        .all(|found| found.class.decl.method(&found.member.name).is_some());
     if found.iter().all(|found| found.member.is_static)
+        && declared
         && !statically
         && !is_this
         && cx.on("instance-call-of-static-method")
