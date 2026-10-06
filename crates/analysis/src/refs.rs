@@ -209,11 +209,20 @@ impl Query {
                 },
                 Symbol::Key { kind, name, scope },
             ) => {
+                let same_name = match kind {
+                    KeyKind::Attribute => {
+                        php_index::framework::layouts::attribute_key(wanted_name)
+                            == php_index::framework::layouts::attribute_key(name)
+                    }
+                    _ => wanted_name == name,
+                };
                 wanted_kind == kind
-                    && wanted_name == name
-                    && (!matches!(kind, KeyKind::Field | KeyKind::EntityField)
-                        || wanted_scope.as_deref().map(str::to_ascii_lowercase)
-                            == scope.as_deref().map(str::to_ascii_lowercase))
+                    && same_name
+                    && (!matches!(
+                        kind,
+                        KeyKind::Field | KeyKind::EntityField | KeyKind::Slot | KeyKind::Attribute
+                    ) || wanted_scope.as_deref().map(str::to_ascii_lowercase)
+                        == scope.as_deref().map(str::to_ascii_lowercase))
             }
             _ => false,
         }

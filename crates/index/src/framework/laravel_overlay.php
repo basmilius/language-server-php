@@ -587,6 +587,26 @@ class BladeCompiler
     public function cannot($ability, $arguments = []) {}
     /** @key ability */
     public function elsecan($ability, $arguments = []) {}
+    /** @key section */
+    public function section($section, $content = null) {}
+    /** @key section */
+    public function yield($section, $default = '') {}
+    /** @key section */
+    public function hasSection($section) {}
+    /** @key section */
+    public function sectionMissing($section) {}
+    /** @key stack */
+    public function stack($stack, $default = '') {}
+    /** @key stack */
+    public function push($stack, $content = '') {}
+    /** @key stack */
+    public function prepend($stack, $content = '') {}
+    /** @key stack */
+    public function pushOnce($stack, $id = null) {}
+    /** @key stack */
+    public function prependOnce($stack, $id = null) {}
+    /** @key stack 1 */
+    public function pushIf($condition, $stack) {}
 }
 
 }

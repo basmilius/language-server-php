@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use super::abilities::Abilities;
 use super::config::ConfigKeys;
 use super::env::EnvNames;
+use super::layouts::{Layouts, attribute_key, component_template, kebab, props_of, slots_of};
 use super::routes::Routes;
 use super::symfony::doctrine::Entities;
 use super::symfony::events::EventNames;
@@ -40,6 +41,14 @@ pub enum KeyKind {
     Event,
     /// A field of the entity a repository serves.
     EntityField,
+    /// A section a layout yields and a child fills.
+    Section,
+    /// A stack a layout renders and templates push to.
+    Stack,
+    /// A slot of the component the scope names.
+    Slot,
+    /// An attribute of the component the scope names, which fills one of its props.
+    Attribute,
 }
 
 impl KeyKind {
@@ -58,6 +67,8 @@ impl KeyKind {
             "template" => KeyKind::Template,
             "event" => KeyKind::Event,
             "entity-field" => KeyKind::EntityField,
+            "section" => KeyKind::Section,
+            "stack" => KeyKind::Stack,
             _ => return None,
         })
     }
@@ -77,6 +88,10 @@ impl KeyKind {
             KeyKind::Template => "template",
             KeyKind::Event => "event",
             KeyKind::EntityField => "entity field",
+            KeyKind::Section => "section",
+            KeyKind::Stack => "stack",
+            KeyKind::Slot => "slot",
+            KeyKind::Attribute => "component attribute",
         }
     }
 
@@ -263,6 +278,80 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 )
             }));
         }
+        KeyKind::Section | KeyKind::Stack => {
+            let layouts = index.section::<Layouts>();
+            let placed = if kind == KeyKind::Section {
+                &layouts.sections
+            } else {
+                &layouts.stacks
+            };
+            let mut seen = std::collections::HashSet::new();
+            out.extend(
+                placed
+                    .iter()
+                    .filter(|placed| seen.insert(placed.name.clone()))
+                    .map(|placed| candidate(&placed.name, None)),
+            );
+        }
+        KeyKind::Slot => {
+            if let Some(text) = scope.and_then(|tag| component_text(index, tag)) {
+                out.extend(slots_of(&text).iter().map(|(name, _)| candidate(name, None)));
+            }
+        }
+        KeyKind::Attribute => {
+            if let Some(tag) = scope {
+                out.extend(
+                    component_props(index, tag)
+                        .into_iter()
+                        .map(|prop| candidate(&kebab(&prop.name), prop.detail)),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// A prop of a component: an entry of `@props`, or a parameter of the constructor of its class.
+struct Prop {
+    name: String,
+    path: std::path::PathBuf,
+    span: Span,
+    detail: Option<String>,
+}
+
+fn component_text(index: &Index, tag: &str) -> Option<String> {
+    let path = component_template(index, tag)?;
+    index.read_text(&path).map(|text| text.to_string())
+}
+
+fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
+    let mut out = Vec::new();
+    let views = index.section::<Views>();
+    if let Some(class) = views
+        .components
+        .iter()
+        .find(|component| component.tag == tag && component.class.is_some())
+        .and_then(|component| component.class.as_deref())
+        .and_then(|class| index.class(class))
+    {
+        if let Some(constructor) = class.decl.method("__construct") {
+            out.extend(constructor.callable.params.iter().map(|param| Prop {
+                name: param.name.clone(),
+                path: class.file.path.clone(),
+                span: param.span,
+                detail: param.ty.as_ref().map(|ty| ty.display(true)),
+            }));
+        }
+    }
+    if let Some(path) = component_template(index, tag) {
+        if let Some(text) = index.read_text(&path) {
+            out.extend(props_of(&text).into_iter().map(|(name, span)| Prop {
+                name,
+                path: path.clone(),
+                span,
+                detail: None,
+            }));
+        }
     }
     out
 }
@@ -398,6 +487,41 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                 .find(key)
                 .map(|event| definition(&event.path, event.span, event.event_class.clone().unwrap_or_default())),
         ),
+        KeyKind::Section => out.extend(
+            index
+                .section::<Layouts>()
+                .sections_named(key)
+                .map(|placed| definition(&placed.path, placed.span, "")),
+        ),
+        KeyKind::Stack => out.extend(
+            index
+                .section::<Layouts>()
+                .stacks_named(key)
+                .map(|placed| definition(&placed.path, placed.span, "")),
+        ),
+        KeyKind::Slot => {
+            if let Some(tag) = scope {
+                if let (Some(path), Some(text)) = (component_template(index, tag), component_text(index, tag)) {
+                    out.extend(
+                        slots_of(&text)
+                            .into_iter()
+                            .filter(|(name, _)| name == key)
+                            .map(|(_, span)| definition(&path, span, "")),
+                    );
+                }
+            }
+        }
+        KeyKind::Attribute => {
+            if let Some(tag) = scope {
+                let wanted = attribute_key(key);
+                out.extend(
+                    component_props(index, tag)
+                        .into_iter()
+                        .filter(|prop| attribute_key(&prop.name) == wanted)
+                        .map(|prop| definition(&prop.path, prop.span, prop.detail.unwrap_or_default())),
+                );
+            }
+        }
     }
     out
 }

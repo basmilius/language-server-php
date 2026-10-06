@@ -30,7 +30,7 @@ use crate::rename::{Prepared, RenameKind};
 
 use compile::Builder;
 pub use compile::{Imbalance, Virtual};
-use scan::{Directive, Node, scan};
+use scan::{Directive, Node, Tag, scan};
 
 /// A name a directive or a component tag gives: a view, a translation, a component.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +39,8 @@ pub struct NameRef {
     pub value: String,
     pub start: u32,
     pub end: u32,
+    /// The component a slot or an attribute belongs to.
+    pub scope: Option<String>,
 }
 
 /// A template, read.
@@ -97,6 +99,7 @@ impl Template {
         for (name, ty) in given {
             declare(&mut builder, name, ty);
         }
+        let mut open_tags: Vec<String> = Vec::new();
         for node in &nodes {
             match node {
                 Node::Directive(directive) => {
@@ -106,16 +109,7 @@ impl Template {
                         continue;
                     }
                 }
-                Node::Tag(tag)
-                    if !tag.name.is_empty() && !tag.name.starts_with("slot") && tag.name != "dynamic-component" =>
-                {
-                    names.push(NameRef {
-                        kind: KeyKind::Component,
-                        value: tag.name.clone(),
-                        start: tag.name_start,
-                        end: tag.name_end,
-                    });
-                }
+                Node::Tag(tag) => tag_names(text, tag, &mut open_tags, &mut names),
                 _ => {}
             }
             builder.node(node);
@@ -133,10 +127,107 @@ impl Template {
         parse(&self.virt.text).syntax()
     }
 
+    /// The component tag an offset stands in, between its attributes, where a new one can be written.
+    fn tag_with_room_at(&self, offset: u32) -> Option<&Tag> {
+        self.nodes.iter().find_map(|node| match node {
+            Node::Tag(tag)
+                if !tag.closing
+                    && !tag.name.is_empty()
+                    && !tag.name.starts_with("slot")
+                    && tag.name_end < offset
+                    && (offset < tag.end || !tag.terminated && offset == tag.end)
+                    && !tag.attributes.iter().any(|attribute| {
+                        attribute.name_start <= offset
+                            && offset <= attribute.value.map_or(attribute.name_end, |(_, end)| end + 1)
+                    }) =>
+            {
+                Some(tag)
+            }
+            _ => None,
+        })
+    }
+
     fn name_at(&self, offset: u32) -> Option<&NameRef> {
         self.names
             .iter()
             .find(|name| name.start <= offset && offset <= name.end)
+    }
+}
+
+/// The names a component tag gives: the component, its attributes, the slot it fills. The tags that
+/// are open say which component a slot belongs to.
+fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<NameRef>) {
+    if tag.closing {
+        if let Some(at) = open.iter().rposition(|name| *name == tag.name) {
+            open.truncate(at);
+        }
+        if !tag.name.is_empty() && tag.name != "slot" && !tag.name.starts_with("slot:") {
+            names.push(NameRef {
+                kind: KeyKind::Component,
+                value: tag.name.clone(),
+                start: tag.name_start,
+                end: tag.name_end,
+                scope: None,
+            });
+        }
+        return;
+    }
+    if tag.name.is_empty() || tag.name == "dynamic-component" {
+        return;
+    }
+    if tag.name == "slot" || tag.name.starts_with("slot:") {
+        let owner = open
+            .iter()
+            .rev()
+            .find(|name| *name != "slot" && !name.starts_with("slot:"))
+            .cloned();
+        let written = match tag.name.strip_prefix("slot:") {
+            Some(rest) => Some((rest.to_string(), tag.name_start + 5, tag.name_end)),
+            None => tag
+                .attributes
+                .iter()
+                .find(|attribute| attribute.name == "name" && !attribute.bound)
+                .and_then(|attribute| attribute.value)
+                .map(|(start, end)| (text[start as usize..end as usize].to_string(), start, end)),
+        };
+        if let Some((value, start, end)) = written {
+            names.push(NameRef {
+                kind: KeyKind::Slot,
+                value,
+                start,
+                end,
+                scope: owner,
+            });
+        }
+        if !tag.self_closing {
+            open.push(tag.name.clone());
+        }
+        return;
+    }
+    names.push(NameRef {
+        kind: KeyKind::Component,
+        value: tag.name.clone(),
+        start: tag.name_start,
+        end: tag.name_end,
+        scope: None,
+    });
+    for attribute in &tag.attributes {
+        if attribute.name.is_empty()
+            || attribute.name.contains([':', '.', '@', '{'])
+            || attribute.name.starts_with("x-")
+        {
+            continue;
+        }
+        names.push(NameRef {
+            kind: KeyKind::Attribute,
+            value: attribute.name.clone(),
+            start: attribute.name_start,
+            end: attribute.name_end,
+            scope: Some(tag.name.clone()),
+        });
+    }
+    if !tag.self_closing {
+        open.push(tag.name.clone());
     }
 }
 
@@ -217,6 +308,7 @@ fn directive_names(index: &Index, text: &str, directive: &Directive) -> Vec<Name
                 value,
                 start: start + from as u32,
                 end: start + to as u32,
+                scope: None,
             });
         }
     }
@@ -264,7 +356,7 @@ pub fn definitions_at(
 ) -> Vec<Place> {
     let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
-        return definitions(index, name.kind, &name.value, None)
+        return definitions(index, name.kind, &name.value, name.scope.as_deref())
             .into_iter()
             .map(|definition| Place {
                 path: Some(definition.path),
@@ -293,10 +385,11 @@ pub fn hover_at(
 ) -> Option<HoverResult> {
     let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
-        let sections: Vec<String> = crate::frameworks::keys::describe(index, name.kind, &name.value, None)
-            .iter()
-            .map(hover_markdown)
-            .collect();
+        let sections: Vec<String> =
+            crate::frameworks::keys::describe(index, name.kind, &name.value, name.scope.as_deref())
+                .iter()
+                .map(hover_markdown)
+                .collect();
         return Some(HoverResult {
             markdown: sections.join("\n\n---\n\n"),
             range: range_of(name.start, name.end),
@@ -326,9 +419,19 @@ pub fn complete_at(
         return Some(key_items(
             index,
             name.kind,
-            None,
+            name.scope.as_deref(),
             typed,
             (name.start, name.end),
+            options,
+        ));
+    }
+    if let Some(tag) = template.tag_with_room_at(offset) {
+        return Some(key_items(
+            index,
+            KeyKind::Attribute,
+            Some(&tag.name),
+            "",
+            (offset, offset),
             options,
         ));
     }
@@ -361,7 +464,7 @@ pub fn symbols_at(
             vec![Symbol::Key {
                 kind: name.kind,
                 name: name.value.clone(),
-                scope: None,
+                scope: name.scope.clone(),
             }],
         ));
     }
@@ -380,7 +483,7 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
             let symbol = Symbol::Key {
                 kind: name.kind,
                 name: name.value.clone(),
-                scope: None,
+                scope: name.scope.clone(),
             };
             if query.matches(&symbol) {
                 out.push(Hit {

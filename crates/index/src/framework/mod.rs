@@ -24,6 +24,7 @@ pub mod facade;
 pub mod inflect;
 pub mod keys;
 pub mod keytree;
+pub mod layouts;
 pub mod migrations;
 pub mod overlay;
 pub mod routes;

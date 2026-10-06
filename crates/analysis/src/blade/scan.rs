@@ -57,6 +57,8 @@ pub struct Tag {
     pub name_end: u32,
     pub attributes: Vec<Attribute>,
     pub self_closing: bool,
+    /// The `>` that ends the tag is written.
+    pub terminated: bool,
     pub end: u32,
 }
 
@@ -267,6 +269,7 @@ fn tag(text: &str, at: usize, out: &mut Vec<Node>) -> usize {
         name_end: name_end as u32,
         attributes: Vec::new(),
         self_closing: false,
+        terminated: false,
         end: name_end as u32,
     };
     let mut position = name_end;
@@ -276,10 +279,12 @@ fn tag(text: &str, at: usize, out: &mut Vec<Node>) -> usize {
         if byte.is_ascii_whitespace() {
             position += 1;
         } else if byte == b'>' {
+            tag.terminated = true;
             position += 1;
             break;
         } else if text[position..].starts_with("/>") {
             tag.self_closing = true;
+            tag.terminated = true;
             position += 2;
             break;
         } else if let Some(after) = echo(text, position, text.len(), &mut inner) {

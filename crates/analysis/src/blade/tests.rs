@@ -457,3 +457,139 @@ mod given {
         assert_eq!(given_to("resources/views/components/alert.blade.php"), ["type: string"]);
     }
 }
+
+mod layouts {
+    use php_index::framework::testing::HELPERS;
+
+    use crate::blade::{complete_at, definitions_at};
+    use crate::completion::CompletionOptions;
+    use crate::testing::{CURSOR, Fixture};
+
+    const FILES: &[(&str, &str)] = &[
+        (
+            "resources/views/layouts/app.blade.php",
+            "<title>@yield('title')</title> @section('sidebar') x @show @stack('scripts')",
+        ),
+        (
+            "resources/views/components/card.blade.php",
+            "@props(['title', 'showCount' => false])\n<div>{{ $title }} {{ $footer }} {{ $slot }}</div>",
+        ),
+        (
+            "app/View/Components/Alert.php",
+            "<?php namespace App\\View\\Components; class Alert { public function __construct(public string $type, public bool $dismissible = false) {} }",
+        ),
+        ("resources/views/components/alert.blade.php", "{{ $type }}"),
+    ];
+
+    fn fixture() -> Fixture {
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(FILES);
+        Fixture::framework(&files)
+    }
+
+    fn completions(template: &str) -> Vec<String> {
+        let offset = template.find(CURSOR).expect("a cursor") as u32;
+        let text = template.replacen(CURSOR, "", 1);
+        let mut items: Vec<String> =
+            complete_at(&fixture().index, None, &text, &[], offset, CompletionOptions::default())
+                .map(|list| list.items.into_iter().map(|item| item.label).collect())
+                .unwrap_or_default();
+        items.sort();
+        items
+    }
+
+    fn places(template: &str) -> Vec<String> {
+        let offset = template.find(CURSOR).expect("a cursor") as u32;
+        let text = template.replacen(CURSOR, "", 1);
+        let fixture = fixture();
+        definitions_at(&fixture.index, None, &text, &[], offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+                format!(
+                    "{}: {}",
+                    path.strip_prefix("/project").unwrap_or(&path).display(),
+                    &source[place.span.start as usize..place.span.end as usize]
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sections_and_stacks_lead_to_the_layout() {
+        assert_eq!(
+            completions("@extends('layouts.app') @section('$0')"),
+            ["sidebar", "title"]
+        );
+        assert_eq!(
+            places("@section('ti$0tle', 'Home')"),
+            ["resources/views/layouts/app.blade.php: title"]
+        );
+        assert_eq!(completions("@push('$0')"), ["scripts"]);
+        assert_eq!(
+            places("@pushIf($x, 'scr$0ipts') @endPushIf"),
+            ["resources/views/layouts/app.blade.php: scripts"]
+        );
+    }
+
+    #[test]
+    fn attributes_and_slots_belong_to_their_component() {
+        assert_eq!(completions("<x-card $0"), ["show-count", "title"]);
+        assert_eq!(completions("<x-card :title=\"$t\" sh$0 />"), ["show-count"]);
+        assert_eq!(
+            places("<x-card show-co$0unt />"),
+            ["resources/views/components/card.blade.php: showCount"]
+        );
+        assert_eq!(completions("<x-card><x-slot:$0"), ["footer", "title"]);
+        assert_eq!(
+            places("<x-card><x-slot:foo$0ter>Hi</x-slot></x-card>"),
+            ["resources/views/components/card.blade.php: footer"]
+        );
+        assert_eq!(
+            places("<x-card><x-slot name=\"foo$0ter\">Hi</x-slot></x-card>"),
+            ["resources/views/components/card.blade.php: footer"]
+        );
+        assert_eq!(completions("<x-alert $0 />"), ["dismissible", "type"]);
+        assert_eq!(
+            places("<x-alert ty$0pe=\"error\" />"),
+            ["app/View/Components/Alert.php: public string $type"]
+        );
+    }
+
+    #[test]
+    fn a_section_is_used_where_children_fill_it() {
+        use crate::references::{Current, references_at};
+        use crate::testing::Files;
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(FILES);
+        let page = "@extends('layouts.app')\n@section('title', 'Home')\n@push('scripts') <script></script> @endpush";
+        files.push(("resources/views/home.blade.php", page));
+        let fixture = Fixture::framework(&files);
+        let layout = FILES[0].1;
+        let path = std::path::PathBuf::from("/project/resources/views/layouts/app.blade.php");
+        let root = php_syntax::parse(layout).syntax();
+        let current = Current {
+            path: &path,
+            text: layout,
+            root: &root,
+        };
+        let sources = Files(fixture.sources.clone());
+        let count = |needle: &str| -> Vec<String> {
+            let offset = layout.find(needle).expect("the name") as u32 + 1;
+            let found = references_at(&fixture.index, &sources, &current, offset).expect("usages");
+            let mut out: Vec<String> = found
+                .files
+                .iter()
+                .flat_map(|file| {
+                    let short = file.path.file_name().expect("a name").to_string_lossy().into_owned();
+                    file.hits.iter().map(move |_| short.clone()).collect::<Vec<_>>()
+                })
+                .collect();
+            out.sort();
+            out
+        };
+        assert_eq!(count("title'"), ["app.blade.php", "home.blade.php"]);
+        assert_eq!(count("scripts"), ["app.blade.php", "home.blade.php"]);
+    }
+}
