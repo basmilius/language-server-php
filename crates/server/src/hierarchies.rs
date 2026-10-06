@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use lsc_server::paths::uri_to_path;
 use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem, CallHierarchyOutgoingCall,
     CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams, Range, SymbolKind, SymbolTag, TypeHierarchyItem,
@@ -15,9 +16,8 @@ use php_analysis::nav::Place;
 use php_index::{ClassKind, Span};
 use serde_json::{Value, json};
 
-use crate::convert::Mapper;
+use crate::documents::ParseDocument;
 use crate::features::TextCache;
-use crate::paths::uri_to_path;
 use crate::server::Server;
 use crate::usages::ProjectSources;
 
@@ -55,7 +55,7 @@ fn short(name: &str) -> &str {
     name.rsplit('\\').next().unwrap_or(name)
 }
 
-impl Server<'_> {
+impl Server {
     fn range_in(texts: &mut TextCache<'_>, path: &std::path::Path, span: Span) -> Option<(Uri, Range)> {
         let place = Place {
             path: Some(path.to_path_buf()),
@@ -114,14 +114,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
-        let offset = u32::from(
-            Mapper {
-                text: &document.text,
-                index: &document.index,
-                encoding,
-            }
-            .offset(position.position),
-        );
+        let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
@@ -233,14 +226,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
-        let offset = u32::from(
-            Mapper {
-                text: &document.text,
-                index: &document.index,
-                encoding,
-            }
-            .offset(position.position),
-        );
+        let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,

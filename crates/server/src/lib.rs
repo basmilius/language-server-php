@@ -10,7 +10,6 @@ mod features;
 mod formatting;
 mod hierarchies;
 mod insight;
-mod paths;
 mod refactors;
 mod runnables;
 mod server;

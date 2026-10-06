@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use lsc_server::paths::{path_to_uri, uri_to_path};
 use lsp_types::{
     DocumentChangeOperation, DocumentChanges, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams,
     Location, MessageType, OneOf, OptionalVersionedTextDocumentIdentifier, PrepareRenameResponse, ReferenceParams,
@@ -15,9 +16,8 @@ use php_analysis::rename::{prepare_rename, rename};
 use php_index::words::WordIndex;
 use php_index::{Origin, Span};
 
-use crate::convert::Mapper;
+use crate::documents::ParseDocument;
 use crate::features::TextCache;
-use crate::paths::{path_to_uri, uri_to_path};
 use crate::server::Server;
 
 /// The files a search reads: open documents as they are in the editor, the others from the disk,
@@ -69,7 +69,7 @@ impl Sources for ProjectSources<'_> {
     }
 }
 
-impl Server<'_> {
+impl Server {
     /// Reads the words of the project's own files, once, before the first search. What the storage
     /// folder kept of an earlier run is read again only for the files that changed.
     pub(crate) fn ensure_words(&mut self, path: &Path) {
@@ -81,7 +81,7 @@ impl Server<'_> {
         let wanted = self
             .documents
             .get(uri)
-            .and_then(|document| document.usages_packages)
+            .and_then(|document| document.state.usages_packages)
             .or(self.settings.usages_packages)
             .unwrap_or(false);
         if wanted {
@@ -98,8 +98,8 @@ impl Server<'_> {
         let Some(document) = self.documents.get(uri) else {
             return Vec::new();
         };
-        let twig = document.twig;
-        if !document.blade && !twig {
+        let twig = document.state.twig;
+        if !document.state.blade && !twig {
             return Vec::new();
         }
         if let Some(given) = self.given_cache.get(&path) {
@@ -180,14 +180,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
-        let offset = u32::from(
-            Mapper {
-                text: &document.text,
-                index: &document.index,
-                encoding,
-            }
-            .offset(position.position),
-        );
+        let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = self.workspace.project_for(&path);
         let sources =
             ProjectSources::new(open, &project.words).with_packages(packages.then_some(&project.package_words));
@@ -233,7 +226,7 @@ impl Server<'_> {
         let uri = position.text_document.uri;
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
-        let blade = self.documents.get(&uri)?.blade;
+        let blade = self.documents.get(&uri)?.state.blade;
         if blade {
             if let Some(path) = &path {
                 self.ensure_words(path);
@@ -243,11 +236,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
@@ -325,7 +314,7 @@ fn add_foreign_declarations(index: &php_index::Index, symbols: &[Symbol], files:
 
 // Rename ---------------------------------------------------------------------------------------
 
-impl Server<'_> {
+impl Server {
     pub(crate) fn prepare_rename(
         &mut self,
         params: lsp_types::TextDocumentPositionParams,
@@ -339,17 +328,13 @@ impl Server<'_> {
             return Ok(None);
         };
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(params.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let prepared = if document.blade {
+        let prepared = if document.state.blade {
             php_analysis::blade::prepare_rename(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             prepare_rename(&project.index, &root, &document.text, offset)?
@@ -376,14 +361,7 @@ impl Server<'_> {
             return Ok(None);
         };
         let root = document.parse().syntax();
-        let offset = u32::from(
-            Mapper {
-                text: &document.text,
-                index: &document.index,
-                encoding,
-            }
-            .offset(position.position),
-        );
+        let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = self.workspace.project_for(&path);
         let sources = ProjectSources::new(open, &project.words);
         let current = Current {
@@ -391,7 +369,7 @@ impl Server<'_> {
             text: &document.text,
             root: &root,
         };
-        let done = if document.blade {
+        let done = if document.state.blade {
             php_analysis::blade::rename(&project.index, &sources, &current, offset, &params.new_name)?
         } else {
             rename(&project.index, &sources, &current, offset, &params.new_name)?

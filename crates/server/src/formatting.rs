@@ -7,7 +7,6 @@ use lsp_types::{
 use php_format::{Edit, FormatOptions, Indent};
 use php_syntax::{TextRange, TextSize};
 
-use crate::convert::Mapper;
 use crate::server::Server;
 
 /// What the client asks for is indentation; the rest comes from its settings.
@@ -19,7 +18,7 @@ fn indent_of(options: &FormattingOptions) -> Indent {
     }
 }
 
-impl Server<'_> {
+impl Server {
     /// The options with what the `.editorconfig` of the file's project asks for, unless the
     /// settings turn that off. The client's indentation is only what the editor happens to be
     /// set to, so the project's own file goes before it.
@@ -30,7 +29,7 @@ impl Server<'_> {
             .as_ref()
             .and_then(|settings| settings.editorconfig)
             .unwrap_or(true);
-        let Some(path) = crate::paths::uri_to_path(uri).filter(|_| wanted) else {
+        let Some(path) = lsc_server::paths::uri_to_path(uri).filter(|_| wanted) else {
             return options;
         };
         let config = php_format::EditorConfig::for_path(&path, &|file| std::fs::read_to_string(file).ok());
@@ -46,7 +45,11 @@ impl Server<'_> {
         if let Some(settings) = &self.settings.format {
             options = settings.apply(options);
         }
-        if let Some(settings) = self.documents.get(uri).and_then(|document| document.format.as_ref()) {
+        if let Some(settings) = self
+            .documents
+            .get(uri)
+            .and_then(|document| document.state.format.as_ref())
+        {
             options = settings.apply(options);
         }
         options
@@ -63,11 +66,7 @@ impl Server<'_> {
         let options = self.format_options_for(uri, asked);
         let document = self.documents.get(uri)?;
         let edits = run(&document.text, &options)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding: self.encoding,
-        };
+        let mapper = document.mapper(self.encoding);
         Some(
             edits
                 .into_iter()
@@ -89,11 +88,7 @@ impl Server<'_> {
     pub(crate) fn range_formatting(&mut self, params: DocumentRangeFormattingParams) -> Option<Vec<TextEdit>> {
         let uri = params.text_document.uri;
         let document = self.documents.get(&uri)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding: self.encoding,
-        };
+        let mapper = document.mapper(self.encoding);
         let start = usize::from(mapper.offset(params.range.start));
         let end = usize::from(mapper.offset(params.range.end));
         self.formatted_edits(
@@ -112,11 +107,7 @@ impl Server<'_> {
             .filter(|typed| matches!(typed, '}' | ';' | '\n'))?;
         let uri = &params.text_document_position.text_document.uri;
         let document = self.documents.get(uri)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding: self.encoding,
-        };
+        let mapper = document.mapper(self.encoding);
         let offset = usize::from(mapper.offset(params.text_document_position.position));
         self.formatted_edits(
             uri,

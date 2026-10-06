@@ -13,7 +13,7 @@ use php_analysis::inspections::inspect;
 use php_syntax::{TextRange, TextSize};
 use serde_json::{Value, json};
 
-use crate::convert::Mapper;
+use crate::convert::{self, Mapper};
 use crate::server::Server;
 
 /// Whether a kind is one the client asked for: the kind itself or one below it.
@@ -70,7 +70,7 @@ pub(crate) fn selection(mapper: &Mapper, range: lsp_types::Range) -> TextRange {
     TextRange::new(start.min(end), start.max(end))
 }
 
-impl Server<'_> {
+impl Server {
     pub(crate) fn code_action(&mut self, params: CodeActionParams) -> Option<Vec<Value>> {
         let uri = params.text_document.uri.clone();
         let resolve = self.code_action_resolve;
@@ -98,7 +98,7 @@ impl Server<'_> {
                             diagnostics: action
                                 .finding
                                 .and_then(|position| findings.get(position))
-                                .map(|finding| vec![mapper.diagnostic(&finding.diagnostic)]),
+                                .map(|finding| vec![convert::diagnostic(mapper, &finding.diagnostic)]),
                             edit: (!defer)
                                 .then(|| workspace_edit(&uri, version, document_changes, mapper, &action.edits())),
                             is_preferred: action.preferred.then_some(true),

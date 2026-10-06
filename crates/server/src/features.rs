@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use lsc_server::paths::{path_to_uri, uri_to_path};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionItemTag, CompletionParams,
     CompletionResponse, Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
@@ -20,7 +21,7 @@ use php_syntax::{TextRange, TextSize};
 use serde_json::{Value, json};
 
 use crate::convert::Mapper;
-use crate::paths::{path_to_uri, uri_to_path};
+use crate::documents::ParseDocument;
 use crate::server::Server;
 
 fn range_of(start: u32, end: u32) -> TextRange {
@@ -29,13 +30,13 @@ fn range_of(start: u32, end: u32) -> TextRange {
 
 /// The text of files that results point into, read once per request.
 pub(crate) struct TextCache<'a> {
-    server: &'a Server<'a>,
+    server: &'a Server,
     current: Option<&'a Uri>,
     read: HashMap<PathBuf, Option<(String, LineIndex)>>,
 }
 
 impl<'a> TextCache<'a> {
-    pub(crate) fn new(server: &'a Server<'a>, current: Option<&'a Uri>) -> TextCache<'a> {
+    pub(crate) fn new(server: &'a Server, current: Option<&'a Uri>) -> TextCache<'a> {
         TextCache {
             server,
             current,
@@ -61,11 +62,7 @@ impl<'a> TextCache<'a> {
                 let uri = path_to_uri(path)?;
                 let encoding = self.server.encoding;
                 if let Some(document) = self.server.documents.get(&uri) {
-                    let mapper = Mapper {
-                        text: &document.text,
-                        index: &document.index,
-                        encoding,
-                    };
+                    let mapper = document.mapper(encoding);
                     let range = mapper.range(range_of(place.span.start, place.span.end));
                     return Some(Location { uri, range });
                 }
@@ -132,7 +129,7 @@ fn markdown(value: String) -> MarkupContent {
     }
 }
 
-impl Server<'_> {
+impl Server {
     /// Brings the open document's declarations up to date and runs an analysis at a position.
     fn with_analyzer<R>(
         &mut self,
@@ -145,11 +142,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(uri)?;
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
@@ -205,23 +198,19 @@ impl Server<'_> {
         let given = self.template_given(uri);
         let encoding = self.encoding;
         let document = self.documents.get(uri)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let hover = if document.yaml {
+        let hover = if document.state.yaml {
             let path = path.as_deref()?;
             if !php_analysis::yaml::is_config(&project.index, path) {
                 return None;
             }
             php_analysis::yaml::hover_at(&project.index, path, &document.text, offset)?
-        } else if document.twig {
+        } else if document.state.twig {
             php_analysis::twig::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
@@ -240,24 +229,20 @@ impl Server<'_> {
         let given = self.template_given(uri);
         let encoding = self.encoding;
         let document = self.documents.get(uri)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let places = if document.yaml {
+        let places = if document.state.yaml {
             match path.as_deref() {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => {
                     php_analysis::yaml::definitions_at(&project.index, path, &document.text, offset)
                 }
                 _ => Vec::new(),
             }
-        } else if document.twig {
+        } else if document.state.twig {
             php_analysis::twig::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
         } else {
             php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
@@ -272,7 +257,7 @@ impl Server<'_> {
         if self
             .documents
             .get(&position.text_document.uri)
-            .is_some_and(|document| document.blade || document.twig || document.yaml)
+            .is_some_and(|document| document.state.blade || document.state.twig || document.state.yaml)
         {
             return self.blade_hover(&position.text_document.uri, position.position);
         }
@@ -309,7 +294,7 @@ impl Server<'_> {
         if self
             .documents
             .get(&params.text_document_position_params.text_document.uri)
-            .is_some_and(|document| document.blade || document.twig || document.yaml)
+            .is_some_and(|document| document.state.blade || document.state.twig || document.state.yaml)
         {
             return self.blade_definition(&params);
         }
@@ -356,12 +341,9 @@ impl Server<'_> {
                 continue;
             };
             let range = match self.documents.get(&uri) {
-                Some(document) => Mapper {
-                    text: &document.text,
-                    index: &document.index,
-                    encoding,
-                }
-                .range(range_of(symbol.span.start, symbol.span.end)),
+                Some(document) => document
+                    .mapper(encoding)
+                    .range(range_of(symbol.span.start, symbol.span.end)),
                 None => {
                     let entry = read.entry(symbol.path.clone()).or_insert_with(|| {
                         let text = String::from_utf8_lossy(&std::fs::read(&symbol.path).ok()?).into_owned();
@@ -397,17 +379,13 @@ impl Server<'_> {
         let given = self.template_given(&uri);
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let list = if document.yaml {
+        let list = if document.state.yaml {
             match path.as_deref() {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => php_analysis::yaml::complete_at(
                     &project.index,
@@ -418,7 +396,7 @@ impl Server<'_> {
                 .unwrap_or_default(),
                 _ => Default::default(),
             }
-        } else if document.twig {
+        } else if document.state.twig {
             php_analysis::twig::complete_at(
                 &project.index,
                 path.as_deref(),
@@ -428,7 +406,7 @@ impl Server<'_> {
                 CompletionOptions::default(),
             )
             .unwrap_or_default()
-        } else if document.blade {
+        } else if document.state.blade {
             php_analysis::blade::complete_at(
                 &project.index,
                 path.as_deref(),

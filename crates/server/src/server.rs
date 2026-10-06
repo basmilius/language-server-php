@@ -1,13 +1,13 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use crossbeam_channel::{Receiver, Sender, select};
-use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
+use crossbeam_channel::{Receiver, Sender};
+use lsc_server::paths::uri_to_path;
+use lsc_server::{Client, Handler, Progress, ProgressLabels};
+use lsp_server::{Connection, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles, DidChangeWorkspaceFolders,
-    DidCloseTextDocument, DidOpenTextDocument, LogMessage, Notification as _, Progress as ProgressNotification,
-    PublishDiagnostics,
+    DidCloseTextDocument, DidOpenTextDocument, Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
     CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare, InlayHintRefreshRequest,
@@ -18,8 +18,8 @@ use lsp_types::request::{CodeActionRequest, CodeActionResolveRequest, Formatting
 use lsp_types::request::{
     Completion, DocumentDiagnosticRequest, DocumentHighlightRequest, DocumentSymbolRequest, FoldingRangeRequest,
     GotoDefinition, GotoImplementation, GotoTypeDefinition, HoverRequest, PrepareRenameRequest, References,
-    RegisterCapability, Rename, Request as _, ResolveCompletionItem, SelectionRangeRequest, WorkDoneProgressCreate,
-    WorkspaceConfiguration, WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
+    RegisterCapability, Rename, Request as _, ResolveCompletionItem, SelectionRangeRequest, WorkspaceConfiguration,
+    WorkspaceDiagnosticRefresh, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CompletionOptions, ConfigurationItem, ConfigurationParams, DiagnosticOptions, DiagnosticServerCapabilities,
@@ -28,13 +28,11 @@ use lsp_types::{
     DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
     DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileSystemWatcher, FoldingRangeParams,
     FoldingRangeProviderCapability, FullDocumentDiagnosticReport, GlobPattern, HoverProviderCapability,
-    ImplementationProviderCapability, InitializeParams, InitializeResult, LogMessageParams, MessageType, OneOf,
-    ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, Registration, RegistrationParams,
-    RelatedFullDocumentDiagnosticReport, SelectionRangeParams, SelectionRangeProviderCapability, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TypeDefinitionProviderCapability, Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressCreateParams,
-    WorkDoneProgressEnd, WorkDoneProgressOptions, WorkDoneProgressReport, WorkspaceFoldersServerCapabilities,
-    WorkspaceServerCapabilities,
+    ImplementationProviderCapability, InitializeParams, InitializeResult, MessageType, OneOf, PublishDiagnosticsParams,
+    Registration, RegistrationParams, RelatedFullDocumentDiagnosticReport, SelectionRangeParams,
+    SelectionRangeProviderCapability, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TypeDefinitionProviderCapability, Uri, WorkDoneProgressOptions,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 use php_analysis::inspections::{Externals, InspectionEnv, inspect};
 use php_analysis::{PositionEncoding, diagnostics, document_symbols, folding_ranges, selection_ranges};
@@ -46,8 +44,7 @@ use serde_json::Value;
 
 use crate::config::{SECTION, Settings};
 use crate::convert::{self, Mapper};
-use crate::documents::Documents;
-use crate::paths::uri_to_path;
+use crate::documents::{Documents, ParseDocument};
 use crate::workspace::{FolderChange, Internal, Workspace};
 
 /// How many files read from the cache file stay in memory, the most recently used ones.
@@ -74,7 +71,7 @@ const WATCHED_FILES: [&str; 14] = [
 const KEEP_LOADED_FILES: usize = 1500;
 const TRIM_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
 
-pub(crate) type BoxError = Box<dyn Error + Send + Sync>;
+pub(crate) use lsc_server::BoxError;
 
 /// Runs the server on a connection until the client shuts it down.
 pub fn run(connection: Connection) -> Result<(), BoxError> {
@@ -99,26 +96,12 @@ pub fn run(connection: Connection) -> Result<(), BoxError> {
     result["capabilities"]["typeHierarchyProvider"] = Value::Bool(true);
     connection.initialize_finish(id, result)?;
     server.initialized()?;
-    server.main_loop(&connection.receiver)
+    let internal = server.internal_receiver.clone();
+    lsc_server::main_loop(&connection, &internal, &mut server)
 }
 
-/// The indexing work in flight, as one `$/progress` the client can show.
-#[derive(Default)]
-struct Progress {
-    supported: bool,
-    counter: u32,
-    token: Option<String>,
-    /// The client answered `window/workDoneProgress/create` and the report has begun.
-    begun: bool,
-    create_request: Option<RequestId>,
-    running_jobs: usize,
-    total: usize,
-    done: usize,
-    last_percent: u32,
-}
-
-pub(crate) struct Server<'a> {
-    pub(crate) connection: &'a Connection,
+pub(crate) struct Server {
+    pub(crate) client: Client,
     pub(crate) documents: Documents,
     pub(crate) encoding: PositionEncoding,
     pub(crate) settings: Settings,
@@ -146,7 +129,6 @@ pub(crate) struct Server<'a> {
     dirty: Vec<Uri>,
     /// Questions asked of the client: which document each `workspace/configuration` answer is for.
     pending_configuration: HashMap<RequestId, Uri>,
-    next_request_id: i32,
     last_trim: std::time::Instant,
     pub(crate) workspace: Workspace,
     initial_folders: Vec<PathBuf>,
@@ -185,8 +167,8 @@ fn folders_of(params: &InitializeParams) -> Vec<PathBuf> {
     folders
 }
 
-impl<'a> Server<'a> {
-    fn new(connection: &'a Connection, params: &InitializeParams) -> Server<'a> {
+impl Server {
+    fn new(connection: &Connection, params: &InitializeParams) -> Server {
         let capabilities = &params.capabilities;
         let settings = params
             .initialization_options
@@ -205,9 +187,9 @@ impl<'a> Server<'a> {
             settings.php_version.unwrap_or(PhpVersion::DEFAULT),
         );
         Server {
-            connection,
+            client: Client::new(connection.sender.clone()),
             documents: Documents::default(),
-            encoding: convert::choose_encoding(
+            encoding: lsc_server::choose_encoding(
                 capabilities
                     .general
                     .as_ref()
@@ -266,27 +248,31 @@ impl<'a> Server<'a> {
             snippet_edits: false,
             dirty: Vec::new(),
             pending_configuration: HashMap::new(),
-            next_request_id: 0,
             last_trim: std::time::Instant::now(),
             workspace,
             initial_folders: folders_of(params),
             internal_sender,
             internal_receiver,
-            progress: Progress {
-                supported: capabilities
+            progress: Progress::new(
+                capabilities
                     .window
                     .as_ref()
                     .and_then(|window| window.work_done_progress)
                     .unwrap_or(false),
-                ..Progress::default()
-            },
+                ProgressLabels {
+                    token: "php-language-server/indexing".to_string(),
+                    title: "Indexing PHP files".to_string(),
+                    unit: "files".to_string(),
+                    done: "Indexed".to_string(),
+                },
+            ),
             given_cache: HashMap::new(),
         }
     }
 
     fn capabilities(&self) -> ServerCapabilities {
         ServerCapabilities {
-            position_encoding: Some(convert::encoding_kind(self.encoding)),
+            position_encoding: Some(lsc_server::encoding_kind(self.encoding)),
             text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
                 open_close: Some(true),
                 change: Some(TextDocumentSyncKind::INCREMENTAL),
@@ -398,35 +384,6 @@ impl<'a> Server<'a> {
         }
     }
 
-    fn main_loop(&mut self, receiver: &Receiver<Message>) -> Result<(), BoxError> {
-        let internal = self.internal_receiver.clone();
-        loop {
-            select! {
-                recv(receiver) -> message => {
-                    let Ok(message) = message else {
-                        return Ok(());
-                    };
-                    if self.handle(message)? {
-                        return Ok(());
-                    }
-                    // Typing sends a change per keystroke: answer them all before spending time on diagnostics.
-                    while let Ok(message) = receiver.try_recv() {
-                        if self.handle(message)? {
-                            return Ok(());
-                        }
-                    }
-                    self.publish_dirty()?;
-                    self.trim_indexes();
-                }
-                recv(internal) -> event => {
-                    if let Ok(event) = event {
-                        self.internal(event)?;
-                    }
-                }
-            }
-        }
-    }
-
     /// Lets go of the declarations that were read from the cache file and have not been used for a
     /// while, at most every few seconds.
     fn trim_indexes(&mut self) {
@@ -437,24 +394,8 @@ impl<'a> Server<'a> {
         self.workspace.trim_indexes(KEEP_LOADED_FILES);
     }
 
-    /// Handles one message and says whether the server is done.
-    fn handle(&mut self, message: Message) -> Result<bool, BoxError> {
-        match message {
-            Message::Request(request) => {
-                if self.connection.handle_shutdown(&request)? {
-                    return Ok(true);
-                }
-                self.request(request)?;
-            }
-            Message::Notification(notification) => self.notification(notification)?,
-            Message::Response(response) => self.response(response)?,
-        }
-        Ok(false)
-    }
-
-    pub(crate) fn send(&self, message: impl Into<Message>) -> Result<(), BoxError> {
-        self.connection.sender.send(message.into())?;
-        Ok(())
+    pub(crate) fn send(&self, message: impl Into<lsp_server::Message>) -> Result<(), BoxError> {
+        self.client.send(message)
     }
 
     fn request(&mut self, request: Request) -> Result<(), BoxError> {
@@ -504,11 +445,7 @@ impl<'a> Server<'a> {
             lsp_types::request::CodeLensRequest::METHOD => self.answer(id, request.params, Self::code_lens),
             crate::runnables::RUNNABLES_METHOD => self.answer(id, request.params, Self::runnables),
             ResolveCompletionItem::METHOD => self.answer(id, request.params, Self::resolve_completion),
-            method => Response::new_err(
-                id,
-                ErrorCode::MethodNotFound as i32,
-                format!("unsupported request {method}"),
-            ),
+            method => lsc_server::unsupported(id, method),
         };
         self.send(response)
     }
@@ -519,13 +456,7 @@ impl<'a> Server<'a> {
         P: DeserializeOwned,
         R: serde::Serialize,
     {
-        match serde_json::from_value::<P>(params) {
-            Ok(params) => {
-                let result = handler(self, params);
-                Response::new_ok(id, result)
-            }
-            Err(error) => Response::new_err(id, ErrorCode::InvalidParams as i32, error.to_string()),
-        }
+        lsc_server::answer(id, params, |params| handler(self, params))
     }
 
     /// Like [`Self::answer`] for a handler that can refuse with a message the client shows.
@@ -539,13 +470,7 @@ impl<'a> Server<'a> {
         P: DeserializeOwned,
         R: serde::Serialize,
     {
-        match serde_json::from_value::<P>(params) {
-            Ok(params) => match handler(self, params) {
-                Ok(result) => Response::new_ok(id, result),
-                Err(message) => Response::new_err(id, ErrorCode::RequestFailed as i32, message),
-            },
-            Err(error) => Response::new_err(id, ErrorCode::InvalidParams as i32, error.to_string()),
-        }
+        lsc_server::answer_checked(id, params, |params| handler(self, params))
     }
 
     fn document_symbols(&mut self, params: DocumentSymbolParams) -> Option<DocumentSymbolResponse> {
@@ -554,11 +479,7 @@ impl<'a> Server<'a> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let symbols = document_symbols(&document.parse().syntax());
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         if hierarchical {
             return Some(DocumentSymbolResponse::Nested(convert::hierarchical_symbols(
                 &mapper, &symbols,
@@ -574,11 +495,7 @@ impl<'a> Server<'a> {
         let document = self.documents.get_mut(&params.text_document.uri)?;
         let root = document.parse().syntax();
         let folds = folding_ranges(&root, &document.text, &document.index);
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let mapper = folding_characters.then_some(&mapper);
         Some(folds.iter().map(|fold| convert::folding_range(mapper, fold)).collect())
     }
@@ -587,11 +504,7 @@ impl<'a> Server<'a> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&params.text_document.uri)?;
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         Some(
             params
                 .positions
@@ -627,16 +540,16 @@ impl<'a> Server<'a> {
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
         let document = self.documents.get(uri)?;
-        if document.blade || document.twig || document.yaml {
+        if document.state.blade || document.state.twig || document.state.yaml {
             return self.template_diagnostics(uri);
         }
         let _document = php_analysis::document::enter(uri_to_path(uri).as_deref());
-        let level = self.level_of(uri, self.documents.get(uri)?.level);
+        let level = self.level_of(uri, self.documents.get(uri)?.state.level);
         self.inspect_document(uri, |env, mapper, parse| {
             let mut found = diagnostics(parse, level);
             found.extend(inspect(env).into_iter().map(|finding| finding.diagnostic));
             found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
-            found.iter().map(|found| mapper.diagnostic(found)).collect()
+            found.iter().map(|found| convert::diagnostic(mapper, found)).collect()
         })
     }
 
@@ -652,6 +565,7 @@ impl<'a> Server<'a> {
         let encoding = self.encoding;
         let document = self.documents.get(uri)?;
         let settings = document
+            .state
             .inspections
             .clone()
             .or_else(|| self.settings.inspections.clone())
@@ -660,7 +574,7 @@ impl<'a> Server<'a> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let found = if document.yaml {
+        let found = if document.state.yaml {
             match &path {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => {
                     let loadable = |class: &str| composer_loads(project, class);
@@ -668,7 +582,7 @@ impl<'a> Server<'a> {
                 }
                 _ => Vec::new(),
             }
-        } else if document.twig {
+        } else if document.state.twig {
             php_analysis::twig::diagnostics(&project.index, path.as_deref(), &document.text, &settings, ready)
         } else {
             php_analysis::blade::diagnostics(
@@ -680,12 +594,8 @@ impl<'a> Server<'a> {
                 ready,
             )
         };
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
-        Some(found.iter().map(|found| mapper.diagnostic(found)).collect())
+        let mapper = document.mapper(encoding);
+        Some(found.iter().map(|found| convert::diagnostic(&mapper, found)).collect())
     }
 
     /// Runs something over an open document with everything an inspection reads: the tree, the
@@ -714,6 +624,7 @@ impl<'a> Server<'a> {
         let parse = document.cached()?;
         let root = parse.syntax();
         let settings = document
+            .state
             .inspections
             .clone()
             .or_else(|| self.settings.inspections.clone())
@@ -739,11 +650,7 @@ impl<'a> Server<'a> {
             ready,
             externals: &externals,
         };
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         Some(run(&env, &mapper, parse, project))
     }
 
@@ -759,9 +666,9 @@ impl<'a> Server<'a> {
                     || item.uri.as_str().ends_with(".yaml")
                     || item.uri.as_str().ends_with(".yml");
                 if let Some(document) = self.documents.get_mut(&item.uri) {
-                    document.blade = is_blade;
-                    document.twig = is_twig && !is_blade;
-                    document.yaml = is_yaml && !is_twig && !is_blade;
+                    document.state.blade = is_blade;
+                    document.state.twig = is_twig && !is_blade;
+                    document.state.yaml = is_yaml && !is_twig && !is_blade;
                 }
                 self.sync_symbols(&item.uri);
                 self.request_configuration(&item.uri)?;
@@ -825,19 +732,13 @@ impl<'a> Server<'a> {
                 })
                 .to_vec();
             let options = DidChangeWatchedFilesRegistrationOptions { watchers };
-            self.next_request_id += 1;
-            let id = RequestId::from(self.next_request_id);
-            self.send(Request::new(
-                id,
-                RegisterCapability::METHOD.to_string(),
-                RegistrationParams {
-                    registrations: vec![Registration {
-                        id: "php-watched-files".to_string(),
-                        method: DidChangeWatchedFiles::METHOD.to_string(),
-                        register_options: Some(serde_json::to_value(options)?),
-                    }],
-                },
-            ))?;
+            self.client.request::<RegisterCapability>(RegistrationParams {
+                registrations: vec![Registration {
+                    id: "php-watched-files".to_string(),
+                    method: DidChangeWatchedFiles::METHOD.to_string(),
+                    register_options: Some(serde_json::to_value(options)?),
+                }],
+            })?;
         }
         self.workspace.start_stubs_job(&self.internal_sender);
         if self.workspace.storage.is_some() || self.workspace.stubs_override.is_some() {
@@ -867,82 +768,19 @@ impl<'a> Server<'a> {
     // Background indexing --------------------------------------------------------------------
 
     fn job_started(&mut self) {
-        self.progress.running_jobs += 1;
-        if self.progress.supported && self.progress.token.is_none() {
-            self.progress.counter += 1;
-            let token = format!("php-language-server/indexing/{}", self.progress.counter);
-            self.next_request_id += 1;
-            let id = RequestId::from(self.next_request_id);
-            self.progress.token = Some(token.clone());
-            self.progress.begun = false;
-            self.progress.create_request = Some(id.clone());
-            let _ = self.send(Request::new(
-                id,
-                WorkDoneProgressCreate::METHOD.to_string(),
-                WorkDoneProgressCreateParams {
-                    token: lsp_types::NumberOrString::String(token),
-                },
-            ));
-        }
-    }
-
-    fn progress_percent(&self) -> u32 {
-        if self.progress.total == 0 {
-            return 0;
-        }
-        ((self.progress.done * 100) / self.progress.total).min(100) as u32
-    }
-
-    fn send_progress(&self, value: WorkDoneProgress) {
-        let Some(token) = &self.progress.token else {
-            return;
-        };
-        let _ = self.send(Notification::new(
-            ProgressNotification::METHOD.to_string(),
-            ProgressParams {
-                token: lsp_types::NumberOrString::String(token.clone()),
-                value: ProgressParamsValue::WorkDone(value),
-            },
-        ));
+        self.progress.job_started(&mut self.client);
     }
 
     fn job_progress(&mut self, files: usize, discovered: usize) {
-        self.progress.total += discovered;
-        self.progress.done += files;
-        let percent = self.progress_percent();
-        if self.progress.begun && percent != self.progress.last_percent {
-            self.progress.last_percent = percent;
-            self.send_progress(WorkDoneProgress::Report(WorkDoneProgressReport {
-                cancellable: Some(false),
-                message: Some(format!("{} of {} files", self.progress.done, self.progress.total)),
-                percentage: Some(percent),
-            }));
-        }
+        self.progress.job_progress(&self.client, files, discovered);
     }
 
     fn job_finished(&mut self) {
-        self.progress.running_jobs = self.progress.running_jobs.saturating_sub(1);
-        // While the client has not answered the request to create the progress, its answer ends it.
-        if self.progress.running_jobs > 0 || self.progress.create_request.is_some() {
-            return;
-        }
-        if self.progress.begun {
-            self.send_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
-                message: Some("Indexed".to_string()),
-            }));
-        }
-        self.progress.token = None;
-        self.progress.begun = false;
-        self.progress.total = 0;
-        self.progress.done = 0;
-        self.progress.last_percent = 0;
+        self.progress.job_finished(&self.client);
     }
 
     pub(crate) fn log(&self, kind: MessageType, message: String) {
-        let _ = self.send(Notification::new(
-            LogMessage::METHOD.to_string(),
-            LogMessageParams { typ: kind, message },
-        ));
+        self.client.log(kind, message);
     }
 
     fn internal(&mut self, event: Internal) -> Result<(), BoxError> {
@@ -1028,7 +866,7 @@ impl<'a> Server<'a> {
     fn resync_open_documents(&mut self) {
         for uri in self.documents.uris() {
             if let Some(document) = self.documents.get_mut(&uri) {
-                document.indexed_version = None;
+                document.state.indexed_version = None;
             }
             self.sync_symbols(&uri);
         }
@@ -1042,11 +880,11 @@ impl<'a> Server<'a> {
         let Some(document) = self.documents.get_mut(uri) else {
             return;
         };
-        if document.indexed_version == Some(document.version) {
+        if document.state.indexed_version == Some(document.version) {
             return;
         }
-        if document.twig || document.yaml {
-            document.indexed_version = Some(document.version);
+        if document.state.twig || document.state.yaml {
+            document.state.indexed_version = Some(document.version);
             let project = self.workspace.project_for_mut(&path);
             project.words.update(&path, &document.text);
             project
@@ -1058,7 +896,7 @@ impl<'a> Server<'a> {
             &document.parse().syntax(),
             php_index::extract::ExtractOptions::default(),
         );
-        document.indexed_version = Some(document.version);
+        document.state.indexed_version = Some(document.version);
         let project = self.workspace.project_for_mut(&path);
         let origin = project.origin_of(&path);
         if origin == php_index::Origin::Project {
@@ -1246,41 +1084,19 @@ impl<'a> Server<'a> {
         if !self.configuration_support {
             return Ok(());
         }
-        self.next_request_id += 1;
-        let id = RequestId::from(self.next_request_id);
         let params = ConfigurationParams {
             items: vec![ConfigurationItem {
                 scope_uri: Some(uri.clone()),
                 section: Some(SECTION.to_string()),
             }],
         };
-        self.pending_configuration.insert(id.clone(), uri.clone());
-        self.send(Request::new(id, WorkspaceConfiguration::METHOD.to_string(), params))
+        let id = self.client.request::<WorkspaceConfiguration>(params)?;
+        self.pending_configuration.insert(id, uri.clone());
+        Ok(())
     }
 
     fn response(&mut self, response: Response) -> Result<(), BoxError> {
-        if self.progress.create_request.as_ref() == Some(&response.id) {
-            self.progress.create_request = None;
-            if response.response_result.is_err() {
-                self.progress.token = None;
-            } else {
-                self.progress.begun = true;
-                self.progress.last_percent = self.progress_percent();
-                self.send_progress(WorkDoneProgress::Begin(WorkDoneProgressBegin {
-                    title: "Indexing PHP files".to_string(),
-                    cancellable: Some(false),
-                    message: None,
-                    percentage: Some(self.progress.last_percent),
-                }));
-                // The work was done before the client answered: report it as done right away.
-                if self.progress.running_jobs == 0 {
-                    self.send_progress(WorkDoneProgress::End(WorkDoneProgressEnd {
-                        message: Some("Indexed".to_string()),
-                    }));
-                    self.progress.token = None;
-                    self.progress.begun = false;
-                }
-            }
+        if self.progress.response(&self.client, &response) {
             return Ok(());
         }
         let Some(uri) = self.pending_configuration.remove(&response.id) else {
@@ -1296,12 +1112,12 @@ impl<'a> Server<'a> {
             .map(|item| Settings::from_value(&item));
         let level = answer.as_ref().and_then(|settings| settings.php_version);
         let format = answer.as_ref().and_then(|settings| settings.format.clone());
-        document.format = format;
-        document.usages_packages = answer.as_ref().and_then(|settings| settings.usages_packages);
+        document.state.format = format;
+        document.state.usages_packages = answer.as_ref().and_then(|settings| settings.usages_packages);
         let inspections = answer.and_then(|settings| settings.inspections);
-        if document.level != level || document.inspections != inspections {
-            document.level = level;
-            document.inspections = inspections;
+        if document.state.level != level || document.state.inspections != inspections {
+            document.state.level = level;
+            document.state.inspections = inspections;
             self.mark_dirty(uri);
             self.refresh_pulled_diagnostics()?;
         }
@@ -1311,23 +1127,17 @@ impl<'a> Server<'a> {
     /// What an editor shows from the index (colors, hints) is out of date: ask it to ask again.
     fn refresh_editor_features(&mut self) -> Result<(), BoxError> {
         if self.semantic_refresh_support {
-            self.next_request_id += 1;
-            let id = RequestId::from(self.next_request_id);
-            self.send(Request::new(id, SemanticTokensRefresh::METHOD.to_string(), ()))?;
+            self.client.request::<SemanticTokensRefresh>(())?;
         }
         if self.inlay_refresh_support {
-            self.next_request_id += 1;
-            let id = RequestId::from(self.next_request_id);
-            self.send(Request::new(id, InlayHintRefreshRequest::METHOD.to_string(), ()))?;
+            self.client.request::<InlayHintRefreshRequest>(())?;
         }
         Ok(())
     }
 
     fn refresh_pulled_diagnostics(&mut self) -> Result<(), BoxError> {
         if self.pull_diagnostics && self.diagnostic_refresh_support {
-            self.next_request_id += 1;
-            let id = RequestId::from(self.next_request_id);
-            self.send(Request::new(id, WorkspaceDiagnosticRefresh::METHOD.to_string(), ()))?;
+            self.client.request::<WorkspaceDiagnosticRefresh>(())?;
         }
         Ok(())
     }
@@ -1353,9 +1163,34 @@ impl<'a> Server<'a> {
     }
 
     fn publish(&self, uri: Uri, version: Option<i32>, diagnostics: Vec<lsp_types::Diagnostic>) -> Result<(), BoxError> {
-        self.send(Notification::new(
-            PublishDiagnostics::METHOD.to_string(),
-            PublishDiagnosticsParams::new(uri, diagnostics, version),
-        ))
+        self.client
+            .notify::<PublishDiagnostics>(PublishDiagnosticsParams::new(uri, diagnostics, version))
+    }
+}
+
+impl Handler for Server {
+    type Event = Internal;
+
+    fn request(&mut self, request: Request) -> Result<(), BoxError> {
+        Server::request(self, request)
+    }
+
+    fn notification(&mut self, notification: Notification) -> Result<(), BoxError> {
+        Server::notification(self, notification)
+    }
+
+    fn response(&mut self, response: Response) -> Result<(), BoxError> {
+        Server::response(self, response)
+    }
+
+    fn event(&mut self, event: Internal) -> Result<(), BoxError> {
+        self.internal(event)
+    }
+
+    /// Typing sends a change per keystroke: they are all answered before time goes to diagnostics.
+    fn idle(&mut self) -> Result<(), BoxError> {
+        self.publish_dirty()?;
+        self.trim_indexes();
+        Ok(())
     }
 }

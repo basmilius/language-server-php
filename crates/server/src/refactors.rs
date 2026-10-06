@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use lsc_server::paths::{path_to_uri, uri_to_path};
 use lsp_types::{CodeActionParams, Range, RenameFilesParams, Uri};
 use php_analysis::LineIndex;
 use php_analysis::inspections::{Externals, InspectionEnv};
@@ -12,7 +13,6 @@ use serde_json::{Value, json};
 
 use crate::actions::{selection, wanted};
 use crate::convert::Mapper;
-use crate::paths::{path_to_uri, uri_to_path};
 use crate::server::Server;
 use crate::usages::ProjectSources;
 
@@ -39,7 +39,7 @@ fn indent_of_text(text: &str) -> Option<Indent> {
     Some(Indent::Spaces(if width % 4 == 0 { 4 } else { width.clamp(1, 8) }))
 }
 
-impl Server<'_> {
+impl Server {
     /// The options for the lines a refactor writes: what the file uses, then what the settings say.
     fn refactor_format_options(&self, uri: &Uri) -> FormatOptions {
         let mut options = FormatOptions::default();
@@ -52,7 +52,11 @@ impl Server<'_> {
         if let Some(settings) = &self.settings.format {
             options = settings.apply(options);
         }
-        if let Some(settings) = self.documents.get(uri).and_then(|document| document.format.as_ref()) {
+        if let Some(settings) = self
+            .documents
+            .get(uri)
+            .and_then(|document| document.state.format.as_ref())
+        {
             options = settings.apply(options);
         }
         options
@@ -138,11 +142,7 @@ impl Server<'_> {
 
     fn selection_offsets(&self, uri: &Uri, range: Range) -> Option<(u32, u32)> {
         let document = self.documents.get(uri)?;
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding: self.encoding,
-        };
+        let mapper = document.mapper(self.encoding);
         let range = selection(&mapper, range);
         Some((u32::from(range.start()), u32::from(range.end())))
     }
@@ -362,7 +362,7 @@ fn snippet_of(edit: &php_analysis::refactor::Edit, focus_start: u32, focus_end: 
     )
 }
 
-impl Server<'_> {
+impl Server {
     /// The edits that follow files being renamed: the namespace and the name of the class in each,
     /// and every reference to it. A file that never followed its Composer map is left as it is.
     pub(crate) fn will_rename_files(&mut self, params: RenameFilesParams) -> Result<Option<Value>, String> {

@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 crossbeam-channel = "0.5.17"
+lsc-server.workspace = true
 lsp-server = "0.10.0"
 lsp-types = "0.97.0"
 php-analysis = { version = "0.4.1", path = "../analysis" }
@@ -21,6 +22,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 
 [dev-dependencies]
+lsc-server = { workspace = true, features = ["testing"] }
 php-index = { version = "0.4.1", path = "../index", features = ["testing"] }
 expect-test = "1.5.1"
 tempfile = "3.27.0"

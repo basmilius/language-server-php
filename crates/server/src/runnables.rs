@@ -4,13 +4,14 @@
 
 use std::path::{Path, PathBuf};
 
+use lsc_server::paths::uri_to_path;
 use lsp_types::{CodeLens, CodeLensParams, Command, Uri};
 use php_analysis::runnables::{Runnable, RunnableKind, RunnableScope, runnables};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::convert::Mapper;
-use crate::paths::uri_to_path;
+use crate::documents::ParseDocument;
 use crate::server::Server;
 
 /// The request that lists what a document can run.
@@ -35,7 +36,7 @@ impl RunnablesParams {
     }
 }
 
-impl Server<'_> {
+impl Server {
     pub(crate) fn runnables(&mut self, params: RunnablesParams) -> Option<Vec<Value>> {
         self.runnables_of(&params.uri()?)
     }
@@ -64,11 +65,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(uri)?;
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
+        let mapper = document.mapper(encoding);
         let project = self.workspace.project_for(&path);
         let _document = php_analysis::document::enter(Some(&path));
         let found = runnables(&project.index, &root);

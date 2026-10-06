@@ -2,99 +2,27 @@
 
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DiagnosticTag, DocumentSymbol, FoldingRange, FoldingRangeKind, Location,
-    NumberOrString, Position, PositionEncodingKind, Range, SelectionRange, SymbolInformation, SymbolKind, SymbolTag,
-    Uri,
+    NumberOrString, Range, SelectionRange, SymbolInformation, SymbolKind, SymbolTag, Uri,
 };
-use php_analysis::{Fold, FoldKind, LineCol, LineIndex, PositionEncoding, Symbol};
-use php_syntax::{TextRange, TextSize};
+use php_analysis::{Fold, FoldKind, Symbol};
+use php_syntax::TextRange;
 
-pub fn encoding_kind(encoding: PositionEncoding) -> PositionEncodingKind {
-    match encoding {
-        PositionEncoding::Utf8 => PositionEncodingKind::UTF8,
-        PositionEncoding::Utf16 => PositionEncodingKind::UTF16,
-        PositionEncoding::Utf32 => PositionEncodingKind::UTF32,
-    }
-}
+pub use lsc_server::Mapper;
 
-/// The first of the client's encodings that the server prefers, or UTF-16 which every client has.
-pub fn choose_encoding(offered: Option<&[PositionEncodingKind]>) -> PositionEncoding {
-    let offered = offered.unwrap_or_default();
-    [PositionEncodingKind::UTF8, PositionEncodingKind::UTF32]
-        .iter()
-        .find(|wanted| offered.contains(wanted))
-        .map_or(PositionEncoding::Utf16, |found| {
-            if *found == PositionEncodingKind::UTF8 {
-                PositionEncoding::Utf8
-            } else {
-                PositionEncoding::Utf32
-            }
-        })
-}
-
-pub struct Mapper<'a> {
-    pub text: &'a str,
-    pub index: &'a LineIndex,
-    pub encoding: PositionEncoding,
-}
-
-impl Mapper<'_> {
-    pub fn position(&self, offset: TextSize) -> Position {
-        let LineCol { line, col } = self.index.line_col(self.text, offset, self.encoding);
-        Position::new(line, col)
-    }
-
-    pub fn range(&self, range: TextRange) -> Range {
-        Range::new(self.position(range.start()), self.position(range.end()))
-    }
-
-    /// A range with something to draw: an empty one, where something is missing, widens to the
-    /// character before it, or to the one after it at the start of a line.
-    pub fn visible_range(&self, range: TextRange) -> Range {
-        if !range.is_empty() {
-            return self.range(range);
-        }
-        let offset = usize::from(range.start());
-        if let Some(previous) = self.text[..offset]
-            .chars()
-            .next_back()
-            .filter(|c| !matches!(c, '\n' | '\r'))
-        {
-            let start = TextSize::from((offset - previous.len_utf8()) as u32);
-            return self.range(TextRange::new(start, range.start()));
-        }
-        if let Some(next) = self.text[offset..].chars().next().filter(|c| !matches!(c, '\n' | '\r')) {
-            let end = TextSize::from((offset + next.len_utf8()) as u32);
-            return self.range(TextRange::new(range.start(), end));
-        }
-        self.range(range)
-    }
-
-    pub fn offset(&self, position: Position) -> TextSize {
-        self.index.offset(
-            self.text,
-            LineCol {
-                line: position.line,
-                col: position.character,
-            },
-            self.encoding,
-        )
-    }
-
-    pub fn diagnostic(&self, found: &php_analysis::Diagnostic) -> Diagnostic {
-        Diagnostic {
-            range: self.visible_range(found.range),
-            severity: Some(match found.severity {
-                php_analysis::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
-                php_analysis::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
-                php_analysis::DiagnosticSeverity::Information => DiagnosticSeverity::INFORMATION,
-                php_analysis::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
-            }),
-            code: Some(NumberOrString::String(found.code.to_string())),
-            source: Some("php".to_string()),
-            message: found.message.clone(),
-            tags: diagnostic_tags(found),
-            ..Diagnostic::default()
-        }
+pub fn diagnostic(mapper: &Mapper, found: &php_analysis::Diagnostic) -> Diagnostic {
+    Diagnostic {
+        range: mapper.visible_range(found.range),
+        severity: Some(match found.severity {
+            php_analysis::DiagnosticSeverity::Error => DiagnosticSeverity::ERROR,
+            php_analysis::DiagnosticSeverity::Warning => DiagnosticSeverity::WARNING,
+            php_analysis::DiagnosticSeverity::Information => DiagnosticSeverity::INFORMATION,
+            php_analysis::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
+        }),
+        code: Some(NumberOrString::String(found.code.to_string())),
+        source: Some("php".to_string()),
+        message: found.message.clone(),
+        tags: diagnostic_tags(found),
+        ..Diagnostic::default()
     }
 }
 
@@ -206,49 +134,5 @@ pub fn selection_chain(mapper: &Mapper, ranges: &[TextRange]) -> SelectionRange 
             range: Range::default(),
             parent: None,
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn picks_utf8_when_offered_and_utf16_otherwise() {
-        assert_eq!(choose_encoding(None), PositionEncoding::Utf16);
-        assert_eq!(
-            choose_encoding(Some(&[PositionEncodingKind::UTF16])),
-            PositionEncoding::Utf16
-        );
-        assert_eq!(
-            choose_encoding(Some(&[PositionEncodingKind::UTF16, PositionEncodingKind::UTF8])),
-            PositionEncoding::Utf8
-        );
-        assert_eq!(
-            choose_encoding(Some(&[PositionEncodingKind::UTF32])),
-            PositionEncoding::Utf32
-        );
-    }
-
-    #[test]
-    fn widens_an_empty_range_to_a_character() {
-        let text = "$a = ;\nx";
-        let index = LineIndex::new(text);
-        let mapper = Mapper {
-            text,
-            index: &index,
-            encoding: PositionEncoding::Utf16,
-        };
-        let widened = mapper.visible_range(TextRange::empty(TextSize::from(5)));
-        assert_eq!((widened.start.character, widened.end.character), (4, 5));
-        let at_line_start = mapper.visible_range(TextRange::empty(TextSize::from(7)));
-        assert_eq!(
-            (
-                at_line_start.start.line,
-                at_line_start.start.character,
-                at_line_start.end.character
-            ),
-            (1, 0, 1)
-        );
     }
 }

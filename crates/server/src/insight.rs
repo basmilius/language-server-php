@@ -1,6 +1,7 @@
 //! Requests that read one document against the index: signature help, semantic tokens and inlay
 //! hints.
 
+use lsc_server::paths::uri_to_path;
 use lsp_types::{
     Documentation, InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, MarkupContent, MarkupKind,
     ParameterInformation, ParameterLabel, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
@@ -10,10 +11,9 @@ use lsp_types::{
 use php_analysis::inlay_hints::{HintKind, HintOptions, inlay_hints};
 use php_analysis::semantic_tokens::{TOKEN_MODIFIERS, TOKEN_TYPES, semantic_tokens};
 use php_analysis::signature::signature_help;
-use php_syntax::{TextRange, TextSize};
+use php_syntax::TextSize;
 
-use crate::convert::Mapper;
-use crate::paths::uri_to_path;
+use crate::documents::ParseDocument;
 use crate::server::Server;
 
 /// The token types and modifiers a client is told to expect, in the order the analysis numbers them.
@@ -27,7 +27,7 @@ pub(crate) fn semantic_legend() -> SemanticTokensLegend {
     }
 }
 
-impl Server<'_> {
+impl Server {
     pub(crate) fn inlay_hints(&mut self, params: InlayHintParams) -> Option<Vec<InlayHint>> {
         let uri = params.text_document.uri;
         let path = uri_to_path(&uri);
@@ -40,12 +40,8 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
-        let range = TextRange::new(mapper.offset(params.range.start), mapper.offset(params.range.end));
+        let mapper = document.mapper(encoding);
+        let range = mapper.text_range(params.range);
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
@@ -86,12 +82,8 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(uri)?;
         let root = document.parse().syntax();
-        let mapper = Mapper {
-            text: &document.text,
-            index: &document.index,
-            encoding,
-        };
-        let range = range.map(|range| TextRange::new(mapper.offset(range.start), mapper.offset(range.end)));
+        let mapper = document.mapper(encoding);
+        let range = range.map(|range| mapper.text_range(range));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
@@ -148,14 +140,7 @@ impl Server<'_> {
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
-        let offset = u32::from(
-            Mapper {
-                text: &document.text,
-                index: &document.index,
-                encoding,
-            }
-            .offset(position.position),
-        );
+        let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
