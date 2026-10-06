@@ -38,4 +38,4 @@ php-language-server --stdio
 
 ## License
 
-MIT. The phpstorm-stubs and php-src corpora are downloaded separately and keep their own licenses; see [THIRD-PARTY.md](./THIRD-PARTY.md).
+[Functional Source License, Version 1.1, MIT Future License](./LICENSE). The phpstorm-stubs and php-src corpora are downloaded separately and keep their own licenses; see [THIRD-PARTY.md](./THIRD-PARTY.md).

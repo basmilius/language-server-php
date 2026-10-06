@@ -6,7 +6,7 @@ members = ["crates/syntax", "crates/format", "crates/index", "crates/analysis", 
 version = "0.4.1"
 edition = "2024"
 rust-version = "1.85"
-license = "MIT"
+license = "FSL-1.1-MIT"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

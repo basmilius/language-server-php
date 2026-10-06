@@ -1,6 +1,6 @@
 # Maintaining
 
-The server is a Cargo workspace of five crates, MIT, with `unsafe` code forbidden.
+The server is a Cargo workspace of five crates under the Functional Source License (`FSL-1.1-MIT`), with `unsafe` code forbidden.
 
 | Crate                 | Folder           | What it holds                                                                       |
 | --------------------- | ---------------- | ----------------------------------------------------------------------------------- |
