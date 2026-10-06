@@ -642,6 +642,8 @@ Names in a doc comment lead somewhere now: a class in a type, `Class::member()` 
 
 **Inertia.** `Inertia::render('Users/Index')`, `inertia()`, `Route::inertia($uri, 'About')` and the `->component()` of Inertia's test assertions name a page component, a file below `resources/js/Pages` (or `resources/js/pages`, `resources/ts/Pages`) with the extension `vue`, `tsx`, `jsx`, `svelte`, `ts` or `js` and the name as its path without the extension (`framework/inertia.rs`). Definition opens the file, completion offers the pages, find usages lists the strings, and `unknown-inertia-page` (warning) reports a name no file has, only when a pages folder holds a page at all. The server watches `**/resources/{js,ts}/{Pages,pages}/**`, so a page that is added or removed counts at once. On `inertiajs/pingcrm` the 12 pages are named in 20 places, all found, and nothing is reported. Props are not followed into the page, which is another language.
 
+**Pennant.** The feature of `Feature::active('new-api')` and its kin (`inactive`, `value`, `when`, `unless`, `activate`, `someAreActive([...])` and the rest, on the facade, on `Feature::for($user)` and on a store), and of `@feature` and `@featureany` in Blade, is a key of its own (`framework/pennant.rs`). A feature is defined by `Feature::define('new-api', ...)` in a file of `app/`, or is a class in `app/Features`, named by its `$name` or by the class. Definition goes to the `define()` or the class, completion offers the features, find usages lists the strings, and `unknown-feature` (warning) reports a name nothing defines, only when the project defines at least one feature and no `define()` takes a name the code works out or a class by hand. A class named by `::class` is a class and needs nothing of this. No public application with Pennant was at hand to measure on; on the projects without it nothing changed.
+
 ### Corpus
 
 ```sh
@@ -694,5 +696,5 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Other frameworks and packages in the same overlay format (Filament, Pennant, API Platform, Symfony Messenger and Workflow).
+- Other frameworks and packages in the same overlay format (Filament, API Platform, Symfony Messenger and Workflow).
 - A PHP 8.6 level, when its syntax exists.

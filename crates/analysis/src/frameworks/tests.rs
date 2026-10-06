@@ -1507,3 +1507,85 @@ mod inertia {
         assert_eq!(found, ["No page component is named 'Users/Gone'"]);
     }
 }
+
+mod pennant {
+    use php_index::framework::testing::HELPERS;
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+    use crate::testing::{CURSOR, Fixture, split_cursor};
+
+    const PAGE: &str = "<?php\nuse Laravel\\Pennant\\Feature;\nfunction page($user) {\n    Feature::active('new-api');\n    Feature::for($user)->active('beta');\n    Feature::someAreActive(['beta', 'nope']);\n}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(&[
+            (
+                "vendor/pennant/Feature.php",
+                "<?php\nnamespace Laravel\\Pennant;\n/**\n * @method static bool active(string $feature)\n * @method static bool someAreActive(array $features)\n * @method static void define(string $feature, mixed $resolver = null)\n * @method static \\Laravel\\Pennant\\PendingScopedFeatureInteraction for(mixed $scope)\n */\nclass Feature {}\nclass PendingScopedFeatureInteraction { public function active($feature): bool {} }\n",
+            ),
+            (
+                "app/Providers/AppServiceProvider.php",
+                "<?php\nnamespace App\\Providers;\nuse Laravel\\Pennant\\Feature;\nclass AppServiceProvider {\n    public function boot(): void {\n        Feature::define('new-api', fn ($user) => true);\n    }\n}\n",
+            ),
+            (
+                "app/Features/Beta.php",
+                "<?php\nnamespace App\\Features;\nclass Beta {\n    public $name = 'beta';\n    public function resolve($user): bool { return true; }\n}\n",
+            ),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_feature_leads_to_where_it_is_defined_and_completes() {
+        let fixture = fixture();
+        let at = |from: &str, to: &str| -> Vec<String> {
+            let code = PAGE.replacen(from, to, 1);
+            let (_, root, offset) = split_cursor(&code);
+            Analyzer::new(&fixture.index, &root, offset)
+                .definitions(offset)
+                .into_iter()
+                .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
+                .collect()
+        };
+        assert_eq!(
+            at("'new-api'", "'new-a$0pi'"),
+            ["/project/app/Providers/AppServiceProvider.php"]
+        );
+        assert_eq!(
+            at("active('beta')", "active('be$0ta')"),
+            ["/project/app/Features/Beta.php"]
+        );
+        let code = "<?php\n\\Laravel\\Pennant\\Feature::active('$0');\n";
+        let offset = code.find(CURSOR).expect("a cursor") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(labels, ["beta", "new-api"]);
+    }
+
+    #[test]
+    fn a_feature_the_project_does_not_define_is_reported() {
+        let fixture = fixture();
+        let root = php_syntax::parse(PAGE).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: PAGE,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-feature")
+        .map(|finding| finding.diagnostic.message)
+        .collect();
+        assert_eq!(found, ["No feature is defined as 'nope'"]);
+    }
+}

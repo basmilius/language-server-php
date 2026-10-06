@@ -205,7 +205,7 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             };
             let fits = match kind {
                 KeyKind::EntityField => place == Place::Key,
-                KeyKind::Relation | KeyKind::Column => true,
+                KeyKind::Relation | KeyKind::Column | KeyKind::Feature => true,
                 _ => place == Place::Argument,
             };
             if !fits {

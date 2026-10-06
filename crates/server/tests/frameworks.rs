@@ -1019,3 +1019,38 @@ fn an_inertia_page_leads_to_its_component_and_a_missing_one_is_reported() {
     assert_eq!(missing.len(), 1, "{diagnostics:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_pennant_feature_leads_to_its_definition_from_php_and_blade() {
+    let disk = laravel();
+    disk.write(
+        "project/vendor/laravel/pennant/Feature.php",
+        "<?php\nnamespace Laravel\\Pennant;\n\n/**\n * @method static bool active(string $feature)\n * @method static void define(string $feature, mixed $resolver = null)\n */\nclass Feature\n{\n}\n",
+    );
+    disk.write(
+        "project/app/Providers/FeatureServiceProvider.php",
+        "<?php\nnamespace App\\Providers;\n\nuse Laravel\\Pennant\\Feature;\n\nclass FeatureServiceProvider\n{\n    public function boot(): void\n    {\n        Feature::define('new-api', fn () => true);\n    }\n}\n",
+    );
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Api.php");
+    client.open(
+        &uri,
+        "<?php\nuse Laravel\\Pennant\\Feature;\nfunction api() {\n    return Feature::active('new-api') || Feature::active('old-api');\n}\n",
+    );
+    let provider = disk.uri("project/app/Providers/FeatureServiceProvider.php");
+    let found = client.at("textDocument/definition", &uri, 3, 30);
+    assert_eq!(found[0]["uri"], provider, "{found}");
+    let diagnostics = client.diagnostics(&uri);
+    let unknown: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "unknown-feature")
+        .collect();
+    assert_eq!(unknown.len(), 1, "{diagnostics:?}");
+    let template = disk.uri("project/resources/views/beta.blade.php");
+    client.open(&template, "@feature('new-api')\n    <p>New</p>\n@endfeature\n");
+    let found = client.at("textDocument/definition", &template, 0, 12);
+    assert_eq!(found[0]["uri"], provider, "{found}");
+    let diagnostics = client.diagnostics(&template);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    client.shutdown();
+}

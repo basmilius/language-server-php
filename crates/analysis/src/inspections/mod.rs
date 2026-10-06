@@ -259,6 +259,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         "A validation rule the validator does not have and the project does not add",
     ),
     info(
+        "unknown-feature",
+        Warning,
+        true,
+        "A Pennant feature the project does not define",
+    ),
+    info(
         "unknown-inertia-page",
         Warning,
         true,

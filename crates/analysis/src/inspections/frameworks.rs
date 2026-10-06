@@ -16,6 +16,7 @@ pub(super) fn run(cx: &Cx) {
         KeyKind::View,
         KeyKind::Translation,
         KeyKind::InertiaPage,
+        KeyKind::Feature,
     ]
     .iter()
     .any(|kind| kind.inspection().is_some_and(|code| cx.on(code)))
@@ -75,6 +76,7 @@ pub(super) fn run(cx: &Cx) {
             KeyKind::View => format!("The view '{}' does not exist", key.value),
             KeyKind::Template => format!("The template '{}' does not exist", key.value),
             KeyKind::InertiaPage => format!("No page component is named '{}'", key.value),
+            KeyKind::Feature => format!("No feature is defined as '{}'", key.value),
             _ => format!("The translation '{}' is not in the language files", key.value),
         };
         cx.report(code, key.range, message, super::Fix::None);

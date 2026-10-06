@@ -222,6 +222,134 @@ function inertia($component = null, $props = []) {}
 
 }
 
+namespace Laravel\Pennant {
+
+class Feature
+{
+    /** @key feature */
+    public static function active($feature) {}
+    /** @key feature */
+    public static function inactive($feature) {}
+    /** @key feature */
+    public static function value($feature) {}
+    /** @key feature */
+    public static function values($features) {}
+    /** @key feature */
+    public static function allAreActive($features) {}
+    /** @key feature */
+    public static function someAreActive($features) {}
+    /** @key feature */
+    public static function allAreInactive($features) {}
+    /** @key feature */
+    public static function someAreInactive($features) {}
+    /** @key feature */
+    public static function when($feature, $whenActive, $whenInactive = null) {}
+    /** @key feature */
+    public static function unless($feature, $whenInactive, $whenActive = null) {}
+    /** @key feature */
+    public static function activate($feature, $value = true) {}
+    /** @key feature */
+    public static function deactivate($feature) {}
+    /** @key feature */
+    public static function forget($features) {}
+    /** @key feature */
+    public static function load($features) {}
+    /** @key feature */
+    public static function loadMissing($features) {}
+    /** @key feature */
+    public static function activateForEveryone($feature, $value = true) {}
+    /** @key feature */
+    public static function deactivateForEveryone($feature) {}
+    /** @key feature */
+    public static function purge($features = null) {}
+}
+
+class PendingScopedFeatureInteraction
+{
+    /** @key feature */
+    public function active($feature) {}
+    /** @key feature */
+    public function inactive($feature) {}
+    /** @key feature */
+    public function value($feature) {}
+    /** @key feature */
+    public function values($features) {}
+    /** @key feature */
+    public function allAreActive($features) {}
+    /** @key feature */
+    public function someAreActive($features) {}
+    /** @key feature */
+    public function allAreInactive($features) {}
+    /** @key feature */
+    public function someAreInactive($features) {}
+    /** @key feature */
+    public function when($feature, $whenActive, $whenInactive = null) {}
+    /** @key feature */
+    public function unless($feature, $whenInactive, $whenActive = null) {}
+    /** @key feature */
+    public function activate($feature, $value = true) {}
+    /** @key feature */
+    public function deactivate($feature) {}
+    /** @key feature */
+    public function forget($features) {}
+    /** @key feature */
+    public function load($features) {}
+    /** @key feature */
+    public function loadMissing($features) {}
+    /** @key feature */
+    public function activateForEveryone($feature, $value = true) {}
+    /** @key feature */
+    public function deactivateForEveryone($feature) {}
+    /** @key feature */
+    public function purge($features = null) {}
+}
+
+}
+
+namespace Laravel\Pennant\Drivers {
+
+class Decorator
+{
+    /** @key feature */
+    public function active($feature) {}
+    /** @key feature */
+    public function inactive($feature) {}
+    /** @key feature */
+    public function value($feature) {}
+    /** @key feature */
+    public function values($features) {}
+    /** @key feature */
+    public function allAreActive($features) {}
+    /** @key feature */
+    public function someAreActive($features) {}
+    /** @key feature */
+    public function allAreInactive($features) {}
+    /** @key feature */
+    public function someAreInactive($features) {}
+    /** @key feature */
+    public function when($feature, $whenActive, $whenInactive = null) {}
+    /** @key feature */
+    public function unless($feature, $whenInactive, $whenActive = null) {}
+    /** @key feature */
+    public function activate($feature, $value = true) {}
+    /** @key feature */
+    public function deactivate($feature) {}
+    /** @key feature */
+    public function forget($features) {}
+    /** @key feature */
+    public function load($features) {}
+    /** @key feature */
+    public function loadMissing($features) {}
+    /** @key feature */
+    public function activateForEveryone($feature, $value = true) {}
+    /** @key feature */
+    public function deactivateForEveryone($feature) {}
+    /** @key feature */
+    public function purge($features = null) {}
+}
+
+}
+
 namespace Inertia {
 
 class Inertia
@@ -1026,6 +1154,10 @@ class BladeCompiler
 {
     /** @key livewire */
     public function livewire($name, $params = []) {}
+    /** @key feature */
+    public function feature($feature, $value = null) {}
+    /** @key feature */
+    public function featureany($features) {}
     /** @key view */
     public function include($view, $data = []) {}
     /** @key view */

@@ -30,6 +30,7 @@ pub mod layouts;
 pub mod livewire;
 pub mod migrations;
 pub mod overlay;
+pub mod pennant;
 pub mod routes;
 pub mod source;
 pub mod symfony;
