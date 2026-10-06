@@ -720,3 +720,17 @@ fn a_method_reached_through_call_is_neither_static_nor_counted() {
     assert_eq!(only_in(&files, "wrong-argument-count", source), Vec::<String>::new());
     assert_eq!(only_in(&files, "instance-call-of-static-method", source), ["make"]);
 }
+
+#[test]
+fn self_and_static_in_an_anonymous_class_are_that_class() {
+    let files = [("A.php", "<?php\nclass Migration {}\n")];
+    let source = "<?php\nreturn new class extends Migration {\n    protected static array $map = [];\n    const LIMIT = 1;\n    public function up() {\n        return [static::$map, self::$map, self::LIMIT, static::helper(), static::$missing];\n    }\n    private static function helper() {}\n};\n";
+    assert_eq!(only_in(&files, "undefined-property", source), Vec::<String>::new());
+    assert_eq!(
+        only_in(&files, "undefined-class-constant", source),
+        Vec::<String>::new()
+    );
+    assert_eq!(only_in(&files, "undefined-method", source), Vec::<String>::new());
+    let named = "<?php\nclass Seeder extends Migration {\n    public function up() {\n        return static::$missing;\n    }\n}\n";
+    assert_eq!(only_in(&files, "undefined-property", named), ["$missing"]);
+}

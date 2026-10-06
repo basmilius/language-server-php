@@ -70,6 +70,13 @@ fn in_anonymous_class(node: &SyntaxNode) -> bool {
     node.ancestors().any(|ancestor| ancestor.kind() == ANONYMOUS_CLASS)
 }
 
+/// Whether `self` or `static` names an anonymous class, whose own members the index does not hold.
+fn names_anonymous_class(qualifier: &SyntaxNode, node: &SyntaxNode) -> bool {
+    qualifier.kind() == NAME
+        && ["self", "static"].contains(&text_of(qualifier).to_ascii_lowercase().as_str())
+        && in_anonymous_class(node)
+}
+
 fn instance_access(cx: &Cx, node: &SyntaxNode) {
     let (Some(object), Some(name)) = (node.children().next(), member_name(node)) else {
         return;
@@ -371,7 +378,8 @@ fn scoped_access(cx: &Cx, node: &SyntaxNode) {
     if written == "class" {
         return;
     }
-    if qualifier.kind() != NAME && unreliable_receiver(cx, node, &qualifier) {
+    if qualifier.kind() != NAME && unreliable_receiver(cx, node, &qualifier) || names_anonymous_class(&qualifier, node)
+    {
         return;
     }
     let analyzer = cx.file.analyzer(node);
@@ -534,7 +542,7 @@ fn static_property(cx: &Cx, node: &SyntaxNode) {
     else {
         return;
     };
-    if reassigned_in_loop(&qualifier) {
+    if reassigned_in_loop(&qualifier) || names_anonymous_class(&qualifier, node) {
         return;
     }
     let written = text_of(&variable).trim_start_matches('$').to_string();
