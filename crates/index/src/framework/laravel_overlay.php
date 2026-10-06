@@ -518,6 +518,204 @@ trait Authorizable
 
 // The directives of a Blade template are the methods of this class: the one named after a directive
 // says which of its arguments is a name.
+namespace Illuminate\Database\Eloquent {
+
+// The strings that name a relation of the model the query, the relation or the collection is of;
+// `posts.comments` names one relation of each model in turn.
+class Builder
+{
+    /** @key relation */
+    public function with($relations, $callback = null) {}
+    /** @key relation */
+    public function without($relations) {}
+    /** @key relation */
+    public function withOnly($relations) {}
+    /** @key relation */
+    public function has($relation, $operator = '>=', $count = 1, $boolean = 'and', $callback = null) {}
+    /** @key relation */
+    public function orHas($relation, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function doesntHave($relation, $boolean = 'and', $callback = null) {}
+    /** @key relation */
+    public function orDoesntHave($relation) {}
+    /** @key relation */
+    public function whereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function orWhereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function whereDoesntHave($relation, $callback = null) {}
+    /** @key relation */
+    public function orWhereDoesntHave($relation, $callback = null) {}
+    /** @key relation */
+    public function withWhereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function whereRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function orWhereRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function whereDoesntHaveRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function withCount($relations) {}
+    /** @key relation */
+    public function withSum($relation, $column) {}
+    /** @key relation */
+    public function withAvg($relation, $column) {}
+    /** @key relation */
+    public function withMin($relation, $column) {}
+    /** @key relation */
+    public function withMax($relation, $column) {}
+    /** @key relation */
+    public function withExists($relation) {}
+    /** @key relation */
+    public function withAggregate($relations, $column, $function = null) {}
+}
+
+class Model
+{
+    /** @key relation */
+    public function with($relations, $callback = null) {}
+    /** @key relation */
+    public function without($relations) {}
+    /** @key relation */
+    public function withOnly($relations) {}
+    /** @key relation */
+    public function has($relation, $operator = '>=', $count = 1, $boolean = 'and', $callback = null) {}
+    /** @key relation */
+    public function orHas($relation, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function doesntHave($relation, $boolean = 'and', $callback = null) {}
+    /** @key relation */
+    public function orDoesntHave($relation) {}
+    /** @key relation */
+    public function whereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function orWhereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function whereDoesntHave($relation, $callback = null) {}
+    /** @key relation */
+    public function orWhereDoesntHave($relation, $callback = null) {}
+    /** @key relation */
+    public function withWhereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function whereRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function orWhereRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function whereDoesntHaveRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function withCount($relations) {}
+    /** @key relation */
+    public function withSum($relation, $column) {}
+    /** @key relation */
+    public function withAvg($relation, $column) {}
+    /** @key relation */
+    public function withMin($relation, $column) {}
+    /** @key relation */
+    public function withMax($relation, $column) {}
+    /** @key relation */
+    public function withExists($relation) {}
+    /** @key relation */
+    public function withAggregate($relations, $column, $function = null) {}
+    /** @key relation */
+    public function load($relations) {}
+    /** @key relation */
+    public function loadMissing($relations) {}
+    /** @key relation */
+    public function loadCount($relations) {}
+    /** @key relation */
+    public function loadSum($relations, $column) {}
+    /** @key relation */
+    public function loadAvg($relations, $column) {}
+    /** @key relation */
+    public function loadMin($relations, $column) {}
+    /** @key relation */
+    public function loadMax($relations, $column) {}
+    /** @key relation */
+    public function loadExists($relations) {}
+    /** @key relation */
+    public function relationLoaded($key) {}
+    /** @key relation */
+    public function getRelation($relation) {}
+    /** @key relation */
+    public function unsetRelation($relation) {}
+    /** @key relation */
+    public function setRelation($relation, $value) {}
+}
+
+class Collection
+{
+    /** @key relation */
+    public function load($relations) {}
+    /** @key relation */
+    public function loadMissing($relations) {}
+    /** @key relation */
+    public function loadCount($relations) {}
+    /** @key relation */
+    public function loadSum($relations, $column) {}
+    /** @key relation */
+    public function loadAvg($relations, $column) {}
+    /** @key relation */
+    public function loadMin($relations, $column) {}
+    /** @key relation */
+    public function loadMax($relations, $column) {}
+    /** @key relation */
+    public function loadExists($relations) {}
+}
+
+}
+
+namespace Illuminate\Database\Eloquent\Relations {
+
+class Relation
+{
+    /** @key relation */
+    public function with($relations, $callback = null) {}
+    /** @key relation */
+    public function without($relations) {}
+    /** @key relation */
+    public function withOnly($relations) {}
+    /** @key relation */
+    public function has($relation, $operator = '>=', $count = 1, $boolean = 'and', $callback = null) {}
+    /** @key relation */
+    public function orHas($relation, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function doesntHave($relation, $boolean = 'and', $callback = null) {}
+    /** @key relation */
+    public function orDoesntHave($relation) {}
+    /** @key relation */
+    public function whereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function orWhereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function whereDoesntHave($relation, $callback = null) {}
+    /** @key relation */
+    public function orWhereDoesntHave($relation, $callback = null) {}
+    /** @key relation */
+    public function withWhereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @key relation */
+    public function whereRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function orWhereRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function whereDoesntHaveRelation($relation, $column, $operator = null, $value = null) {}
+    /** @key relation */
+    public function withCount($relations) {}
+    /** @key relation */
+    public function withSum($relation, $column) {}
+    /** @key relation */
+    public function withAvg($relation, $column) {}
+    /** @key relation */
+    public function withMin($relation, $column) {}
+    /** @key relation */
+    public function withMax($relation, $column) {}
+    /** @key relation */
+    public function withExists($relation) {}
+    /** @key relation */
+    public function withAggregate($relations, $column, $function = null) {}
+}
+
+}
+
 namespace Illuminate\Mail\Mailables {
 
 class Content

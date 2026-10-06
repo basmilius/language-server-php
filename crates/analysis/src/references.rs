@@ -82,6 +82,17 @@ fn key_symbol_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextR
         return None;
     }
     let key = crate::frameworks::keys::key_at(&crate::infer::Analyzer::new(index, root, offset), offset)?;
+    if key.kind == php_index::framework::keys::KeyKind::Relation {
+        let segment = crate::frameworks::relations::segment_at(index, &key, offset)?;
+        let relation = segment.relation?;
+        return Some((
+            segment.range,
+            vec![Symbol::Method {
+                class: relation.owner,
+                name: relation.name,
+            }],
+        ));
+    }
     Some((
         key.range,
         vec![Symbol::Key {

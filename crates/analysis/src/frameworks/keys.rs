@@ -27,19 +27,37 @@ pub struct KeyString {
 struct Callee {
     declaring: Option<String>,
     receiver: Option<String>,
+    receiver_type: Option<php_index::Type>,
     method: String,
     params: Vec<String>,
 }
 
-/// The argument a literal is in: the argument itself, or the key of an array item in it.
-fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, bool)> {
+/// Where a literal stands in the argument of a call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Place {
+    /// It is the argument.
+    Argument,
+    /// It is the key of an item of the array the argument is.
+    Key,
+    /// It is an item of the list the argument is.
+    Item,
+}
+
+/// The argument a literal is in, and where in it.
+fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place)> {
     let parent = literal.parent()?;
     match parent.kind() {
-        ARGUMENT => Some((parent, false)),
-        ARRAY_ITEM if parent.children().next().as_ref() == Some(literal) && parent.children().count() == 2 => {
+        ARGUMENT => Some((parent, Place::Argument)),
+        ARRAY_ITEM => {
+            let children: Vec<SyntaxNode> = parent.children().collect();
+            let place = match children.as_slice() {
+                [key, _] if key == literal => Place::Key,
+                [only] if only == literal => Place::Item,
+                _ => return None,
+            };
             let array = parent.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
             let argument = array.parent().filter(|node| node.kind() == ARGUMENT)?;
-            Some((argument, true))
+            Some((argument, place))
         }
         _ => None,
     }
@@ -73,6 +91,7 @@ fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
                             .receiver
                             .as_ref()
                             .and_then(|ty| ty.class_names().first().map(|name| name.to_string())),
+                        receiver_type: resolved.receiver.clone(),
                         method,
                         params: resolved
                             .callable
@@ -105,6 +124,7 @@ fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
                 .unwrap_or_default();
             vec![Callee {
                 declaring: Some(class.clone()),
+                receiver_type: Some(php_index::Type::class(class.clone())),
                 receiver: Some(class),
                 method: "__construct".to_string(),
                 params,
@@ -121,7 +141,7 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
         return None;
     }
     let (value, span) = php_index::test_facts::string_value(literal)?;
-    let Some((argument, in_key)) = argument_of(literal) else {
+    let Some((argument, place)) = argument_of(literal) else {
         return event_key(analyzer, literal, &value, span);
     };
     let named = argument
@@ -182,7 +202,12 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             let Some(kind) = KeyKind::parse(&kind) else {
                 continue;
             };
-            if in_key != (kind == KeyKind::EntityField) {
+            let fits = match kind {
+                KeyKind::EntityField => place == Place::Key,
+                KeyKind::Relation => true,
+                _ => place == Place::Argument,
+            };
+            if !fits {
                 continue;
             }
             let asks_existence = matches!(callee.method.to_ascii_lowercase().as_str(), "has" | "exists");
@@ -194,6 +219,10 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
                         &php_index::Type::class(receiver.clone()),
                     )
                 }),
+                KeyKind::Relation => callee
+                    .receiver_type
+                    .as_ref()
+                    .and_then(|receiver| super::relations::model_of(analyzer, receiver)),
                 _ => callee.receiver.clone(),
             };
             return Some(KeyString {

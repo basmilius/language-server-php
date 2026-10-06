@@ -50,6 +50,10 @@ abstract class Model {
     /** @return \Illuminate\Database\Eloquent\Builder<static> */
     public function newQuery() {}
     public function save(array $options = []): bool {}
+    /** @return \Illuminate\Database\Eloquent\Builder<static> */
+    public static function with($relations) {}
+    /** @return $this */
+    public function load($relations) {}
     public function __call($method, $parameters) {}
     public static function __callStatic($method, $parameters) {}
     public function __get($key) {}
@@ -67,6 +71,12 @@ namespace Illuminate\Database\Eloquent;
 class Builder {
     /** @return $this */
     public function where($column, $operator = null, $value = null, $boolean = 'and') {}
+    /** @return $this */
+    public function with($relations, $callback = null) {}
+    /** @return $this */
+    public function whereHas($relation, $callback = null, $operator = '>=', $count = 1) {}
+    /** @return $this */
+    public function withCount($relations) {}
     /** @return TModel|null */
     public function first($columns = ['*']) {}
     /** @return \Illuminate\Database\Eloquent\Collection<int, TModel> */

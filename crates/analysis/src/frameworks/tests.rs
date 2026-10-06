@@ -892,3 +892,125 @@ mod usages {
         assert!(hits.is_empty());
     }
 }
+
+mod relation_strings {
+    use php_index::framework::testing::ELOQUENT;
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::references::{Current, references_at};
+    use crate::testing::{CURSOR, Files, Fixture, split_cursor};
+
+    const USER: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\nclass User extends Model {\n    public function posts(): HasMany { return $this->hasMany(Post::class); }\n    public function helper() {}\n}\n";
+    const POST: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\nclass Post extends Model {\n    public function comments(): HasMany { return $this->hasMany(Comment::class); }\n}\n";
+    const COMMENT: &str =
+        "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Comment extends Model {}\n";
+    const PAGE: &str = "<?php\nuse App\\Models\\User;\nfunction page(User $user) {\n    User::with('posts.comments')->get();\n    User::query()->whereHas('posts')->withCount(['posts as total' => fn ($q) => $q]);\n    $user->load(['posts:id,title']);\n}\n";
+
+    fn fixture() -> Fixture {
+        let mut files = ELOQUENT.to_vec();
+        files.extend_from_slice(&[
+            ("app/Models/User.php", USER),
+            ("app/Models/Post.php", POST),
+            ("app/Models/Comment.php", COMMENT),
+            ("app/Http/page.php", PAGE),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_segment_is_the_relation_of_the_model_before_it() {
+        let fixture = fixture();
+        let places = |code: &str| -> Vec<String> {
+            let (_, root, offset) = split_cursor(code);
+            Analyzer::new(&fixture.index, &root, offset)
+                .definitions(offset)
+                .into_iter()
+                .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
+                .collect()
+        };
+        let code = "<?php\nuse App\\Models\\User;\nUser::with('posts.comm$0ents');\n";
+        assert_eq!(places(code), ["/project/app/Models/Post.php"]);
+        let code = "<?php\nuse App\\Models\\User;\nUser::query()->whereHas('po$0sts');\n";
+        assert_eq!(places(code), ["/project/app/Models/User.php"]);
+    }
+
+    #[test]
+    fn segments_complete_from_their_model() {
+        let fixture = fixture();
+        let complete = |code: &str| -> Vec<String> {
+            let offset = code.find(CURSOR).expect("a cursor") as u32;
+            let text = code.replacen(CURSOR, "", 1);
+            complete(&fixture.index, &text, offset, CompletionOptions::default())
+                .items
+                .into_iter()
+                .map(|item| item.label)
+                .collect()
+        };
+        assert_eq!(
+            complete("<?php\nuse App\\Models\\User;\nUser::with('$0');\n"),
+            ["posts"]
+        );
+        assert_eq!(
+            complete("<?php\nuse App\\Models\\User;\nUser::with('posts.$0');\n"),
+            ["comments"]
+        );
+    }
+
+    #[test]
+    fn the_usages_of_a_relation_are_its_strings() {
+        let fixture = fixture();
+        let path = std::path::PathBuf::from("/project/app/Models/User.php");
+        let root = php_syntax::parse(USER).syntax();
+        let offset = USER.find("posts").expect("the relation") as u32 + 1;
+        let found = references_at(
+            &fixture.index,
+            &Files(fixture.sources.clone()),
+            &Current {
+                path: &path,
+                text: USER,
+                root: &root,
+            },
+            offset,
+        )
+        .expect("usages");
+        let in_page: Vec<&str> = found
+            .files
+            .iter()
+            .filter(|file| file.path.ends_with("page.php"))
+            .flat_map(|file| file.hits.iter())
+            .map(|hit| &PAGE[usize::from(hit.range.start())..usize::from(hit.range.end())])
+            .collect();
+        assert_eq!(in_page, ["posts", "posts", "posts", "posts"]);
+    }
+
+    #[test]
+    fn a_relation_the_model_does_not_have_is_reported() {
+        use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+        let fixture = fixture();
+        let code =
+            "<?php\nuse App\\Models\\User;\nUser::with(['posts.comments', 'posts.nope', 'helper', 'gone'])->get();\n";
+        let root = php_syntax::parse(code).syntax();
+        let settings = InspectionSettings::default();
+        let externals = Externals::none();
+        let found: Vec<String> = inspect(&InspectionEnv {
+            index: &fixture.index,
+            text: code,
+            root: &root,
+            settings: &settings,
+            ready: true,
+            externals: &externals,
+        })
+        .into_iter()
+        .filter(|finding| finding.diagnostic.code == "unknown-relation")
+        .map(|finding| finding.diagnostic.message)
+        .collect();
+        assert_eq!(
+            found,
+            [
+                "The model 'Post' has no relation 'nope'",
+                "The model 'User' has no relation 'gone'"
+            ]
+        );
+    }
+}

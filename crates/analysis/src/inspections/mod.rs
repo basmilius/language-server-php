@@ -253,6 +253,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
     ),
     info("unknown-view", Warning, true, "A view that has no template"),
     info(
+        "unknown-relation",
+        Warning,
+        true,
+        "A relation an Eloquent query names that its model does not have",
+    ),
+    info(
         "unknown-twig-function",
         Warning,
         true,

@@ -89,6 +89,80 @@ impl Section for ModelInfos {
     }
 }
 
+/// Whether the project or a package makes relations at run time (`resolveRelationUsing`), which no
+/// method shows.
+#[derive(Default)]
+pub struct DynamicRelations {
+    pub found: bool,
+}
+
+impl Section for DynamicRelations {
+    fn build(index: &Index) -> Self {
+        let found = index.files().any(|file| {
+            let read = match file.origin {
+                Origin::Project => true,
+                Origin::Vendor => file.summary().classes.iter().any(|class| {
+                    class
+                        .parents
+                        .iter()
+                        .any(|parent| parent.eq_ignore_ascii_case("Illuminate\\Support\\ServiceProvider"))
+                }),
+                Origin::Stub => false,
+            };
+            read && index
+                .read_text(&file.path)
+                .is_some_and(|text| text.contains("resolveRelationUsing"))
+        });
+        DynamicRelations { found }
+    }
+
+    // Read once: it reads every file of the project, and a relation made at run time is rare.
+    fn depends_on(_: &Path, _: &Path) -> bool {
+        false
+    }
+}
+
+/// A relation a model declares, and the model it leads to when its type says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelationInfo {
+    pub name: String,
+    pub owner: Name,
+    pub related: Option<Name>,
+    pub path: std::path::PathBuf,
+    pub name_span: Span,
+}
+
+/// The relations of a model of the project, its own and its parents' and traits'. `None` when the
+/// class is no model.
+pub fn relations(index: &Index, model: &str) -> Option<Vec<RelationInfo>> {
+    let class = index.class(model)?;
+    let model_type = Type::class(class.decl.name.clone());
+    let ancestors = index.ancestors(&model_type);
+    model_of(&ancestors)?;
+    let info = info_of(index, &class)?;
+    Some(
+        info.relations
+            .iter()
+            .map(|relation| RelationInfo {
+                name: relation.name.clone(),
+                owner: relation.owner.clone(),
+                related: match &relation.ty {
+                    Type::Class { args, .. } => args.first().and_then(|related| match related {
+                        Type::Class { name, .. } => Some(name.clone()),
+                        _ => None,
+                    }),
+                    _ => None,
+                },
+                path: index
+                    .class(&relation.owner)
+                    .map(|owner| owner.file.path.clone())
+                    .unwrap_or_default(),
+                name_span: relation.name_span,
+            })
+            .collect(),
+    )
+}
+
 fn is_named(class: &ClassDecl, name: &str) -> bool {
     class.name.eq_ignore_ascii_case(name)
 }

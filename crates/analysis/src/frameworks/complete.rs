@@ -25,6 +25,7 @@ fn item_kind(kind: KeyKind) -> ItemKind {
         KeyKind::EntityField => ItemKind::Property,
         KeyKind::Section | KeyKind::Stack | KeyKind::Block => ItemKind::Module,
         KeyKind::Slot | KeyKind::Attribute => ItemKind::Property,
+        KeyKind::Relation => ItemKind::Method,
     }
 }
 
@@ -41,6 +42,20 @@ pub fn complete_key(
     }
     let analyzer = Analyzer::new(index, root, offset);
     let found = key_at(&analyzer, offset)?;
+    if found.kind == KeyKind::Relation {
+        // Each segment of `posts.comments` completes from the model the one before leads to.
+        let segment = super::relations::segment_at(index, &found, offset)?;
+        let start = u32::from(segment.range.start());
+        let typed = text.get(start as usize..offset as usize)?;
+        return Some(key_items(
+            index,
+            KeyKind::Relation,
+            Some(&segment.model),
+            typed,
+            (start, u32::from(segment.range.end())),
+            options,
+        ));
+    }
     let start = u32::from(found.range.start());
     let typed = text.get(start as usize..offset as usize)?;
     Some(key_items(

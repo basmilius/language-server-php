@@ -91,6 +91,18 @@ impl Analyzer<'_> {
             return vec![found];
         }
         if let Some(key) = crate::frameworks::keys::key_at(self, offset) {
+            if let Some(segment) = crate::frameworks::relations::segment_at(self.index, &key, offset) {
+                if let Some(relation) = segment.relation {
+                    return vec![Found {
+                        target: Target::Method {
+                            receiver: Type::class(relation.owner),
+                            name: relation.name,
+                        },
+                        range: segment.range,
+                    }];
+                }
+                return Vec::new();
+            }
             return vec![Found {
                 target: Target::Key {
                     kind: key.kind,

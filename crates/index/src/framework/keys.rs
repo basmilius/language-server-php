@@ -53,6 +53,8 @@ pub enum KeyKind {
     /// A block of a Twig template; the scope is the template it is written in, whose parents
     /// declare it.
     Block,
+    /// A relation of the Eloquent model the scope names.
+    Relation,
 }
 
 impl KeyKind {
@@ -73,6 +75,7 @@ impl KeyKind {
             "entity-field" => KeyKind::EntityField,
             "section" => KeyKind::Section,
             "stack" => KeyKind::Stack,
+            "relation" => KeyKind::Relation,
             _ => return None,
         })
     }
@@ -97,6 +100,7 @@ impl KeyKind {
             KeyKind::Slot => "slot",
             KeyKind::Attribute => "component attribute",
             KeyKind::Block => "block",
+            KeyKind::Relation => "relation",
         }
     }
 
@@ -301,6 +305,24 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         KeyKind::Slot => {
             if let Some(text) = scope.and_then(|tag| component_text(index, tag)) {
                 out.extend(slots_of(&text).iter().map(|(name, _)| candidate(name, None)));
+            }
+        }
+        KeyKind::Relation => {
+            if let Some(found) = scope.and_then(|model| super::eloquent::relations(index, model)) {
+                let mut seen = std::collections::HashSet::new();
+                out.extend(
+                    found
+                        .into_iter()
+                        .filter(|relation| seen.insert(relation.name.clone()))
+                        .map(|relation| {
+                            candidate(
+                                &relation.name,
+                                relation
+                                    .related
+                                    .map(|related| crate::types::short_name(&related).to_string()),
+                            )
+                        }),
+                );
             }
         }
         KeyKind::Block => {
@@ -562,6 +584,16 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                             .map(|(_, span)| definition(&path, span, "")),
                     );
                 }
+            }
+        }
+        KeyKind::Relation => {
+            if let Some(found) = scope.and_then(|model| super::eloquent::relations(index, model)) {
+                out.extend(
+                    found
+                        .into_iter()
+                        .filter(|relation| relation.name == key)
+                        .map(|relation| definition(&relation.path, relation.name_span, "")),
+                );
             }
         }
         KeyKind::Block => out.extend(

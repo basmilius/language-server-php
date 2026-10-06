@@ -762,9 +762,47 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
     ) {
         test_string_hits(ctx, query, &mut hits);
     }
+    if let Symbol::Method { name, .. } = &query.symbol {
+        if ctx.index.frameworks().eloquent {
+            relation_string_hits(ctx, name, query, &mut hits);
+        }
+    }
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits
+}
+
+/// The strings that name a relation: each segment of `with('posts.comments')` is a usage of the
+/// relation method it names.
+fn relation_string_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut Vec<Hit>) {
+    for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
+        if php_index::test_facts::string_value(&node).is_none_or(|(value, _)| !value.contains(name)) {
+            continue;
+        }
+        let analyzer = ctx.analyzer(&node);
+        let Some(key) = crate::frameworks::keys::key_of_literal(&analyzer, &node, None) else {
+            continue;
+        };
+        for segment in crate::frameworks::relations::segments(ctx.index, &key) {
+            let Some(relation) = segment.relation else {
+                continue;
+            };
+            let symbol = Symbol::Method {
+                class: relation.owner,
+                name: relation.name,
+            };
+            if query.matches(&symbol) {
+                hits.push(Hit {
+                    range: segment.range,
+                    kind: HitKind::Reference,
+                    access: Access::Read,
+                    dollar: false,
+                    via_alias: false,
+                    symbol,
+                });
+            }
+        }
+    }
 }
 
 /// The strings that name a route, a config key or the like. Only a literal that holds the name is
