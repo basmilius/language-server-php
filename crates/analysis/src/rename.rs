@@ -312,26 +312,41 @@ pub fn rename(
     new_name: &str,
 ) -> Result<Rename, String> {
     let prepared = prepare_rename(index, current.root, current.text, offset)?;
-    let new_name = if prepared.kind == RenameKind::Variable || prepared.kind == RenameKind::Property {
-        new_name.trim_start_matches('$')
-    } else {
-        new_name
-    };
-    validate_name(prepared.kind, new_name)?;
     if prepared.kind == RenameKind::Namespace {
+        let new_name = new_name.trim_start_matches('$');
+        validate_name(prepared.kind, new_name)?;
         return rename_namespace(sources, current, &prepared, new_name);
     }
     let Some((_, symbols)) = symbols_at(index, current.root, offset) else {
         return Err("There is no name to rename here".to_string());
     };
-    let primary = primary_symbol(&symbols).clone();
+    rename_symbols(index, sources, current, &symbols, prepared.kind, new_name)
+}
+
+/// The edits that rename symbols found at a place of the current file. A template asks this with
+/// the symbols of its document of PHP.
+pub fn rename_symbols(
+    index: &Index,
+    sources: &dyn Sources,
+    current: &Current,
+    symbols: &[Symbol],
+    kind: RenameKind,
+    new_name: &str,
+) -> Result<Rename, String> {
+    let new_name = if kind == RenameKind::Variable || kind == RenameKind::Property {
+        new_name.trim_start_matches('$')
+    } else {
+        new_name
+    };
+    validate_name(kind, new_name)?;
+    let primary = primary_symbol(symbols).clone();
     if symbol_name(&primary).is_some_and(|old| old == new_name) {
         return Ok(Rename::default());
     }
-    for symbol in &symbols {
+    for symbol in symbols {
         check_conflicts(index, current, symbol, new_name)?;
     }
-    let files = hits_of_symbols(index, sources, current, &symbols);
+    let files = hits_of_symbols(index, sources, current, symbols);
     let mut edits: BTreeMap<PathBuf, Vec<TextEdit>> = BTreeMap::new();
     for file in &files {
         for hit in &file.hits {
@@ -406,8 +421,18 @@ fn check_conflicts(index: &Index, current: &Current, symbol: &Symbol, new_name: 
             check_member_conflicts(index, symbol, new_name)?;
         }
         Symbol::Variable { scope, name } => {
-            let ctx = FileContext::new(index, current.root);
-            let taken = crate::refs::variable_hits(&ctx, *scope, new_name);
+            let taken = if crate::blade::is_template(current.path) {
+                let query = Query::new(
+                    index,
+                    Symbol::Variable {
+                        name: new_name.to_string(),
+                        scope: *scope,
+                    },
+                );
+                crate::blade::hits(index, Some(current.path), current.text, &query)
+            } else {
+                crate::refs::variable_hits(&FileContext::new(index, current.root), *scope, new_name)
+            };
             if !taken.is_empty() && name != new_name {
                 return Err(format!("A variable named '${new_name}' is already used in this scope"));
             }

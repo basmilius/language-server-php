@@ -186,6 +186,9 @@ pub(crate) fn family_in(rcx: &Rcx<'_>, home: &Loaded, function: &SyntaxNode) -> 
     let mut calls: Vec<CallSite> = Vec::new();
     let mut loose = 0;
     for file in found {
+        if crate::blade::is_template(&file.path) {
+            return Err("A template calls this, and templates are not changed by this refactor".to_string());
+        }
         let (text, root) = if file.path == rcx.renv.path {
             (cx.text.to_string(), cx.root.clone())
         } else {

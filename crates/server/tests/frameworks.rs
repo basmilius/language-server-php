@@ -578,3 +578,32 @@ fn a_route_name_has_usages_in_code_and_templates_and_keeps_its_words() {
     assert!(words, "the words are kept in the storage folder");
     client.shutdown();
 }
+
+#[test]
+fn a_blade_template_knows_its_variables_and_renames_them() {
+    let disk = laravel();
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/resources/views/posts.blade.php");
+    let text = "@php $users = [new \\App\\Models\\User()]; @endphp\n@foreach ($users as $user)\n    <li>{{ $user->posts }}</li>\n@endforeach\n";
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "blade", "version": 1, "text": text } }),
+    );
+    let hover = client.at("textDocument/hover", &uri, 2, 16);
+    let shown = hover["contents"]["value"].as_str().unwrap_or_default();
+    assert!(shown.contains("User"), "{hover}");
+    let items = complete_at(&mut client, &uri, 2, 22);
+    assert!(items.contains(&"posts".to_string()), "{items:?}");
+    let highlights = client.at("textDocument/documentHighlight", &uri, 2, 16);
+    assert_eq!(highlights.as_array().map(Vec::len), Some(2), "{highlights}");
+    let prepared = client.at("textDocument/prepareRename", &uri, 2, 16);
+    assert_eq!(prepared["placeholder"], "user", "{prepared}");
+    let renamed = client.request(
+        "textDocument/rename",
+        json!({ "textDocument": { "uri": uri }, "position": { "line": 2, "character": 16 }, "newName": "member" }),
+    );
+    let edits = renamed["changes"][&uri].as_array().cloned().unwrap_or_default();
+    assert_eq!(edits.len(), 2, "{renamed}");
+    assert!(edits.iter().all(|edit| edit["newText"] == "$member"), "{renamed}");
+    client.shutdown();
+}

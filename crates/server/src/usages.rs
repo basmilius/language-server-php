@@ -289,7 +289,11 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let prepared = prepare_rename(&project.index, &root, &document.text, offset)?;
+        let prepared = if document.blade {
+            php_analysis::blade::prepare_rename(&project.index, path.as_deref(), &document.text, offset)?
+        } else {
+            prepare_rename(&project.index, &root, &document.text, offset)?
+        };
         Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
             range: mapper.range(prepared.range),
             placeholder: prepared.placeholder,
@@ -322,17 +326,16 @@ impl Server<'_> {
         );
         let project = self.workspace.project_for(&path);
         let sources = ProjectSources::new(open, &project.words);
-        let done = rename(
-            &project.index,
-            &sources,
-            &Current {
-                path: &path,
-                text: &document.text,
-                root: &root,
-            },
-            offset,
-            &params.new_name,
-        )?;
+        let current = Current {
+            path: &path,
+            text: &document.text,
+            root: &root,
+        };
+        let done = if document.blade {
+            php_analysis::blade::rename(&project.index, &sources, &current, offset, &params.new_name)?
+        } else {
+            rename(&project.index, &sources, &current, offset, &params.new_name)?
+        };
         let file_move = done.file_rename.as_ref().filter(|moved| {
             project.composer.as_ref().is_none_or(|composer| {
                 composer

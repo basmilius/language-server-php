@@ -1,0 +1,156 @@
+//! Reads every Blade template of a project as the server does and asks hover, definition and
+//! completion at a spread of offsets, to find panics, time the requests and count the variables the
+//! type layer cannot type: `cargo run --release -p php-analysis --example blade_survey -- <project>
+//! <stubs> [--every <n>]`. With `BLADE_AT=<template>:<offset>` it times the requests at that one place.
+
+use std::path::Path;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use php_analysis::blade::{self, Template};
+use php_analysis::completion::CompletionOptions;
+use php_analysis::infer::Analyzer;
+use php_index::indexer::{self, IndexEvent};
+use php_index::{Project, StubFile, Type};
+use php_syntax::PhpVersion;
+use php_syntax::SyntaxKind::VARIABLE;
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.len() < 2 {
+        eprintln!("usage: blade_survey <project> <stubs> [--every <n>]");
+        std::process::exit(2);
+    }
+    let every: usize = args
+        .iter()
+        .position(|arg| arg == "--every")
+        .and_then(|at| args.get(at + 1))
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(7);
+    let threads = std::thread::available_parallelism().map_or(4, usize::from);
+    let stubs = Mutex::new(Vec::new());
+    indexer::run(
+        indexer::discover_stubs(Path::new(&args[1])),
+        None,
+        Some(Path::new(&args[1])),
+        threads,
+        &|event| {
+            if let IndexEvent::Files(batch) = event {
+                stubs
+                    .lock()
+                    .expect("lock")
+                    .extend(batch.into_iter().map(StubFile::from_indexed));
+            }
+        },
+    );
+    let stubs = stubs.into_inner().expect("lock");
+    let mut project = Project::open(Path::new(&args[0]), PhpVersion::V8_4);
+    let files = indexer::discover_project(&project.root, project.composer.as_ref(), &[]);
+    let collected = Mutex::new(Vec::new());
+    indexer::run(files, None, None, threads, &|event| {
+        if let IndexEvent::Files(batch) = event {
+            collected.lock().expect("lock").extend(batch);
+        }
+    });
+    let extensions = project.extensions();
+    project.apply(collected.into_inner().expect("lock"));
+    project.index.set_stubs(&stubs, &extensions);
+    let index = &project.index;
+
+    if let Ok(spot) = std::env::var("BLADE_AT") {
+        let (file, offset) = spot.rsplit_once(':').expect("file:offset");
+        let path = Path::new(file);
+        let text = std::fs::read_to_string(path).expect("the template");
+        let offset: u32 = offset.parse().expect("an offset");
+        for round in 0..2 {
+            let began = Instant::now();
+            let _ = Template::read(index, Some(path), &text, &[]);
+            let read = began.elapsed();
+            let began = Instant::now();
+            let _ = blade::hover_at(index, Some(path), &text, offset);
+            let hover = began.elapsed();
+            let began = Instant::now();
+            let _ = blade::definitions_at(index, Some(path), &text, offset);
+            let definition = began.elapsed();
+            let began = Instant::now();
+            let _ = blade::complete_at(index, Some(path), &text, offset, CompletionOptions::default());
+            let completion = began.elapsed();
+            println!(
+                "round {round}: read {read:?}, hover {hover:?}, definition {definition:?}, completion {completion:?}"
+            );
+        }
+        return;
+    }
+    let templates: Vec<_> = index
+        .files()
+        .filter(|file| blade::is_template(&file.path))
+        .map(|file| file.path.clone())
+        .collect();
+    let (mut requests, mut slowest, mut total) = (0usize, Duration::ZERO, Duration::ZERO);
+    let (mut variables, mut untyped) = (0usize, 0usize);
+    let mut panics = 0;
+    let mut read_time = Duration::ZERO;
+    let mut largest = (0usize, Duration::ZERO);
+    for path in &templates {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let began = Instant::now();
+        let template = Template::read(index, Some(path), &text, &[]);
+        let took = began.elapsed();
+        read_time += took;
+        if text.lines().count() > largest.0 {
+            largest = (text.lines().count(), took);
+        }
+        let root = template.root();
+        for token in root
+            .descendants_with_tokens()
+            .filter_map(|element| element.into_token())
+            .filter(|token| token.kind() == VARIABLE)
+        {
+            if !template.virt.is_copied(token.text_range()) {
+                continue;
+            }
+            let Some(node) = token.parent() else {
+                continue;
+            };
+            variables += 1;
+            let analyzer = Analyzer::new(index, &root, u32::from(token.text_range().start()));
+            let env = analyzer.env_around(&node);
+            if matches!(analyzer.type_of(&node, &env), Type::Unknown | Type::Mixed) {
+                untyped += 1;
+            }
+        }
+        for offset in (0..text.len())
+            .step_by(every)
+            .filter(|offset| text.is_char_boundary(*offset))
+        {
+            let offset = offset as u32;
+            let began = Instant::now();
+            let outcome = std::panic::catch_unwind(|| {
+                let _ = blade::hover_at(index, Some(path), &text, offset);
+                let _ = blade::definitions_at(index, Some(path), &text, offset);
+                let _ = blade::complete_at(index, Some(path), &text, offset, CompletionOptions::default());
+            });
+            let took = began.elapsed();
+            if took > Duration::from_millis(40) {
+                eprintln!("slow: {:?} at {}:{offset}", took, path.display());
+            }
+            if outcome.is_err() {
+                panics += 1;
+                eprintln!("panic at {}:{offset}", path.display());
+            }
+            requests += 3;
+            total += took;
+            slowest = slowest.max(took);
+        }
+    }
+    println!(
+        "{} templates read in {read_time:?}, the longest ({} lines) in {:?}",
+        templates.len(),
+        largest.0,
+        largest.1
+    );
+    println!("{requests} requests in {total:?}, the slowest three at one offset {slowest:?}, {panics} panics");
+    println!("{variables} variables, {untyped} without a type");
+}

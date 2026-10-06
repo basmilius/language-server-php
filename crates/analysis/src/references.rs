@@ -122,7 +122,7 @@ fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(Tex
 /// The symbols under a position of the file a question is asked in, a Blade template included.
 pub fn symbols_in_current(index: &Index, current: &Current, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
     if crate::blade::is_template(current.path) {
-        return crate::blade::key_symbol_at(index, current.text, offset);
+        return crate::blade::symbols_at(index, Some(current.path), current.text, offset);
     }
     symbols_at(index, current.root, offset).or_else(|| declared_key_at(index, current, offset))
 }
@@ -136,8 +136,8 @@ pub fn references_at(index: &Index, sources: &dyn Sources, current: &Current, of
 
 /// The places of a query in one file, which is a Blade template or PHP.
 fn hits_in_text(index: &Index, path: &Path, text: &str, root: Option<&SyntaxNode>, query: &Query) -> Vec<Hit> {
-    if crate::blade::is_template(path) && matches!(query.symbol, Symbol::Key { .. }) {
-        return crate::blade::key_hits(index, text, query);
+    if crate::blade::is_template(path) {
+        return crate::blade::hits(index, Some(path), text, query);
     }
     let parsed;
     let root = match root {
@@ -171,10 +171,15 @@ pub fn hits_of_symbols(index: &Index, sources: &dyn Sources, current: &Current, 
 
 fn hits_of_symbol(index: &Index, sources: &dyn Sources, current: &Current, symbol: &Symbol) -> Vec<FileHits> {
     if let Symbol::Variable { name, scope } = symbol {
-        let ctx = FileContext::new(index, current.root);
+        let hits = if crate::blade::is_template(current.path) {
+            let query = Query::new(index, symbol.clone());
+            crate::blade::hits(index, Some(current.path), current.text, &query)
+        } else {
+            variable_hits(&FileContext::new(index, current.root), *scope, name)
+        };
         return vec![FileHits {
             path: current.path.to_path_buf(),
-            hits: variable_hits(&ctx, *scope, name),
+            hits,
         }];
     }
     let query = Query::new(index, symbol.clone());
@@ -226,6 +231,9 @@ fn parameter_body_hits(index: &Index, sources: &dyn Sources, current: &Current, 
     };
     let mut out = Vec::new();
     for declaration in declarations(index, query) {
+        if crate::blade::is_template(&declaration.path) {
+            continue;
+        }
         let owned;
         let (text, root): (&str, SyntaxNode) = if declaration.path == current.path {
             (current.text, current.root.clone())
@@ -269,7 +277,9 @@ pub fn highlights_at(index: &Index, current: &Current, offset: u32) -> Vec<Hit> 
     let mut hits: Vec<Hit> = Vec::new();
     for symbol in &symbols {
         match symbol {
-            Symbol::Variable { name, scope } => hits.extend(variable_hits(&ctx, *scope, name)),
+            Symbol::Variable { name, scope } if !crate::blade::is_template(current.path) => {
+                hits.extend(variable_hits(&ctx, *scope, name))
+            }
             other => {
                 let query = Query::new(index, other.clone());
                 hits.extend(hits_in_text(

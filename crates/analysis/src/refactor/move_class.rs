@@ -464,7 +464,8 @@ fn edit_references(
     let symbols: Vec<Symbol> = moves.iter().map(|moved| Symbol::Class(moved.old.clone())).collect();
     let found = hits_of_symbols(index, renv.sources, &current, &symbols);
     for file_hits in found {
-        if moved_paths.contains(file_hits.path.as_path()) {
+        // A template's names are edited through its document of PHP, which a move does not write.
+        if moved_paths.contains(file_hits.path.as_path()) || crate::blade::is_template(&file_hits.path) {
             continue;
         }
         let file = load(renv, &file_hits.path)?;
