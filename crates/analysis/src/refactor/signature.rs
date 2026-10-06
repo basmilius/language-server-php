@@ -186,8 +186,12 @@ pub(crate) fn family_in(rcx: &Rcx<'_>, home: &Loaded, function: &SyntaxNode) -> 
     let mut calls: Vec<CallSite> = Vec::new();
     let mut loose = 0;
     for file in found {
-        if crate::blade::is_template(&file.path) {
+        if crate::blade::is_template(&file.path) || crate::twig::is_template(&file.path) {
             return Err("A template calls this, and templates are not changed by this refactor".to_string());
+        }
+        // Configuration names a method without calling it.
+        if crate::yaml::is_config(cx.index, &file.path) {
+            continue;
         }
         let (text, root) = if file.path == rcx.renv.path {
             (cx.text.to_string(), cx.root.clone())

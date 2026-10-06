@@ -142,6 +142,17 @@ impl Server<'_> {
                 .section::<php_index::framework::symfony::templates::Templates>();
             paths.extend(templates.templates.iter().map(|template| template.path.clone()));
         }
+        if !packages && frameworks.symfony {
+            for folder in ["config", "translations"] {
+                paths.extend(
+                    project
+                        .index
+                        .files_below(&project.root.join(folder))
+                        .into_iter()
+                        .filter(|path| php_analysis::yaml::is_config(&project.index, path)),
+                );
+            }
+        }
         let kept = storage
             .filter(|_| !project.root.as_os_str().is_empty())
             .map(|storage| project.words_path(&storage, packages));

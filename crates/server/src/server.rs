@@ -606,7 +606,7 @@ impl<'a> Server<'a> {
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
         let document = self.documents.get(uri)?;
-        if document.blade || document.twig {
+        if document.blade || document.twig || document.yaml {
             return self.template_diagnostics(uri);
         }
         let _document = php_analysis::document::enter(uri_to_path(uri).as_deref());
@@ -639,7 +639,15 @@ impl<'a> Server<'a> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let found = if document.twig {
+        let found = if document.yaml {
+            match &path {
+                Some(path) if php_analysis::yaml::is_config(&project.index, path) => {
+                    let loadable = |class: &str| composer_loads(project, class);
+                    php_analysis::yaml::diagnostics(&project.index, path, &document.text, &settings, ready, &loadable)
+                }
+                _ => Vec::new(),
+            }
+        } else if document.twig {
             php_analysis::twig::diagnostics(&project.index, path.as_deref(), &document.text, &settings, ready)
         } else {
             php_analysis::blade::diagnostics(
@@ -726,9 +734,13 @@ impl<'a> Server<'a> {
                 self.documents.open(item.uri.clone(), item.version, item.text);
                 let is_blade = item.language_id == "blade" || item.uri.as_str().ends_with(".blade.php");
                 let is_twig = item.language_id == "twig" || item.uri.as_str().ends_with(".twig");
+                let is_yaml = item.language_id == "yaml"
+                    || item.uri.as_str().ends_with(".yaml")
+                    || item.uri.as_str().ends_with(".yml");
                 if let Some(document) = self.documents.get_mut(&item.uri) {
                     document.blade = is_blade;
                     document.twig = is_twig && !is_blade;
+                    document.yaml = is_yaml && !is_twig && !is_blade;
                 }
                 self.sync_symbols(&item.uri);
                 self.request_configuration(&item.uri)?;
@@ -1012,7 +1024,7 @@ impl<'a> Server<'a> {
         if document.indexed_version == Some(document.version) {
             return;
         }
-        if document.twig {
+        if document.twig || document.yaml {
             document.indexed_version = Some(document.version);
             let project = self.workspace.project_for_mut(&path);
             project.words.update(&path, &document.text);
@@ -1050,7 +1062,10 @@ impl<'a> Server<'a> {
             project.words.update_from_disk(&path);
         }
         project.index.set_open_text(&path, None);
-        if php_analysis::twig::is_template(&path) {
+        if path
+            .extension()
+            .is_none_or(|extension| !extension.eq_ignore_ascii_case("php"))
+        {
             return;
         }
         match index_file(&path, origin) {
@@ -1096,7 +1111,10 @@ impl<'a> Server<'a> {
                 if project.index.frameworks().any() && project.contains(&path) {
                     project.index.framework_file_changed(&path);
                 }
-                if php_analysis::twig::is_template(&path) && self.documents.get(&change.uri).is_none() {
+                let project = self.workspace.project_for(&path);
+                let searched =
+                    php_analysis::twig::is_template(&path) || php_analysis::yaml::is_config(&project.index, &path);
+                if searched && self.documents.get(&change.uri).is_none() {
                     self.workspace.project_for_mut(&path).words.update_from_disk(&path);
                 }
                 continue;

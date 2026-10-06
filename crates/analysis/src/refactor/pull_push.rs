@@ -723,8 +723,11 @@ fn check_uses(rcx: &Rcx<'_>, member: &Member, class_name: &str, own: &Loaded) ->
         root: &cx.root,
     };
     for file_hits in hits_of_symbols(cx.index, rcx.renv.sources, &current, std::slice::from_ref(&symbol)) {
-        if crate::blade::is_template(&file_hits.path) {
+        if crate::blade::is_template(&file_hits.path) || crate::twig::is_template(&file_hits.path) {
             return Err("A template uses this member".to_string());
+        }
+        if crate::yaml::is_config(cx.index, &file_hits.path) {
+            return Err("The configuration names this member".to_string());
         }
         let root = if file_hits.path == rcx.renv.path {
             own.root.clone()

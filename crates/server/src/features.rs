@@ -215,7 +215,13 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let hover = if document.twig {
+        let hover = if document.yaml {
+            let path = path.as_deref()?;
+            if !php_analysis::yaml::is_config(&project.index, path) {
+                return None;
+            }
+            php_analysis::yaml::hover_at(&project.index, path, &document.text, offset)?
+        } else if document.twig {
             php_analysis::twig::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
@@ -244,7 +250,14 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let places = if document.twig {
+        let places = if document.yaml {
+            match path.as_deref() {
+                Some(path) if php_analysis::yaml::is_config(&project.index, path) => {
+                    php_analysis::yaml::definitions_at(&project.index, path, &document.text, offset)
+                }
+                _ => Vec::new(),
+            }
+        } else if document.twig {
             php_analysis::twig::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
         } else {
             php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
@@ -259,7 +272,7 @@ impl Server<'_> {
         if self
             .documents
             .get(&position.text_document.uri)
-            .is_some_and(|document| document.blade || document.twig)
+            .is_some_and(|document| document.blade || document.twig || document.yaml)
         {
             return self.blade_hover(&position.text_document.uri, position.position);
         }
@@ -296,7 +309,7 @@ impl Server<'_> {
         if self
             .documents
             .get(&params.text_document_position_params.text_document.uri)
-            .is_some_and(|document| document.blade || document.twig)
+            .is_some_and(|document| document.blade || document.twig || document.yaml)
         {
             return self.blade_definition(&params);
         }
@@ -394,7 +407,18 @@ impl Server<'_> {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let list = if document.twig {
+        let list = if document.yaml {
+            match path.as_deref() {
+                Some(path) if php_analysis::yaml::is_config(&project.index, path) => php_analysis::yaml::complete_at(
+                    &project.index,
+                    &document.text,
+                    offset,
+                    CompletionOptions::default(),
+                )
+                .unwrap_or_default(),
+                _ => Default::default(),
+            }
+        } else if document.twig {
             php_analysis::twig::complete_at(
                 &project.index,
                 path.as_deref(),

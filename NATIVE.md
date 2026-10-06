@@ -596,6 +596,10 @@ Diagnostics are published for a template, all of them certain: a `{{` or `{%` th
 
 The templates of the project are part of the index of words, so a search reads only the ones that may hold a name. On `symfony/symfony-demo` the 32 templates are read in 2 ms together; 202 functions, filters and tests are declared and every one of the 277 the templates call is found among them; finding the usages of the 8 route names its PHP marks goes from 12 places to 35; the places that render the templates give them 49 variables in 21 ms together, and 81 of the 122 attributes the templates read have a type (the rest read what a template whose name is computed is given, `'blog/index.'.$_format.'.twig'`, or the methods of a user class behind `UserInterface`); 20,583 requests at a spread of offsets take 0.02 ms each on average, and none panics (`cargo run --release -p php-analysis --example twig_survey -- <project> <stubs>`).
 
+### YAML configuration
+
+The YAML of a Symfony project's `config/` and `translations/` is read for the names in it (`crates/analysis/src/yaml.rs`, on the tree `framework/yaml.rs` reads): `%parameter%` and `%env(PROCESSOR:NAME)%` in any string, `@service`, `@?service` (not `@=` expressions or `@@`), the classes services are declared by (a key under `services:` that is a class, not a namespace prefix such as `App\:`, and `class:`), and `controller: App\Controller\Blog::show` in route files. A scalar whose text differs from its value (a double-quoted string with escapes) is left alone, so a range never lands beside the name. They hover, lead to the declaration (the parameter, the service, the `.env` line, the class, the method) and complete as they are typed, from the text and not the tree, so a document that does not parse yet still completes; and the place a file declares a parameter, a service, a route or a translation key has usages, as in PHP. The files are part of the index of words, so finding the usages of a class or a method from PHP lists the configuration that names it, and renaming a class renames it there. Move class leaves the configuration as it is, change signature skips it (it names a method without calling it), and pull up and push down refuse when it names the member. `undefined-class` reports a class the configuration declares a service by that neither the index nor Composer's autoload maps know. Over the 27 YAML files of `symfony/symfony-demo` and the 26 of `kimai/kimai` it reports two classes, both in Kimai's test configuration (a route to a removed `LayoutController` and a service `App\Importer\ImporterService` that does not exist), which are right.
+
 ## Build, test and run
 
 ```sh
@@ -659,7 +663,7 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- YAML documents for the strings that are completed in PHP now. Livewire and Inertia.
+- Livewire and Inertia.
 - DQL and the Doctrine query builder (aliases, fields in `->andWhere('u.email')`), Eloquent query strings (`with('author')`, `where('author.name')`, `whereHas`), validation rule strings and `$casts` strings.
 - Other frameworks and packages in the same overlay format (Livewire, Filament, Pennant, API Platform, Symfony Messenger and Workflow), and the container of Laravel's `bootstrap/app.php` and `bind` calls outside providers.
 - Composer autoload maps beyond PSR-4 and PSR-0 (classmap authoritative, `files` reading by name), and the `@psalm-type` aliases of phase 5's list.

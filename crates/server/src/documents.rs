@@ -27,6 +27,8 @@ pub struct Document {
     pub blade: bool,
     /// A Twig template, which is no PHP at all.
     pub twig: bool,
+    /// A YAML file, of which only a Symfony project's configuration is read.
+    pub yaml: bool,
 }
 
 impl Document {
@@ -44,6 +46,7 @@ impl Document {
             indexed_version: None,
             blade: false,
             twig: false,
+            yaml: false,
         }
     }
 

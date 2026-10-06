@@ -177,6 +177,37 @@ fn main() {
         "{} templates read in {read_time:?}, {findings} findings",
         templates.len()
     );
+    let mut yaml_files = 0;
+    let mut yaml_refs = 0;
+    for folder in ["config", "translations"] {
+        for path in index.files_below(&project.root.join(folder)) {
+            if !php_analysis::yaml::is_config(index, &path) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            yaml_files += 1;
+            yaml_refs += php_analysis::yaml::refs(&text, &path, &project.root).len();
+            for found in php_analysis::yaml::diagnostics(
+                index,
+                &path,
+                &text,
+                &php_analysis::inspections::InspectionSettings::default(),
+                true,
+                &|_| false,
+            ) {
+                let line = text[..usize::from(found.range.start())].matches('\n').count() + 1;
+                println!(
+                    "{}  {}:{line}  {}",
+                    found.code,
+                    path.strip_prefix(&project.root).unwrap_or(&path).display(),
+                    found.message
+                );
+            }
+        }
+    }
+    println!("{yaml_files} YAML files with {yaml_refs} names");
     println!("given: {given_count} variables in {given_time:?}; {resolved} of {attributes} attributes have a type");
     println!("{requests} requests in {total:?}, the slowest three at one offset {slowest:?}, {panics} panics");
     println!(

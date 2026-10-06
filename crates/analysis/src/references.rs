@@ -142,6 +142,9 @@ pub fn symbols_in_current(
     if crate::twig::is_template(current.path) {
         return crate::twig::symbols_at(index, Some(current.path), current.text, offset);
     }
+    if crate::yaml::is_config(index, current.path) {
+        return crate::yaml::symbols_at(index, current.path, current.text, offset);
+    }
     if crate::blade::is_template(current.path) {
         let given = crate::blade::data::given(index, sources, current.path);
         return crate::blade::symbols_at(index, Some(current.path), current.text, &given, offset);
@@ -166,6 +169,9 @@ fn hits_in_text(
     root: Option<&SyntaxNode>,
     query: &Query,
 ) -> Vec<Hit> {
+    if crate::yaml::is_config(index, path) {
+        return crate::yaml::hits(index, path, text, query);
+    }
     if crate::twig::is_template(path) {
         let given = if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
             crate::twig::data::given(index, sources, path)

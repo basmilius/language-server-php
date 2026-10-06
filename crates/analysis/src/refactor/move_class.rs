@@ -465,7 +465,11 @@ fn edit_references(
     let found = hits_of_symbols(index, renv.sources, &current, &symbols);
     for file_hits in found {
         // A template's names are edited through its document of PHP, which a move does not write.
-        if moved_paths.contains(file_hits.path.as_path()) || crate::blade::is_template(&file_hits.path) {
+        if moved_paths.contains(file_hits.path.as_path())
+            || crate::blade::is_template(&file_hits.path)
+            || crate::twig::is_template(&file_hits.path)
+            || crate::yaml::is_config(index, &file_hits.path)
+        {
             continue;
         }
         let file = load(renv, &file_hits.path)?;

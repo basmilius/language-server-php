@@ -761,3 +761,39 @@ fn a_twig_template_publishes_what_is_certainly_wrong() {
     );
     client.shutdown();
 }
+
+#[test]
+fn the_yaml_configuration_follows_its_classes_and_parameters() {
+    let disk = symfony();
+    let services = "parameters:\n    app.admin: 'a@b.c'\n\nservices:\n    _defaults:\n        autowire: true\n    App\\:\n        resource: '../src/'\n    app.mailer:\n        class: App\\Service\\Mailer\n        arguments: ['%app.admin%']\n    App\\Service\\Gone: ~\n";
+    disk.write("project/config/services.yaml", services);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/config/services.yaml");
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "yaml", "version": 1, "text": services } }),
+    );
+    let found = client.diagnostics(&uri);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0]["code"], "undefined-class");
+    let class = client.at("textDocument/definition", &uri, 9, 30);
+    assert_eq!(class[0]["uri"], disk.uri("project/src/Service/Mailer.php"), "{class}");
+    let parameter = client.at("textDocument/definition", &uri, 10, 23);
+    assert_eq!(parameter[0]["uri"], uri, "{parameter}");
+
+    let mailer = disk.uri("project/src/Service/Mailer.php");
+    client.open(
+        &mailer,
+        &std::fs::read_to_string(disk.path("project/src/Service/Mailer.php")).expect("read"),
+    );
+    let usages = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": mailer },
+            "position": { "line": 3, "character": 8 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    assert_eq!(places(&usages), ["services.yaml:9"], "{usages}");
+    client.shutdown();
+}

@@ -38,6 +38,7 @@ Support turns on by the packages Composer installed: `laravel/framework` or `ill
 - Laravel: facades, Eloquent attributes from migrations and schema dumps, casts, relations, accessors, scopes, builders and factories, the container, and the strings that name config keys, routes, views, translations, environment variables, abilities and form request fields, with completion and navigation.
 - Symfony: services from YAML and PHP configuration, routes, templates, translations, parameters and events.
 - Doctrine: repositories and the fields of entities.
+- Symfony configuration in YAML: parameters, environment variables, service references, the classes of services and the controllers of routes hover, complete and lead to their declarations, and are found as usages from PHP. A class that does not exist is reported.
 
 Blade templates are read as a whole. The PHP in them knows its variables: the ones `@foreach`, `@php`, `@props` and `@inject` make, and the ones the controllers, mailables, components, `@include` and component tags that render the template pass it. Hover, definition, completion, usages, highlights and rename work in that PHP, sections and stacks lead to the layout, attributes and slots to the component, and finding the usages of a class or a method also finds the templates. A template gets diagnostics for PHP that does not parse, block directives that do not close, and views, routes, config keys and translations the project does not have.
 

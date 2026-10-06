@@ -36,6 +36,7 @@ mod symbols;
 pub mod target;
 pub mod twig;
 pub mod workspace_symbols;
+pub mod yaml;
 
 pub use diagnostics::{Diagnostic, DiagnosticSeverity, diagnostics};
 pub use folding::{Fold, FoldKind, folding_ranges};
