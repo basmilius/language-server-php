@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use super::super::source::class_in_attribute;
+use super::super::source::{class_in_attribute, method_in_attribute};
 use crate::framework::Section;
 use crate::hierarchy::{Ancestor, Found};
 use crate::index::{Index, Origin};
@@ -36,7 +36,10 @@ pub enum ModelPropertyKind {
         target: Option<Name>,
         many: bool,
     },
-    Macro,
+    /// Filled by the static method `#[Macro(Foo::bar(...))]` names, when it can be read.
+    Macro {
+        method: Option<(Name, String)>,
+    },
     Embedded,
 }
 
@@ -193,8 +196,11 @@ fn read_property(index: &Index, class: crate::index::Class<'_>, property: &Prope
                 .and_then(|ty| ty.class_names().first().map(|name| name.to_string()))
         };
         ModelPropertyKind::Relation { target, many }
-    } else if attribute(&property.attributes, "Macro").is_some() {
-        ModelPropertyKind::Macro
+    } else if let Some(macro_attribute) = attribute(&property.attributes, "Macro") {
+        ModelPropertyKind::Macro {
+            method: positional_or_named(macro_attribute, "callback")
+                .and_then(|value| method_in_attribute(index, class, &value)),
+        }
     } else if attribute(&property.attributes, "Embedded").is_some() {
         ModelPropertyKind::Embedded
     } else {
@@ -253,6 +259,12 @@ pub(crate) fn extend_properties<'a>(index: &'a Index, only: Option<&str>, out: &
         if only.is_some_and(|only| found.member.name != only) {
             continue;
         }
+        if let Some(documented) = macro_return(index, &models, found) {
+            let mut refined = found.member.clone().into_owned();
+            refined.doc_ty = Some(documented);
+            found.member = Cow::Owned(refined);
+            continue;
+        }
         let Some(target) = models.get(&found.class.decl.name).and_then(|info| {
             info.properties
                 .iter()
@@ -277,6 +289,28 @@ pub(crate) fn extend_properties<'a>(index: &'a Index, only: Option<&str>, out: &
         });
         found.member = Cow::Owned(refined);
     }
+}
+
+/// What the macro of an undocumented macro property documents it returns: `?array` holds the
+/// `array{...}|null` of the method that fills it.
+fn macro_return(index: &Index, models: &Models, found: &Found<'_, Property>) -> Option<Type> {
+    if found.member.doc_ty.is_some() {
+        return None;
+    }
+    let property = models
+        .get(&found.class.decl.name)?
+        .properties
+        .iter()
+        .find(|property| property.name == found.member.name)?;
+    let ModelPropertyKind::Macro {
+        method: Some((class, name)),
+    } = &property.kind
+    else {
+        return None;
+    };
+    let method = index.find_method(&Type::class(class.clone()), name)?;
+    let documented = method.member.callable.doc_ret.as_ref()?;
+    Some(method.resolve(documented))
 }
 
 /// A method for every relation, named like its property, that gives the relation's query.
@@ -360,7 +394,11 @@ mod tests {
         files.extend_from_slice(&[
             (
                 "src/AppTeam.php",
-                "<?php namespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\{Alias, BelongsTo, BelongsToMany, Column, HasMany, Macro, PrimaryKey, Table};\n#[Table('app_team')]\nclass AppTeam extends Model {\n    #[PrimaryKey] #[Alias] public int $id;\n    #[Column('created_on')] #[Alias('createdOn')] public string $createdOn;\n    #[Column] public string $name;\n    #[BelongsTo] public ?Event $event;\n    #[HasMany(Scan::class)] public ModelArrayList $scans;\n    #[BelongsToMany(referenceModel: Product::class, linkingTable: 'app_team_product')] public ModelArrayList $products;\n    /** @var ModelArrayList<int, Model> */\n    #[HasMany(Scan::class)] public ModelArrayList $documented;\n    #[Macro(AppTeamMacro::label(...))] public string $label;\n    public ModelArrayList $plain;\n}",
+                "<?php namespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\{Alias, BelongsTo, BelongsToMany, Column, HasMany, Macro, PrimaryKey, Table};\n#[Table('app_team')]\nclass AppTeam extends Model {\n    #[PrimaryKey] #[Alias] public int $id;\n    #[Column('created_on')] #[Alias('createdOn')] public string $createdOn;\n    #[Column] public string $name;\n    #[BelongsTo] public ?Event $event;\n    #[HasMany(Scan::class)] public ModelArrayList $scans;\n    #[BelongsToMany(referenceModel: Product::class, linkingTable: 'app_team_product')] public ModelArrayList $products;\n    /** @var ModelArrayList<int, Model> */\n    #[HasMany(Scan::class)] public ModelArrayList $documented;\n    #[Macro(AppTeamMacro::label(...))] public string $label;\n    #[Macro(AppTeamMacro::provider(...))] public ?array $provider;\n    public ModelArrayList $plain;\n}",
+            ),
+            (
+                "src/AppTeamMacro.php",
+                "<?php namespace App;\nfinal class AppTeamMacro {\n    public static function label(AppTeam $team): string { return ''; }\n    /** @return array{name: string, url: string}|null */\n    public static function provider(AppTeam $team): ?array { return null; }\n}",
             ),
             ("src/Event.php", "<?php namespace App; class Event extends \\Raxos\\Database\\Orm\\Model {}"),
             (
@@ -392,6 +430,13 @@ mod tests {
         assert_eq!(property_type(&index, "products"), "ModelArrayList<int, Product>");
         assert_eq!(property_type(&index, "documented"), "ModelArrayList<int, Model>");
         assert_eq!(property_type(&index, "plain"), "ModelArrayList");
+    }
+
+    #[test]
+    fn a_macro_property_holds_what_its_macro_documents() {
+        let index = with_models();
+        assert_eq!(property_type(&index, "provider"), "?array{name: string, url: string}");
+        assert_eq!(property_type(&index, "label"), "string");
     }
 
     #[test]

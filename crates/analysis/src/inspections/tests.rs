@@ -133,9 +133,18 @@ fn reports_undefined_classes_where_php_would_fail() {
 }
 
 #[test]
+fn reports_an_attribute_without_its_class() {
+    let found = only(
+        "undefined-class",
+        "<?php\nnamespace App;\n#[IsGranted('admin')]\nfunction f() {}\n",
+    );
+    assert_eq!(found, ["IsGranted"]);
+}
+
+#[test]
 fn leaves_classes_alone_that_are_only_named() {
     none(
-        "<?php\nnamespace App;\n$name = Missing::class;\ntry { f(); } catch (\\Foo\\Gone $e) {}\nif ($x instanceof Absent) {}\n#[Attr]\nfunction f() {}\n",
+        "<?php\nnamespace App;\n$name = Missing::class;\ntry { f(); } catch (\\Foo\\Gone $e) {}\nif ($x instanceof Absent) {}\n#[\\JetBrains\\PhpStorm\\Pure]\nfunction f() {}\n",
     );
 }
 

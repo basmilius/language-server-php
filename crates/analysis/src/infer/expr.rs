@@ -1,6 +1,7 @@
 //! The type of an expression.
 
 use php_index::Type;
+use php_index::types::ShapeField;
 use php_syntax::SyntaxKind::*;
 use php_syntax::{SyntaxKind, SyntaxNode};
 
@@ -290,13 +291,10 @@ impl Analyzer<'_> {
         for member in base.members() {
             match member {
                 Type::Array(_, value) | Type::List(value) | Type::Iterable(_, value) => out.push((**value).clone()),
-                Type::Shape(fields) => {
-                    let field = key.and_then(|key| fields.iter().find(|field| field.key.as_deref() == Some(key)));
-                    match field {
-                        Some(field) => out.push(field.ty.clone()),
-                        None => out.extend(fields.iter().map(|field| field.ty.clone())),
-                    }
-                }
+                Type::Shape(fields) => match key.and_then(|key| shape_field(fields, key)) {
+                    Some(field) => out.push(field.ty.clone()),
+                    None => out.extend(fields.iter().map(|field| field.ty.clone())),
+                },
                 Type::String => out.push(Type::String),
                 Type::Class { .. } => {
                     if let Some(found) = self.index.find_method(member, "offsetGet") {
@@ -464,6 +462,15 @@ impl Analyzer<'_> {
     }
 
     fn class_iteration(&self, ty: &Type) -> (Type, Type) {
+        // `Generator<T>` and its kin with one argument give T as the value, as `iterable<T>` does,
+        // where the templates would bind T to the key.
+        if let Type::Class { name, args } = ty {
+            if let [value] = args.as_slice() {
+                if is_iteration_type(name) {
+                    return (Type::Unknown, value.clone());
+                }
+            }
+        }
         for ancestor in self.index.ancestors(ty) {
             let name = ancestor.class.decl.name.to_ascii_lowercase();
             if matches!(
@@ -503,6 +510,12 @@ impl Analyzer<'_> {
         }
         (Type::Unknown, Type::Unknown)
     }
+}
+
+fn is_iteration_type(name: &str) -> bool {
+    ["Generator", "Iterator", "IteratorAggregate", "Traversable"]
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
 }
 
 fn is_assign_operator(kind: SyntaxKind) -> bool {
@@ -579,6 +592,18 @@ fn cast_type(node: &SyntaxNode) -> Type {
 }
 
 /// The text of a string literal node without its quotes.
+/// The field of a shape a key reads: one written with that key, else an entry without a key, which
+/// PHP numbers from 0 as `array{A, B}` and `[a, b]` do.
+fn shape_field<'a>(fields: &'a [ShapeField], key: &str) -> Option<&'a ShapeField> {
+    fields
+        .iter()
+        .find(|field| field.key.as_deref() == Some(key))
+        .or_else(|| {
+            let position = key.parse::<usize>().ok()?;
+            fields.iter().filter(|field| field.key.is_none()).nth(position)
+        })
+}
+
 pub fn literal_string(node: &SyntaxNode) -> Option<String> {
     if node.kind() != LITERAL {
         return None;

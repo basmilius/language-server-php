@@ -40,7 +40,9 @@ fn role(name: &SyntaxNode) -> Role {
             undefined: !in_catch(&parent),
         },
         NEW_EXPR | TRAIT_USE => Role::Class { undefined: true },
-        ATTRIBUTE => Role::Class { undefined: false },
+        // PHP only loads an attribute when it is read, but a framework that reads it silently skips
+        // a missing one, which turns a guard such as `#[IsGranted]` off.
+        ATTRIBUTE => Role::Class { undefined: true },
         SCOPED_ACCESS_EXPR | STATIC_PROPERTY_EXPR if first => {
             let is_class_constant = member_name(&parent).is_some_and(|member| text_of(&member) == "class");
             Role::Class {
@@ -96,7 +98,12 @@ fn check_class(cx: &Cx, node: &SyntaxNode, report_undefined: bool) {
     let analyzer = cx.file.analyzer(node);
     let resolved = analyzer.resolver.resolve_class(&written);
     let Some(class) = cx.index.class(&resolved) else {
-        if report_undefined && cx.ready && cx.on("undefined-class") && !class_may_exist(cx, node, &resolved) {
+        if report_undefined
+            && cx.ready
+            && cx.on("undefined-class")
+            && !class_may_exist(cx, node, &resolved)
+            && !is_editor_attribute(&resolved)
+        {
             let fix = if written.contains('\\') {
                 Fix::None
             } else {
@@ -125,6 +132,14 @@ fn check_class(cx: &Cx, node: &SyntaxNode, report_undefined: bool) {
             );
         }
     }
+}
+
+/// PhpStorm's attributes are hints for the editor that nothing installs or reads, and the stubs keep
+/// them in `meta/`, which the index skips.
+fn is_editor_attribute(resolved: &str) -> bool {
+    resolved
+        .get(..19)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("JetBrains\\PhpStorm\\"))
 }
 
 /// A class the index does not hold may still exist: Composer can load it, an extension the project

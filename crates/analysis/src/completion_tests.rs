@@ -634,3 +634,12 @@ fn completes_the_keys_of_a_shape() {
         bare_code.replace("[$0]", "['current']")
     );
 }
+
+#[test]
+fn completes_named_arguments_of_an_attribute() {
+    let list = run(
+        project(),
+        "<?php\nuse App\\Models\\Route;\n#[Route(pa$0)]\nfunction f() {}\n",
+    );
+    assert_eq!(labels(&list).first(), Some(&"path:"), "{:?}", labels(&list));
+}

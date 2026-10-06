@@ -371,3 +371,19 @@ fn renaming_a_class_or_a_method_renames_the_strings_that_hold_it() {
         "<?php\n$routes = ['App\\Http\\Home', 'App\\Http\\Home@index', 'App\\Http\\Home::index', 'Home'];\n"
     );
 }
+
+#[test]
+fn renames_the_named_arguments_of_an_attribute() {
+    let lib = "<?php\n#[\\Attribute]\nclass Route { public function __construct(public string $path = '/') {} }\n";
+    let current = "<?php\n#[Route(pa$0th: '/home')]\nfunction home() {}\n";
+    let outcome = run(&[("lib.php", lib)], current, "uri");
+    outcome.result.as_ref().expect("renamed");
+    assert_eq!(
+        outcome.texts["lib.php"],
+        "<?php\n#[\\Attribute]\nclass Route { public function __construct(public string $uri = '/') {} }\n"
+    );
+    assert_eq!(
+        outcome.texts["current.php"],
+        "<?php\n#[Route(uri: '/home')]\nfunction home() {}\n"
+    );
+}

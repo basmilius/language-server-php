@@ -150,7 +150,7 @@ impl Analyzer<'_> {
     /// Every function or method a call node may be calling.
     pub fn callees(&self, call: &SyntaxNode, env: &Env) -> Vec<ResolvedCallable> {
         match call.kind() {
-            NEW_EXPR => self.constructors(call, env),
+            NEW_EXPR | ATTRIBUTE => self.constructors(call, env),
             CALL_EXPR => {
                 let Some(callee) = call.children().next() else {
                     return Vec::new();
@@ -340,6 +340,7 @@ impl Analyzer<'_> {
             results.push(self.return_type_of(callee, &args, env));
         }
         let result = self.container_call_type(&callees, &args, env, Type::union(results));
+        let result = self.extreme_call_type(&callees, &args, env).unwrap_or(result);
         let result = crate::frameworks::raxos::column_call_type(self, &callees, &args).unwrap_or(result);
         let nullsafe = callee_node.kind() == PROPERTY_FETCH_EXPR && has_token(&callee_node, NULLSAFE_ARROW);
         if nullsafe {
@@ -505,6 +506,41 @@ impl Analyzer<'_> {
             return hints;
         }
         Vec::new()
+    }
+
+    /// `max()` and `min()` give one of the values they compare, which their stubs call `mixed`: an
+    /// element of the one array they get, or one of their arguments.
+    fn extreme_call_type(&self, callees: &[ResolvedCallable], args: &[Arg], env: &Env) -> Option<Type> {
+        let [callee] = callees else {
+            return None;
+        };
+        if !(callee.name.eq_ignore_ascii_case("max") || callee.name.eq_ignore_ascii_case("min"))
+            || args.iter().any(|arg| arg.spread || arg.name.is_some())
+        {
+            return None;
+        }
+        let compared: Vec<Type> = match args {
+            [] => return None,
+            [only] => vec![self.iterable_types(&self.type_of(only.expr.as_ref()?, env)).1],
+            _ => args
+                .iter()
+                .map(|arg| arg.expr.as_ref().map(|expr| self.type_of(expr, env)))
+                .collect::<Option<_>>()?,
+        };
+        let members: Vec<Type> = compared
+            .iter()
+            .flat_map(|ty| ty.members().to_vec())
+            .map(|member| match member {
+                Type::IntLiteral(_) => Type::Int,
+                Type::StringLiteral(_) => Type::String,
+                Type::True | Type::False => Type::Bool,
+                other => other,
+            })
+            .collect();
+        if members.iter().any(Type::is_unknown) {
+            return None;
+        }
+        Some(Type::union(members))
     }
 
     /// What a call returns: the declared or documented return type with templates bound and

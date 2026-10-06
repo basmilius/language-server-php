@@ -68,7 +68,7 @@ fn places(analyzer_code: &str, query: impl Fn(&Analyzer, u32) -> Vec<Place>) -> 
                     .sources
                     .get(std::path::Path::new(&path))
                     .cloned()
-                    .unwrap_or_default()
+                    .unwrap_or_else(|| text.clone())
             };
             let word = source
                 .get(place.span.start as usize..place.span.end as usize)
@@ -133,6 +133,12 @@ fn hover_on_members_functions_variables_and_constants() {
         "<?php\nuse App\\User;\n/** @param list<User> $users */\nfunction f(array $users) { foreach ($users as $us$0er) {} }\n",
     );
     assert_eq!(looped, "**$user**\n\n```php\nUser $user\n```");
+    let destructured = hover(
+        "<?php\nuse App\\User;\n/** @param array{0: User, 1: int} $pair */\nfunction f(array $pair) { [$us$0er, $count] = $pair; }\n",
+    );
+    assert_eq!(destructured, "**$user**\n\n```php\nUser $user\n```");
+    let caught = hover("<?php\ntry { f(); } catch (\\RuntimeException $er$0ror) {}\n");
+    assert!(caught.contains("RuntimeException $error"), "{caught}");
     let constant = hover("<?php\nuse App\\User;\nUser::RO$0LE;\n");
     assert!(constant.contains("public const string ROLE = 'user'"), "{constant}");
     assert_eq!(hover("<?php\n$x = 1 +$0 2;\n"), "<none>");
@@ -354,4 +360,28 @@ fn a_string_that_holds_a_qualified_class_name_leads_to_the_class() {
     assert_eq!(places("<?php\n$a = 'Ho$0me';\n"), Vec::<String>::new());
     assert_eq!(places("<?php\n$a = 'App\\Http\\No$0pe';\n"), Vec::<String>::new());
     assert_eq!(places("<?php\n$a = 'App\\Http\\Home::no$0pe';\n"), Vec::<String>::new());
+}
+
+#[test]
+fn named_arguments_hover_and_lead_to_their_parameter() {
+    let route = "#[\\Attribute]\nclass Route { public function __construct(public string $path = '/', int $priority = 0) {} }\n";
+    let definition = |call: &str| {
+        let code = format!("<?php\nuse App\\User;\nuse function App\\make;\n{route}{call}\n");
+        places(&code, |analyzer, offset| analyzer.definitions(offset))
+    };
+    assert_eq!(definition("make(n$0: 2);"), vec!["/project/src/User.php int $n = 1"]);
+    assert_eq!(
+        definition("User::find(i$0d: 2);"),
+        vec!["/project/src/User.php int $id"]
+    );
+    assert_eq!(
+        definition("new Route(pri$0ority: 1);"),
+        vec!["/project/current.php int $priority = 0"]
+    );
+    assert_eq!(
+        definition("#[Route(pri$0ority: 1)]\nfunction f() {}"),
+        vec!["/project/current.php int $priority = 0"]
+    );
+    let hovered = hover(&format!("<?php\n{route}#[Route(pa$0th: '/home')]\nfunction f() {{}}\n"));
+    assert!(hovered.contains("string $path = '/'"), "{hovered}");
 }

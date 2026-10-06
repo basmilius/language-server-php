@@ -164,3 +164,16 @@ pub fn class_in_attribute(index: &Index, class: crate::index::Class<'_>, text: &
     let resolver = resolver_at(&tree, class.decl.span.start);
     Some(resolver.resolve_class(name))
 }
+
+/// The class and method `Foo::bar(...)` names where an attribute argument holds a first-class
+/// callable, with the class resolved by the file's imports.
+pub fn method_in_attribute(
+    index: &Index,
+    class: crate::index::Class<'_>,
+    text: &str,
+) -> Option<(crate::types::Name, String)> {
+    let (name, rest) = text.trim().strip_suffix("(...)")?.split_once("::")?;
+    let tree = tree_of(index, &class.file.path)?;
+    let resolver = resolver_at(&tree, class.decl.span.start);
+    Some((resolver.resolve_class(name.trim()), rest.trim().to_string()))
+}

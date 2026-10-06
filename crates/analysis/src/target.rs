@@ -338,7 +338,7 @@ impl Analyzer<'_> {
         let Some(call) = argument.parent().and_then(|list| list.parent()) else {
             return Vec::new();
         };
-        if !named || !matches!(call.kind(), CALL_EXPR | NEW_EXPR) {
+        if !named || !matches!(call.kind(), CALL_EXPR | NEW_EXPR | ATTRIBUTE) {
             return Vec::new();
         }
         let env = self.env_around(&call);
@@ -364,11 +364,19 @@ impl Analyzer<'_> {
         out
     }
 
-    /// The type a variable gets where it is written to: the target of an assignment holds what is
-    /// assigned, the variable of a `foreach` what the loop gives its body. `None` elsewhere.
+    /// The type a variable gets where it is written to: the target of an assignment (or a place in
+    /// a destructuring one) holds what is assigned, the variable of a `foreach` what the loop gives
+    /// its body. `None` elsewhere.
     fn written_type(&self, variable: &SyntaxNode, name: &str) -> Option<Type> {
-        let parent = variable.parent()?;
-        if parent.kind() == ASSIGN_EXPR && parent.children().next().as_ref() == Some(variable) {
+        let mut target = variable.clone();
+        while let Some(parent) = target
+            .parent()
+            .filter(|parent| matches!(parent.kind(), ARRAY_ITEM | ARRAY_EXPR | LIST_EXPR))
+        {
+            target = parent;
+        }
+        let parent = target.parent()?;
+        if parent.kind() == ASSIGN_EXPR && parent.children().next().as_ref() == Some(&target) {
             let mut env = (*self.env_around(&parent)).clone();
             self.apply_expr(&parent, &mut env);
             return env.get(name).cloned();
@@ -420,6 +428,12 @@ impl Analyzer<'_> {
                 receiver: self.this_type(),
                 name,
             }],
+            CATCH_CLAUSE => {
+                let ty = child_of(&parent, BLOCK)
+                    .and_then(|body| self.env_at(start(&body) + 1).get(&name).cloned())
+                    .unwrap_or(Type::Unknown);
+                vec![Target::Variable { name, ty }]
+            }
             PARAMETER | CLOSURE_USE_VARIABLE | STATIC_VARIABLE => {
                 let env = self.env_at(start(&parent) + 1);
                 let ty = env.get(&name).cloned().unwrap_or(Type::Unknown);

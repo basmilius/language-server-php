@@ -532,3 +532,99 @@ function f(AppTeam $team) {
     assert_eq!(var(&fixture, code, "list"), "ModelArrayList<int, Product>");
     assert_eq!(var(&fixture, code, "first"), "?Product");
 }
+
+#[test]
+fn list_destructuring_takes_each_element_by_position() {
+    let fixture = Fixture::new(&[(
+        "Range.php",
+        "<?php\nnamespace App;\nclass Range {\n    /** @return array{0: \\DateTime, 1: int}|null */\n    public static function keyed(): ?array {}\n    /** @return array{\\DateTime, int} */\n    public static function listed(): array {}\n}\n",
+    )]);
+    let keyed = "<?php\nnamespace App;\nfunction f() {\n    $range = Range::keyed();\n    if ($range === null) {\n        return;\n    }\n    [$from, $count] = $range;\n    $0\n}\n";
+    assert_eq!(var(&fixture, keyed, "from"), "DateTime");
+    assert_eq!(var(&fixture, keyed, "count"), "int");
+    let listed = "<?php\nnamespace App;\nfunction f() {\n    [$from, $count] = Range::listed();\n    $0\n}\n";
+    assert_eq!(var(&fixture, listed, "from"), "DateTime");
+    assert_eq!(var(&fixture, listed, "count"), "int");
+    let literal = "<?php\nfunction f() {\n    [$number, $text] = [1, 'x'];\n    $0\n}\n";
+    assert_eq!(var(&fixture, literal, "number"), "int");
+    assert_eq!(var(&fixture, literal, "text"), "string");
+}
+
+#[test]
+fn a_generator_with_one_argument_gives_its_values() {
+    let fixture = Fixture::new(&[
+        (
+            "Generator.php",
+            "<?php\n/**\n * @template-covariant TKey\n * @template-covariant TValue\n * @template TSend\n * @template-covariant TReturn\n */\nfinal class Generator implements Iterator {}\ninterface Iterator extends Traversable {}\ninterface Traversable {}\n",
+        ),
+        (
+            "Query.php",
+            "<?php\nnamespace App;\nclass Order {}\nclass Query {\n    /** @return \\Generator<Order> */\n    public function cursor(): \\Generator {}\n    /** @return \\Generator<int, Order> */\n    public function keyed(): \\Generator {}\n}\n",
+        ),
+    ]);
+    let single = "<?php\nnamespace App;\nfunction f(Query $query) {\n    foreach ($query->cursor() as $order) {\n        $0\n    }\n}\n";
+    assert_eq!(var(&fixture, single, "order"), "Order");
+    let keyed = "<?php\nnamespace App;\nfunction f(Query $query) {\n    foreach ($query->keyed() as $key => $order) {\n        $0\n    }\n}\n";
+    assert_eq!(var(&fixture, keyed, "order"), "Order");
+    assert_eq!(var(&fixture, keyed, "key"), "int");
+}
+
+#[test]
+fn max_and_min_give_what_they_compare() {
+    let fixture = Fixture::new(&[(
+        "Math.php",
+        "<?php\nfunction max(mixed $value, mixed ...$values): mixed {}\nfunction min(mixed $value, mixed ...$values): mixed {}\n",
+    )]);
+    let code = "<?php\n/** @param list<float> $prices */\nfunction f(int $limit, array $prices, ?int $maybe) {\n    $bounded = max(1, min(100, $limit));\n    $highest = max($prices);\n    $mixed = max($limit, 1.5);\n    $unknown = max($limit, $nothing);\n    $0\n}\n";
+    assert_eq!(var(&fixture, code, "bounded"), "int");
+    assert_eq!(var(&fixture, code, "highest"), "float");
+    assert_eq!(var(&fixture, code, "mixed"), "int|float");
+    assert_eq!(var(&fixture, code, "unknown"), "mixed");
+}
+
+#[test]
+fn a_param_tag_that_repeats_the_native_type_keeps_the_inherited_one() {
+    let bus = "<?php\nnamespace App;\ninterface MessageInterface {}\nclass Ping implements MessageInterface {}\n/** @template TMessage of MessageInterface */\ninterface HandlerInterface {\n    /** @param TMessage $message */\n    public function handle(MessageInterface $message): void;\n}\n";
+    let message_in = |tag: &str| {
+        let handler = format!(
+            "<?php\nnamespace App;\n/** @implements HandlerInterface<Ping> */\nclass PingHandler implements HandlerInterface {{\n    /** {tag} */\n    public function handle(MessageInterface $message): void {{\n        $0\n    }}\n}}\n"
+        );
+        let fixture = Fixture::new(&[("Bus.php", bus), ("PingHandler.php", &handler.replace("$0", ""))]);
+        var(&fixture, &handler, "message")
+    };
+    assert_eq!(message_in("@return void"), "Ping");
+    assert_eq!(message_in("@param MessageInterface $message"), "Ping");
+    assert_eq!(message_in("@param MessageInterface|null $message"), "?MessageInterface");
+}
+
+#[test]
+fn a_callback_binds_the_templates_of_its_signature() {
+    let list = "<?php\nnamespace App;\nclass Product { public string $name; }\n/**\n * @template TKey of array-key\n * @template TValue\n */\ninterface ListOf {\n    /**\n     * @template TMappedValue\n     * @param callable(TValue):TMappedValue $fn\n     * @return ListOf<TKey, TMappedValue>\n     */\n    public function map(callable $fn): ListOf;\n    /**\n     * @template TResult of mixed\n     * @param callable(TResult, TValue, TKey):TResult $fn\n     * @param TResult $initial\n     * @return TResult\n     */\n    public function reduce(callable $fn, mixed $initial = null): mixed;\n}\n";
+    let fixture = Fixture::new(&[("ListOf.php", list)]);
+    let code = "<?php\nnamespace App;\n/** @param ListOf<int, Product> $products */\nfunction f(ListOf $products) {\n    $typed = $products->map(fn(Product $product): string => $product->name);\n    $inferred = $products->map(fn(Product $product) => $product->name);\n    $total = $products->reduce(fn(int $sum, Product $product) => $sum + 1, 0);\n    $0\n}\n";
+    let untyped = "<?php\nnamespace App;\n/** @param ListOf<int, Product> $products */\nfunction f(ListOf $products) {\n    $products->map(function ($product) {\n        $0\n    });\n}\n";
+    assert_eq!(var(&fixture, code, "typed"), "ListOf<int, string>");
+    assert_eq!(var(&fixture, code, "inferred"), "ListOf<int, string>");
+    assert_eq!(var(&fixture, code, "total"), "int");
+    assert_eq!(var(&fixture, untyped, "product"), "Product");
+}
+
+#[test]
+fn a_new_variable_passed_by_reference_takes_the_parameter_type() {
+    let fixture = Fixture::new(&[(
+        "Pcre.php",
+        "<?php\n/** @param string[] $matches */\nfunction preg_match(string $pattern, string $subject, ?array &$matches = null): int|false {}\nfunction sort(array &$array): bool {}\n",
+    )]);
+    let code = "<?php\n/** @param list<int> $numbers */\nfunction f(string $line, array $numbers) {\n    if (preg_match('/x/', $line, $matches)) {}\n    sort($numbers);\n    $0\n}\n";
+    assert_eq!(var(&fixture, code, "matches"), "list<string>");
+    assert_eq!(var(&fixture, code, "numbers"), "list<int>");
+}
+
+#[test]
+fn an_inherited_closure_signature_types_the_call() {
+    let middleware = "<?php\nnamespace App;\nclass Response {}\ninterface Middleware {\n    /** @param \\Closure(string):Response $next */\n    public function handle(string $request, \\Closure $next): Response;\n}\n";
+    let cors = "<?php\nnamespace App;\nclass Cors implements Middleware {\n    public function handle(string $request, \\Closure $next): Response {\n        $response = $next($request);\n        $0\n    }\n}\n";
+    let fixture = Fixture::new(&[("Middleware.php", middleware), ("Cors.php", &cors.replace("$0", ""))]);
+    assert_eq!(var(&fixture, cors, "next"), "Closure(string): Response");
+    assert_eq!(var(&fixture, cors, "response"), "Response");
+}

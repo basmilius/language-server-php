@@ -111,9 +111,11 @@ impl Analyzer<'_> {
         let level = self.level();
         let inherited = self.inherited_param_types(function);
         for (position, param) in callable.params.iter().enumerate() {
+            // A `@param` that repeats the native type says no more than a parameter without one.
+            let documents_more = param.doc_ty.is_some() && param.doc_ty.as_ref() != param.native_type(level);
             let declared = param
                 .effective_type(level)
-                .filter(|_| param.doc_ty.is_some())
+                .filter(|_| documents_more)
                 .cloned()
                 .or_else(|| {
                     let narrower = inherited.get(&position)?;
@@ -158,7 +160,7 @@ impl Analyzer<'_> {
     }
 
     /// The documented types of the parameters of the method this one overrides, by position, for the
-    /// parameters it documents nothing for. An `@implements Handler<Message>` thereby gives
+    /// parameters it documents nothing more for than their native type. An `@implements Handler<Message>` thereby gives
     /// `handle(MessageInterface $message)` the `Message` that `@param T` of the interface stands for.
     fn inherited_param_types(&self, function: &SyntaxNode) -> HashMap<usize, Type> {
         let mut found = HashMap::new();
@@ -200,12 +202,16 @@ impl Analyzer<'_> {
         if matches!(native, Type::Mixed) {
             return true;
         }
-        let Type::Class { name: parent, .. } = native else {
-            return false;
-        };
-        inherited.members().iter().all(
-            |member| matches!(member, Type::Class { name, .. } if self.index.is_subclass_of(name, parent.as_str())),
-        )
+        let is_signature = |member: &Type| matches!(member, Type::Callable(Some(_)));
+        match native {
+            Type::Callable(None) => inherited.members().iter().all(is_signature),
+            Type::Class { name: parent, .. } => inherited.members().iter().all(|member| match member {
+                Type::Class { name, .. } => self.index.is_subclass_of(name, parent.as_str()),
+                Type::Callable(Some(signature)) => signature.closure && parent.eq_ignore_ascii_case("Closure"),
+                _ => false,
+            }),
+            _ => false,
+        }
     }
 
     fn class_type_aliases(&self) -> Vec<(String, Type)> {
@@ -608,6 +614,7 @@ impl Analyzer<'_> {
                 for child in expr.children() {
                     self.apply_expr(&child, env);
                 }
+                self.bind_out_arguments(expr, env);
                 if let Some(callee) = expr.children().next() {
                     if callee.kind() == NAME && text_of(&callee).trim_start_matches('\\').eq_ignore_ascii_case("assert")
                     {
@@ -628,6 +635,52 @@ impl Analyzer<'_> {
         }
     }
 
+    /// A variable that first appears as an argument for a by-reference parameter, such as the
+    /// `$matches` of `preg_match()`, holds what the parameter says. One that already holds something
+    /// keeps it, since a by-reference parameter such as `sort()`'s takes what it is given.
+    fn bind_out_arguments(&self, call: &SyntaxNode, env: &mut Env) {
+        let args = arguments(call);
+        let unset: Vec<bool> = args
+            .iter()
+            .map(|arg| {
+                arg.expr.as_ref().is_some_and(|expr| {
+                    expr.kind() == VARIABLE_EXPR && env.get(text_of(expr).trim_start_matches('$')).is_none()
+                })
+            })
+            .collect();
+        if !unset.contains(&true) {
+            return;
+        }
+        let Some(callee) = self.callees(call, env).into_iter().next() else {
+            return;
+        };
+        let level = self.level();
+        let params: Vec<_> = callee.callable.params_at(level).collect();
+        for (position, arg) in args.iter().enumerate() {
+            if !unset[position] {
+                continue;
+            }
+            let param = match &arg.name {
+                Some(name) => params.iter().find(|param| &param.name == name),
+                None => params.get(position),
+            };
+            let Some(ty) = param
+                .filter(|param| param.by_ref)
+                .and_then(|param| param.effective_type(level))
+            else {
+                continue;
+            };
+            let ty = ty
+                .without_null()
+                .substitute(&callee.subst, callee.receiver.as_ref(), callee.self_name.as_deref());
+            if let Some(expr) = &arg.expr {
+                if !ty.is_unknown() && !ty.has_template() {
+                    env.set(text_of(expr).trim_start_matches('$'), ty);
+                }
+            }
+        }
+    }
+
     fn apply_assign(&self, expr: &SyntaxNode, env: &mut Env) {
         let operands: Vec<SyntaxNode> = expr.children().collect();
         let (Some(target), Some(value)) = (operands.first(), operands.last()) else {
@@ -640,7 +693,11 @@ impl Analyzer<'_> {
         let operator = tokens(expr)
             .find(|token| !token.kind().is_trivia() && token.kind() != AMP)
             .map(|token| token.kind());
-        let value_type = if operator == Some(ASSIGN) {
+        let destructures = matches!(target.kind(), ARRAY_EXPR | LIST_EXPR);
+        let value_type = if destructures && value.kind() == ARRAY_EXPR {
+            self.positional_shape(value, env)
+                .unwrap_or_else(|| self.type_of(value, env))
+        } else if operator == Some(ASSIGN) {
             self.type_of(value, env)
         } else {
             self.type_of(expr, env)
@@ -649,6 +706,27 @@ impl Analyzer<'_> {
             INDEX_EXPR => self.bind_index_target(target, &value_type, env),
             _ => self.bind_target(target, &value_type, env),
         }
+    }
+
+    /// `[1, 'x']` as `array{int, string}`, which only destructuring wants: everywhere else the literal
+    /// is a list, so a later `$a[] = x` still fits it.
+    fn positional_shape(&self, array: &SyntaxNode, env: &Env) -> Option<Type> {
+        let mut fields = Vec::new();
+        for item in array.children().filter(|child| child.kind() == ARRAY_ITEM) {
+            let children: Vec<SyntaxNode> = item.children().collect();
+            let [value] = children.as_slice() else {
+                return None;
+            };
+            if has_token(&item, ELLIPSIS) {
+                return None;
+            }
+            fields.push(php_index::types::ShapeField {
+                key: None,
+                optional: false,
+                ty: self.type_of(value, env),
+            });
+        }
+        Some(Type::Shape(fields))
     }
 
     /// Records `$a[] = x`, `$a[key] = x` and `$a[key][] = x` as what `$a` holds.

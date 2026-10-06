@@ -352,11 +352,12 @@ impl<'a> TypeParser<'a> {
                 }
                 return Some(Type::ClassString(None));
             }
-            "callable" | "pure-callable" | "closure" => {
+            "callable" | "pure-callable" | "closure" | "\\closure" => {
+                let closure = lower.trim_start_matches('\\') == "closure";
                 if self.rest().starts_with('(') {
-                    return self.callable_signature(lower == "closure" || raw == "Closure" || raw == "\\Closure");
+                    return self.callable_signature(closure);
                 }
-                if lower == "closure" {
+                if closure {
                     return Some(Type::class("Closure"));
                 }
                 return Some(Type::Callable(None));
@@ -1233,6 +1234,7 @@ mod tests {
         assert_eq!(ty("callable(int, string=): bool"), "callable(int, string=): bool");
         assert_eq!(ty("Closure(T): T"), "Closure(T): T");
         assert_eq!(ty("callable"), "callable");
+        assert_eq!(ty("\\Closure(int): string"), "Closure(int): string");
     }
 
     #[test]
