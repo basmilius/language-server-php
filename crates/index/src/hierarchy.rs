@@ -82,8 +82,18 @@ impl Index {
             }
         }
         let first_mixin = out.len();
+        // What one way down bound stays bound: a mixin met later does not rebind a template the
+        // class's own hierarchy, or a mixin before it, left open (the query builder's
+        // `BuildsQueries<stdClass>` is no answer for the `BuildsQueries<TModel>` of a relation).
+        let settle = |seen: &mut HashMap<String, (bool, usize)>| {
+            for (bound, _) in seen.values_mut() {
+                *bound = true;
+            }
+        };
+        settle(&mut seen);
         for mixin in mixins {
             self.walk(&mixin, false, None, Vec::new(), Vec::new(), &mut out, &mut seen, 0);
+            settle(&mut seen);
         }
         for ancestor in &mut out[first_mixin..] {
             ancestor.mixin = true;
