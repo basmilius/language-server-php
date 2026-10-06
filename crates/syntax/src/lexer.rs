@@ -5,11 +5,7 @@
 use crate::SyntaxKind::{self, *};
 
 /// One token: its kind and its length in bytes. Offsets follow from the tokens before it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Token {
-    pub kind: SyntaxKind,
-    pub len: u32,
-}
+pub type Token = lsc_syntax::Token<SyntaxKind>;
 
 /// A problem the lexer saw, such as a string that never ends.
 #[derive(Clone, Debug, PartialEq, Eq)]

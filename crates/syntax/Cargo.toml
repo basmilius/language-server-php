@@ -10,6 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+lsc-syntax.workspace = true
 rowan = "0.17.0"
 
 [dev-dependencies]

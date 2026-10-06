@@ -341,6 +341,23 @@ impl SyntaxKind {
     }
 }
 
+impl lsc_syntax::TokenKind for SyntaxKind {
+    const EOF: SyntaxKind = SyntaxKind::EOF;
+    const ERROR: SyntaxKind = SyntaxKind::ERROR;
+
+    fn is_trivia(self) -> bool {
+        SyntaxKind::is_trivia(self)
+    }
+
+    fn is_whitespace(self) -> bool {
+        self == SyntaxKind::WHITESPACE
+    }
+
+    fn is_doc_comment(self) -> bool {
+        self == SyntaxKind::DOC_COMMENT
+    }
+}
+
 /// The rowan language marker for PHP.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PhpLanguage {}
