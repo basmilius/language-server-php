@@ -797,3 +797,33 @@ fn the_yaml_configuration_follows_its_classes_and_parameters() {
     assert_eq!(places(&usages), ["services.yaml:9"], "{usages}");
     client.shutdown();
 }
+
+#[test]
+fn a_relation_string_leads_to_its_method_and_is_one_of_its_usages() {
+    let disk = laravel();
+    let author = "<?php\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\n\nclass Author extends Model\n{\n    public function books(): HasMany\n    {\n        return $this->hasMany(Post::class);\n    }\n}\n";
+    disk.write("project/app/Models/Author.php", author);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Feed.php");
+    client.open(
+        &uri,
+        "<?php\nuse App\\Models\\Author;\nfunction feed() {\n    return Author::with('books')->get();\n}\n",
+    );
+    let found = client.at("textDocument/definition", &uri, 3, 26);
+    assert_eq!(found[0]["uri"], disk.uri("project/app/Models/Author.php"), "{found}");
+    assert_eq!(found[0]["range"]["start"]["line"], 8, "{found}");
+    let items = complete_at(&mut client, &uri, 3, 25);
+    assert!(items.contains(&"books".to_string()), "{items:?}");
+    let model = disk.uri("project/app/Models/Author.php");
+    client.open(&model, author);
+    let usages = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": model },
+            "position": { "line": 8, "character": 22 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    assert_eq!(places(&usages), ["Feed.php:3"], "{usages}");
+    client.shutdown();
+}
