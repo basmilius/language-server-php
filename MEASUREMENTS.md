@@ -56,6 +56,19 @@ Before 2026-10-05.
 
 A change to a document parses the whole file again; at these speeds that is cheaper than anything a patch would save, and a burst of keystrokes costs one parse.
 
+2026-10-07, after the token cursor and tree builder of the parser moved to `lsc-syntax` of `basmilius/language-server-core`, measured against a checkout of the commit before the move in alternating runs:
+
+| | Before | After |
+| --- | --- | --- |
+| Lexing and parsing all of phpstorm-stubs | 67.0 to 67.6 ms | 66.4 to 68.5 ms |
+| Extracting the declarations of every stub file | 103.9 to 105.3 ms | 103.8 to 104.8 ms |
+| A typical file | 492 µs | 498 µs |
+| Lexing the 1.4 MB synthetic file | 3.65 ms | 3.92 ms |
+| Lexing it with one codegen unit | 3.90 ms | 3.89 ms |
+| Parsing it with one codegen unit | 12.6 ms | 12.2 ms |
+
+The lexer did not change; with the release profile's four codegen units it lands in a different place, and with one the difference is gone.
+
 ### Corpus
 
 Before 2026-10-05, with the PHP on the path as the oracle.

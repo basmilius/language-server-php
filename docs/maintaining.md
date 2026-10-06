@@ -10,7 +10,7 @@ The server is a Cargo workspace of five crates under the Functional Source Licen
 | `php-analysis`        | `crates/analysis`| Types, diagnostics, inspections, navigation, completion, rename and refactors       |
 | `php-language-server` | `crates/server`  | The stdio server: documents, configuration, projects, progress and LSP conversions  |
 
-LSP types and the process belong in the server crate. The parser stops nesting at 200 levels, so deeply nested input becomes an error node instead of a stack overflow.
+What any language server does the same way (the line index, the parser's token cursor and tree builder, documents, URIs, dispatch, progress, the main loop) comes from [`basmilius/language-server-core`](https://github.com/basmilius/language-server-core), a Git dependency pinned to a tag in `[workspace.dependencies]`. LSP types and the process belong in the server crate. The parser stops nesting at 200 levels, so deeply nested input becomes an error node instead of a stack overflow.
 
 ## Checks
 

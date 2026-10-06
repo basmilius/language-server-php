@@ -18,7 +18,7 @@ Nothing was taken from the bytecode or the decompiled classes of any IDE plugin,
 
 ## Layout
 
-A Cargo workspace with five crates. Only the server knows LSP.
+A Cargo workspace with five crates. Only the server knows LSP. What every language server does the same way comes from `basmilius/language-server-core`, a Git dependency pinned to a tag: `lsc-text` (the line index and position encodings), `lsc-syntax` (the token cursor and tree builder the parser is written on) and `lsc-server` (documents and their incremental sync, `file:` URIs, encoding negotiation, request dispatch, work done progress, the main loop and `main`).
 
 | Crate | Holds |
 | --- | --- |
@@ -34,6 +34,7 @@ A Cargo workspace with five crates. Only the server knows LSP.
 
 - `lexer.rs` is a mode stack that mirrors how PHP tokenizes: inline HTML, `<?php` and `<?=`, interpolated strings with `$a[0]`, `$a->b`, `{$...}` and `${...}`, heredocs and nowdocs with flexible closing markers, casts, numbers with separators and every base, names as single tokens (`Foo\Bar`, `\Foo`, `namespace\Foo`), `__halt_compiler`. Every byte lands in exactly one token. The state is a small value that can be cloned: `lex_with_checkpoints` records it at the first token of every line and `lex_from` resumes from one.
 - `parser/` is recursive descent with a Pratt parser for expressions, over the union of PHP 8.1 to 8.6 syntax: property hooks, asymmetric visibility, `new` without parentheses in a chain, the pipe operator, `clone` with arguments, the `(void)` cast, closures and first-class callables in constant expressions, attributes everywhere they are allowed, alternative syntax, enums, and partial function application (`str_replace('a', ?, ...)`: `?`, `name: ?` and a `...` that spreads nothing, in a call, a `new` and `clone(?)`). It never looks at a language level.
+- The parser drives `lsc_syntax::Parser`, monomorphized for PHP's kinds, which skips trivia, keeps every token in the tree, counts nesting and fuel and reports what is missing; PHP adds the `(void)` cast flag and case-insensitive keyword lookahead. A declaration takes the doc comment before it through `start_before_declaration`.
 - `kind.rs` holds the one enum of token and node kinds. `dump.rs` prints a tree for tests and for looking at what the parser made.
 
 The shape of the tree:
