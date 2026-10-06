@@ -630,3 +630,22 @@ fn a_template_knows_what_its_controller_passes() {
     assert!(items.contains(&"posts".to_string()), "{items:?}");
     client.shutdown();
 }
+
+#[test]
+fn a_blade_template_publishes_what_is_certainly_wrong() {
+    let disk = laravel();
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/resources/views/broken.blade.php");
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": uri, "languageId": "blade", "version": 1, "text": "@if ($a)\n<a href=\"{{ route('nope') }}\">{{ $a-> }}</a>\n" } }),
+    );
+    let found = client.diagnostics(&uri);
+    let mut codes: Vec<String> = found
+        .iter()
+        .map(|diagnostic| diagnostic["code"].as_str().unwrap_or_default().to_string())
+        .collect();
+    codes.sort();
+    assert_eq!(codes, ["syntax", "unbalanced-directive", "unknown-route"], "{found:?}");
+    client.shutdown();
+}

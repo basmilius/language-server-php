@@ -39,6 +39,8 @@ Support turns on by the packages Composer installed: `laravel/framework` or `ill
 - Symfony: services from YAML and PHP configuration, routes, templates, translations, parameters and events.
 - Doctrine: repositories and the fields of entities.
 
+Blade templates are read as a whole. The PHP in them knows its variables: the ones `@foreach`, `@php`, `@props` and `@inject` make, and the ones the controllers, mailables, components, `@include` and component tags that render the template pass it. Hover, definition, completion, usages, highlights and rename work in that PHP, sections and stacks lead to the layout, attributes and slots to the component, and finding the usages of a class or a method also finds the templates. A template gets diagnostics for PHP that does not parse, block directives that do not close, and views, routes, config keys and translations the project does not have.
+
 A missing name is only reported where the code is literal: a route made in a loop or a computed config key is never called missing. Environment support reads the names of variables, never their values.
 
 ## Tests

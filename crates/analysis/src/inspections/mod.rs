@@ -252,6 +252,12 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
         "A route name that no route file declares",
     ),
     info("unknown-view", Warning, true, "A view that has no template"),
+    info(
+        "unbalanced-directive",
+        Error,
+        true,
+        "A Blade block directive that is never closed, or one that closes nothing",
+    ),
     info("unknown-template", Warning, true, "A Twig template that does not exist"),
     info(
         "unknown-translation",

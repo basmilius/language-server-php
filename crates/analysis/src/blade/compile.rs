@@ -66,7 +66,7 @@ impl Virtual {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Open {
     pub name: String,
-    closers: &'static [&'static str],
+    closers: Vec<String>,
     pub at: u32,
     pub end: u32,
     /// A `@forelse` that reached its `@empty`.
@@ -88,12 +88,19 @@ pub struct Builder<'a> {
     body_segments: Vec<Segment>,
     stack: Vec<Open>,
     imbalances: Vec<Imbalance>,
+    /// Directives the compiler does not know that the template closes with `@end<name>`, which a
+    /// project or a package registers as a conditional (`Blade::if`) or a block of its own.
+    custom: std::collections::HashSet<String>,
+    /// The directives the project registers itself, as written, which replace the compiler's own.
+    registered: Vec<String>,
 }
 
 /// How a directive takes part in the blocks of a template.
 enum Role {
     /// Opens a block that the named directives close.
     Opens(&'static [&'static str]),
+    /// Opens a block of a directive the template closes with `@end<name>`.
+    OpensCustom,
     /// Goes on with a block another directive opened.
     Continues(&'static [&'static str]),
     Closes,
@@ -127,8 +134,8 @@ fn role(name: &str, args: Option<&str>) -> Role {
         "fragment" => Role::Opens(&["endfragment"]),
         "component" => Role::Opens(&["endcomponent"]),
         "componentfirst" => Role::Opens(&["endcomponentfirst"]),
-        "push" => Role::Opens(&["endpush"]),
-        "prepend" => Role::Opens(&["endprepend"]),
+        "push" if args.is_none_or(|args| top_level_commas(args) == 0) => Role::Opens(&["endpush"]),
+        "prepend" if args.is_none_or(|args| top_level_commas(args) == 0) => Role::Opens(&["endprepend"]),
         "pushonce" => Role::Opens(&["endpushonce"]),
         "prependonce" => Role::Opens(&["endprependonce"]),
         "pushif" => Role::Opens(&["endpushif"]),
@@ -150,6 +157,17 @@ fn role(name: &str, args: Option<&str>) -> Role {
         | "overwrite" | "endslot" | "endlang" => Role::Closes,
         _ => Role::Alone,
     }
+}
+
+/// Whether the compiler has a directive of this name, with or without arguments.
+fn is_known(name: &str) -> bool {
+    !matches!(role(name, None), Role::Alone)
+        || !matches!(role(name, Some("")), Role::Alone)
+        || EXPRESSION_DIRECTIVES.contains(&name)
+        || matches!(
+            name,
+            "use" | "inject" | "unset" | "break" | "continue" | "parent" | "csrf"
+        )
 }
 
 /// A block that is an `if` once compiled, which `@else` and `@elseif` can go on with.
@@ -230,7 +248,23 @@ pub fn top_level_commas(args: &str) -> usize {
 }
 
 impl<'a> Builder<'a> {
-    pub fn new(source: &'a str) -> Builder<'a> {
+    pub fn new(source: &'a str, nodes: &[Node], registered: &[String], conditionals: &[String]) -> Builder<'a> {
+        let names: std::collections::HashSet<String> = nodes
+            .iter()
+            .filter_map(|node| match node {
+                Node::Directive(directive) => Some(directive.name.to_ascii_lowercase()),
+                _ => None,
+            })
+            .collect();
+        let mut custom: std::collections::HashSet<String> =
+            conditionals.iter().map(|name| name.to_ascii_lowercase()).collect();
+        custom.extend(
+            names
+                .iter()
+                .filter_map(|name| name.strip_prefix("end"))
+                .filter(|name| !matches!(*name, "" | "php" | "verbatim") && !is_known(name))
+                .map(str::to_string),
+        );
         Builder {
             source,
             head: String::from("<?php\n"),
@@ -239,7 +273,31 @@ impl<'a> Builder<'a> {
             body_segments: Vec::new(),
             stack: Vec::new(),
             imbalances: Vec::new(),
+            custom,
+            registered: registered.to_vec(),
         }
+    }
+
+    /// How a directive takes part in blocks, with the blocks the template makes of its own.
+    fn role_of(&self, name: &str, args: Option<&str>) -> Role {
+        let known = role(name, args);
+        if !matches!(known, Role::Alone) {
+            return known;
+        }
+        if self.custom.contains(name)
+            || name
+                .strip_prefix("unless")
+                .is_some_and(|rest| self.custom.contains(rest))
+        {
+            return Role::OpensCustom;
+        }
+        if name.strip_prefix("else").is_some_and(|rest| self.custom.contains(rest)) {
+            return Role::Continues(&[]);
+        }
+        if name.strip_prefix("end").is_some_and(|rest| self.custom.contains(rest)) {
+            return Role::Closes;
+        }
+        Role::Alone
     }
 
     /// Writes text of its own into the declarations at the top.
@@ -338,18 +396,38 @@ impl<'a> Builder<'a> {
     }
 
     fn directive(&mut self, directive: &Directive) {
+        if self.registered.contains(&directive.name) {
+            return;
+        }
         let name = directive.name.to_ascii_lowercase();
         let args = self.args_text(directive);
-        match role(&name, args) {
+        match self.role_of(&name, args) {
             Role::Opens(closers) => {
                 self.stack.push(Open {
                     name: name.clone(),
-                    closers,
+                    closers: closers.iter().map(|closer| closer.to_string()).collect(),
                     at: directive.at,
                     end: directive.end,
                     emptied: false,
                 });
                 self.open_block(&name, directive);
+            }
+            Role::OpensCustom => {
+                let base = name
+                    .strip_prefix("unless")
+                    .filter(|rest| self.custom.contains(*rest))
+                    .unwrap_or(&name)
+                    .to_string();
+                self.stack.push(Open {
+                    closers: vec![format!("end{base}")],
+                    name: base,
+                    at: directive.at,
+                    end: directive.end,
+                    emptied: false,
+                });
+                self.emit("if (");
+                self.emit_list(directive);
+                self.emit("):\n");
             }
             Role::Continues(openers) => {
                 let fits = self.stack.last().is_some_and(|open| {
@@ -370,10 +448,7 @@ impl<'a> Builder<'a> {
                 self.continue_block(&name, directive);
             }
             Role::Closes => {
-                let fits = self
-                    .stack
-                    .last()
-                    .is_some_and(|open| open.closers.contains(&name.as_str()));
+                let fits = self.stack.last().is_some_and(|open| open.closers.contains(&name));
                 if !fits {
                     self.imbalances.push(Imbalance::Unopened {
                         name: directive.name.clone(),

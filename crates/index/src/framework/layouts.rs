@@ -132,6 +132,73 @@ fn ends_with_show(text: &str, from: usize) -> bool {
         .is_some_and(|(_, end)| end == "@show")
 }
 
+/// The directives a project registers with `Blade::directive('name', ...)`, which win over the
+/// compiler's own of the same name, and with `Blade::if('name', ...)`, which open a conditional
+/// block with `@else<name>`, `@unless<name>` and `@end<name>`.
+#[derive(Default)]
+pub struct Directives {
+    pub plain: Vec<String>,
+    pub conditionals: Vec<String>,
+}
+
+impl Section for Directives {
+    fn build(index: &Index) -> Self {
+        let mut directives = Directives::default();
+        let root = index.framework_root();
+        let skipped = ["resources/views", "database", "tests", "lang", "config", "storage"];
+        for file in index.files() {
+            if file.origin != crate::index::Origin::Project
+                || skipped.iter().any(|folder| super::is_below(root, &file.path, folder))
+            {
+                continue;
+            }
+            let Some(text) = index.read_text(&file.path) else {
+                continue;
+            };
+            if !text.contains("directive(") && !text.contains("::if(") {
+                continue;
+            }
+            directives.scan(&text);
+        }
+        directives
+    }
+
+    fn depends_on(root: &Path, path: &Path) -> bool {
+        super::is_project_php(root, path)
+    }
+}
+
+impl Directives {
+    fn scan(&mut self, text: &str) {
+        for (call, conditional) in [
+            ("Blade::directive(", false),
+            ("->directive(", false),
+            ("Blade::if(", true),
+        ] {
+            let mut rest = text;
+            while let Some(at) = rest.find(call) {
+                rest = &rest[at + call.len()..];
+                let trimmed = rest.trim_start();
+                let Some(quote) = trimmed.chars().next().filter(|quote| matches!(quote, '\'' | '"')) else {
+                    continue;
+                };
+                let Some(length) = trimmed[1..].find(quote) else {
+                    continue;
+                };
+                let name = trimmed[1..1 + length].to_string();
+                let list = if conditional {
+                    &mut self.conditionals
+                } else {
+                    &mut self.plain
+                };
+                if !name.is_empty() && !list.contains(&name) {
+                    list.push(name);
+                }
+            }
+        }
+    }
+}
+
 /// The template of a component: its own file when it is anonymous, else `components.<tag>`.
 pub fn component_template(index: &Index, tag: &str) -> Option<PathBuf> {
     let views = index.section::<Views>();
@@ -310,5 +377,10 @@ mod tests {
         assert_eq!(attribute_key("show-view-count"), "showViewCount");
         assert_eq!(attribute_key(":user"), "user");
         assert_eq!(kebab("showViewCount"), "show-view-count");
+
+        let mut directives = Directives::default();
+        directives.scan("Blade::directive('error', fn ($e) => 1); Blade::if(\"admin\", fn () => true); $blade->directive('money', $f);");
+        assert_eq!(directives.plain, ["error", "money"]);
+        assert_eq!(directives.conditionals, ["admin"]);
     }
 }

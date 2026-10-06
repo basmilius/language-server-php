@@ -606,7 +606,7 @@ impl<'a> Server<'a> {
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
         if self.documents.get(uri)?.blade {
-            return Some(Vec::new());
+            return self.template_diagnostics(uri);
         }
         let _document = php_analysis::document::enter(uri_to_path(uri).as_deref());
         let level = self.level_of(uri, self.documents.get(uri)?.level);
@@ -616,6 +616,42 @@ impl<'a> Server<'a> {
             found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
             found.iter().map(|found| mapper.diagnostic(found)).collect()
         })
+    }
+
+    /// What is certainly wrong in an open Blade template.
+    fn template_diagnostics(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
+        let path = uri_to_path(uri);
+        let given = self.template_given(uri);
+        // A package's template reads keys the package's users may set; only the project's own are judged.
+        let ready = path.as_ref().is_some_and(|path| {
+            self.workspace.is_ready(path)
+                && self.workspace.project_for(path).origin_of(path) == php_index::Origin::Project
+        });
+        let encoding = self.encoding;
+        let document = self.documents.get(uri)?;
+        let settings = document
+            .inspections
+            .clone()
+            .or_else(|| self.settings.inspections.clone())
+            .unwrap_or_default();
+        let project = match &path {
+            Some(path) => self.workspace.project_for(path),
+            None => &self.workspace.loose,
+        };
+        let found = php_analysis::blade::diagnostics(
+            &project.index,
+            path.as_deref(),
+            &document.text,
+            &given,
+            &settings,
+            ready,
+        );
+        let mapper = Mapper {
+            text: &document.text,
+            index: &document.index,
+            encoding,
+        };
+        Some(found.iter().map(|found| mapper.diagnostic(found)).collect())
     }
 
     /// Runs something over an open document with everything an inspection reads: the tree, the

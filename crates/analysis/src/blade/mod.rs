@@ -9,6 +9,7 @@
 
 mod compile;
 pub mod data;
+mod diagnostics;
 pub mod scan;
 
 use std::path::Path;
@@ -30,6 +31,7 @@ use crate::rename::{Prepared, RenameKind};
 
 use compile::Builder;
 pub use compile::{Imbalance, Virtual};
+pub use diagnostics::diagnostics;
 use scan::{Directive, Node, Tag, scan};
 
 /// A name a directive or a component tag gives: a view, a translation, a component.
@@ -85,7 +87,12 @@ impl Template {
     pub fn read(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Type)]) -> Template {
         let nodes = scan(text);
         let mut names = Vec::new();
-        let mut builder = Builder::new(text);
+        let directives = if index.frameworks().laravel {
+            index.section::<php_index::framework::layouts::Directives>()
+        } else {
+            std::sync::Arc::default()
+        };
+        let mut builder = Builder::new(text, &nodes, &directives.plain, &directives.conditionals);
         if index.frameworks().laravel {
             for (name, class) in SHARED {
                 declare(&mut builder, name, &Type::class(*class));
@@ -103,7 +110,9 @@ impl Template {
         for node in &nodes {
             match node {
                 Node::Directive(directive) => {
-                    names.extend(directive_names(index, text, directive));
+                    if !directives.plain.contains(&directive.name) {
+                        names.extend(directive_names(index, text, directive));
+                    }
                     if directive.is("props") || directive.is("aware") {
                         props(&mut builder, text, directive, given);
                         continue;

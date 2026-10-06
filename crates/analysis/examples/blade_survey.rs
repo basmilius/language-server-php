@@ -126,6 +126,8 @@ fn main() {
     let (mut variables, mut untyped, mut untyped_alone) = (0usize, 0usize, 0usize);
     let (mut given_time, mut given_slowest, mut given_count) = (Duration::ZERO, Duration::ZERO, 0usize);
     let mut panics = 0;
+    let mut findings = 0;
+    let (mut diagnostics_time, mut diagnostics_slowest) = (Duration::ZERO, Duration::ZERO);
     let mut read_time = Duration::ZERO;
     let mut largest = (0usize, Duration::ZERO);
     for path in &templates {
@@ -145,6 +147,31 @@ fn main() {
         read_time += took;
         if text.lines().count() > largest.0 {
             largest = (text.lines().count(), took);
+        }
+        let began = Instant::now();
+        let reported = blade::diagnostics(
+            index,
+            Some(path),
+            &text,
+            &given,
+            &php_analysis::inspections::InspectionSettings::default(),
+            !path.starts_with(project.root.join("vendor")),
+        );
+        let took = began.elapsed();
+        diagnostics_time += took;
+        diagnostics_slowest = diagnostics_slowest.max(took);
+        if took > Duration::from_millis(20) {
+            eprintln!("slow: diagnostics {took:?} at {}", path.display());
+        }
+        for found in reported {
+            findings += 1;
+            let line = text[..usize::from(found.range.start())].matches('\n').count() + 1;
+            println!(
+                "{}  {}:{line}  {}",
+                found.code,
+                path.strip_prefix(&project.root).unwrap_or(path).display(),
+                found.message
+            );
         }
         let (counted, missing) = untyped_variables(index, &template);
         variables += counted;
@@ -181,6 +208,7 @@ fn main() {
         largest.1
     );
     println!("{requests} requests in {total:?}, the slowest three at one offset {slowest:?}, {panics} panics");
+    println!("{findings} findings, diagnostics in {diagnostics_time:?}, the slowest template {diagnostics_slowest:?}");
     println!("given: {given_count} variables in {given_time:?}, the slowest template {given_slowest:?}");
     println!("{variables} variables, {untyped} without a type, {untyped_alone} without what the template is given");
 }

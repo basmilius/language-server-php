@@ -593,3 +593,82 @@ mod layouts {
         assert_eq!(count("scripts"), ["app.blade.php", "home.blade.php"]);
     }
 }
+
+mod diagnostics {
+    use php_index::framework::testing::HELPERS;
+
+    use crate::blade::diagnostics;
+    use crate::inspections::InspectionSettings;
+    use crate::testing::Fixture;
+
+    fn found_with(extra: &[(&str, &str)], template: &str) -> Vec<String> {
+        let mut files = HELPERS.to_vec();
+        files.extend_from_slice(&[
+            ("resources/views/welcome.blade.php", "x"),
+            ("routes/web.php", "<?php\nRoute::get('/', fn () => 1)->name('home');\n"),
+            ("config/app.php", "<?php return ['name' => 'x'];"),
+        ]);
+        files.extend_from_slice(extra);
+        let fixture = Fixture::framework(&files);
+        diagnostics(
+            &fixture.index,
+            None,
+            template,
+            &[],
+            &InspectionSettings::default(),
+            true,
+        )
+        .into_iter()
+        .map(|found| {
+            format!(
+                "{} `{}`",
+                found.code,
+                &template[usize::from(found.range.start())..usize::from(found.range.end())]
+            )
+        })
+        .collect()
+    }
+
+    fn found(template: &str) -> Vec<String> {
+        found_with(&[], template)
+    }
+
+    #[test]
+    fn php_that_does_not_parse_is_reported_where_it_is_written() {
+        assert_eq!(found("<p>{{ $a + }}</p>"), ["syntax ``"]);
+        assert_eq!(found("@php $a = ; @endphp"), ["syntax ``"]);
+        assert!(found("<p>{{ $a + 1 }}</p> @php $b = 2; @endphp @if ($c) @endif").is_empty());
+        assert!(found("@media (max-width: 600px) { } user@example.com @{{ not php ( }}").is_empty());
+    }
+
+    #[test]
+    fn blocks_that_do_not_close_are_reported() {
+        assert_eq!(found("@if ($a)\n<p>x</p>"), ["unbalanced-directive `@if ($a)`"]);
+        assert_eq!(found("@endforeach"), ["unbalanced-directive `@endforeach`"]);
+        assert!(found("@section('title', 'x') @push('body', 'y') @section('main') z @endsection").is_empty());
+    }
+
+    #[test]
+    fn a_conditional_of_the_project_is_a_block_and_a_registered_directive_replaces_the_compilers() {
+        let provider = (
+            "app/Providers/BladeServiceProvider.php",
+            "<?php namespace App\\Providers; class BladeServiceProvider { public function boot() { Blade::if('admin', fn () => true); Blade::directive('error', fn ($e) => ''); } }",
+        );
+        assert!(found_with(&[provider], "@admin x @else y @endadmin @error('email')").is_empty());
+        assert_eq!(found("@error('email')"), ["unbalanced-directive `@error('email')`"]);
+    }
+
+    #[test]
+    fn names_the_project_does_not_have_are_reported() {
+        assert_eq!(
+            found(
+                "@include('nope') @includeIf('maybe') {{ route('missing') }} {{ route('home') }} {{ config('app.nope') }}"
+            ),
+            [
+                "unknown-view `nope`",
+                "unknown-route `missing`",
+                "unknown-config-key `app.nope`"
+            ]
+        );
+    }
+}
