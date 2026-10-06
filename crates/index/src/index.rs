@@ -426,7 +426,9 @@ impl Index {
 
     pub fn class(&self, name: &str) -> Option<Class<'_>> {
         let name = name.trim_start_matches('\\');
-        let slots = self.classes.get(&class_key(name))?;
+        let Some(slots) = self.classes.get(&class_key(name)) else {
+            return self.aliased_class(name);
+        };
         self.pick(slots, |entry, index| {
             let decl = entry.symbols().classes.get(index as usize)?;
             // A file that changed since it was indexed may have its declarations elsewhere.
@@ -436,6 +438,20 @@ impl Index {
             Some((decl, decl.availability.contains(self.level)))
         })
         .map(|(file, decl)| Class { file, decl })
+    }
+
+    /// The class a global alias of Laravel's stands for (`DB`), for a name that has no namespace.
+    fn aliased_class(&self, name: &str) -> Option<Class<'_>> {
+        if name.contains('\\') || !self.frameworks().laravel {
+            return None;
+        }
+        let aliases = self.section::<crate::framework::aliases::ClassAliases>();
+        let target = aliases.target(name)?;
+        // A class an alias names is never itself an alias without a namespace.
+        if !target.contains('\\') {
+            return None;
+        }
+        self.class(target)
     }
 
     /// How many files declare a class of this name that exists at the level. More than one means

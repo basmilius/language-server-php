@@ -140,14 +140,14 @@ fn markers() -> &'static HashMap<String, Vec<Entry>> {
     })
 }
 
-/// The class that receives what a class does not declare, from the `@forwards` of its overlay entry:
-/// the calls the framework passes on through `__call`.
-pub fn forwards_of(index: &Index, class: &str) -> Option<String> {
+/// The classes that receive what a class does not declare, from the `@forwards` of its overlay
+/// entry, in order: the calls the framework passes on through `__call`.
+pub fn forwards_of(index: &Index, class: &str) -> Vec<String> {
     let frameworks = index.frameworks();
     if !(frameworks.laravel || frameworks.facades) {
-        return None;
+        return Vec::new();
     }
-    static FORWARDS: OnceLock<HashMap<String, String>> = OnceLock::new();
+    static FORWARDS: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
     FORWARDS
         .get_or_init(|| {
             let mut out = HashMap::new();
@@ -159,7 +159,10 @@ pub fn forwards_of(index: &Index, class: &str) -> Option<String> {
                 {
                     out.insert(
                         class.name.to_ascii_lowercase(),
-                        tag.text.trim().trim_start_matches('\\').to_string(),
+                        tag.text
+                            .split_whitespace()
+                            .map(|target| target.trim_start_matches('\\').to_string())
+                            .collect(),
                     );
                 }
             }
@@ -167,6 +170,7 @@ pub fn forwards_of(index: &Index, class: &str) -> Option<String> {
         })
         .get(&class.to_ascii_lowercase())
         .cloned()
+        .unwrap_or_default()
 }
 
 /// The class whose methods name the directives of a Blade template.

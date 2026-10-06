@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::composer::Composer;
 
 pub mod abilities;
+pub mod aliases;
 pub mod auth;
 pub mod config;
 pub mod container;
@@ -322,10 +323,10 @@ fn forward_calls<'a>(
     out: &mut Vec<crate::hierarchy::Found<'a, crate::model::Method>>,
     names: &mut std::collections::HashSet<String>,
 ) {
-    for ancestor in ancestors {
-        let Some(target) = overlay::forwards_of(index, &ancestor.class.decl.name) else {
-            continue;
-        };
+    for target in ancestors
+        .iter()
+        .flat_map(|ancestor| overlay::forwards_of(index, &ancestor.class.decl.name))
+    {
         let target_type = crate::types::Type::class(target);
         let forwarded = match only {
             Some(name) => index.find_method(&target_type, name).into_iter().collect(),
