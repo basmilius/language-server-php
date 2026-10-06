@@ -91,7 +91,7 @@ jobs:
         env:
           PHP_RELEASE_TAG: ${{ inputs.release_tag }}
         run: python scripts/native-release.py asset --binary "target/${{ matrix.target }}/release/${{ matrix.binary }}" --platform "${{ matrix.platform }}" --tag "$PHP_RELEASE_TAG" --output artifacts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: inputs.release_tag != ''
         with:
           name: php-language-server-${{ matrix.platform }}
@@ -110,13 +110,13 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: php-language-server-*
           path: native-artifacts
       - name: Verify archives and merge platform descriptors
         run: python scripts/native-release.py merge --input native-artifacts --output native-artifacts/php-language-server-release.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: php-language-server-release
           path: native-artifacts
