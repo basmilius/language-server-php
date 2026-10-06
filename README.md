@@ -23,6 +23,7 @@ php-language-server --stdio
 | [Getting started](./docs/getting-started.md)  | Building, starting and connecting                               |
 | [Configuration](./docs/configuration.md)      | Settings, language level, Composer, stubs, cache and formatter  |
 | [Features](./docs/features.md)                | What it answers, frameworks and runnable tests                  |
+| [Clients](./docs/clients.md)                  | What an editor sends and announces for each feature             |
 | [Distribution](./docs/distribution.md)        | Release archives and the descriptor an installer pins           |
 | [Maintaining](./docs/maintaining.md)          | The crates, checks, corpus and releases                         |
 
