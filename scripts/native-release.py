@@ -57,22 +57,26 @@ def third_party_contents(target):
     return contents
 
 
-def asset(args):
-    if not re.fullmatch(r'v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', args.tag):
-        raise ValueError('tag must be an Adecore semver release tag')
-    source_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=PACKAGE, text=True).strip()
-    platform = METADATA['platforms'][args.platform]
+def check_pins():
     cargo = (PACKAGE / 'Cargo.toml').read_text()
     stubs = (PACKAGE / 'crates/index/src/stubs.rs').read_text()
     if f'version = "{METADATA["version"]}"' not in cargo or f'STUBS_COMMIT: &str = "{METADATA["stubsCommit"]}"' not in stubs:
         raise ValueError('native-source.json differs from the compiled source pins')
+
+
+def asset(args):
+    if args.tag != 'v' + METADATA['version'] and not re.fullmatch(r'v\d+\.\d+\.\d+-local', args.tag):
+        raise ValueError(f'tag must be v{METADATA["version"]}, the version in native-source.json, or a -local tag')
+    check_pins()
+    source_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=PACKAGE, text=True).strip()
+    platform = METADATA['platforms'][args.platform]
     version = subprocess.run([str(args.binary.resolve()), '--version'], capture_output=True, text=True, check=True, timeout=10)
     if version.stdout.strip() != 'php-language-server ' + METADATA['version']:
         raise ValueError('native binary version differs from native-source.json')
     args.output.mkdir(parents=True, exist_ok=True)
     filename = f'php-language-server-{args.tag}-{args.platform}.{platform["format"]}'
     archive = args.output / filename
-    build = {**METADATA, 'adecoreVersion': args.tag.removeprefix('v'), 'adecoreSourceRevision': source_revision, 'platform': args.platform, 'target': platform['target']}
+    build = {**METADATA, 'buildRevision': source_revision, 'platform': args.platform, 'target': platform['target']}
     contents = {
         platform['executable']: args.binary.read_bytes(),
         'LICENSE': (PACKAGE / 'LICENSE').read_bytes(),
@@ -99,9 +103,9 @@ def asset(args):
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
     release = {
         'version': METADATA['version'], 'stubsCommit': METADATA['stubsCommit'],
-        'adecoreVersion': args.tag.removeprefix('v'), 'sourceRevision': source_revision,
+        'sourceRevision': source_revision,
         'assets': {args.platform: {
-            'url': f'https://github.com/basmilius/adecore/releases/download/{args.tag}/{filename}',
+            'url': f'https://github.com/basmilius/language-server-php/releases/download/{args.tag}/{filename}',
             'sha256': checksum, 'format': platform['format'], 'executable': platform['executable'],
         }},
     }
@@ -121,7 +125,7 @@ def merge(args):
             raise ValueError('release descriptor differs from native-source.json pins')
         if combined is None:
             combined = {**release, 'assets': {}}
-        if any(release[key] != combined[key] for key in ('version', 'stubsCommit', 'adecoreVersion', 'sourceRevision')):
+        if any(release[key] != combined[key] for key in ('version', 'stubsCommit', 'sourceRevision')):
             raise ValueError('native assets must come from the same pinned source')
         item = release['assets'][platform]
         filename = item['url'].rsplit('/', 1)[-1]

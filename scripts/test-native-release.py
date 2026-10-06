@@ -17,7 +17,7 @@ SPEC.loader.exec_module(RELEASE)
 
 class ReleaseDescriptorTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(prefix='adecore-php-release-')
+        self.directory = tempfile.TemporaryDirectory(prefix='php-language-server-release-')
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.args = argparse.Namespace(input=self.root, output=self.root / 'release.json')
@@ -28,7 +28,6 @@ class ReleaseDescriptorTests(unittest.TestCase):
             descriptor = {
                 'version': RELEASE.METADATA['version'],
                 'stubsCommit': RELEASE.METADATA['stubsCommit'],
-                'adecoreVersion': '1.0.0',
                 'sourceRevision': 'a' * 40,
                 'assets': {platform: {
                     'url': 'https://example.test/' + filename,
@@ -74,6 +73,11 @@ class ReleaseDescriptorTests(unittest.TestCase):
             path.write_text(json.dumps(descriptor))
         with self.assertRaisesRegex(ValueError, 'native-source.json pins'):
             self.merge()
+
+
+class SourcePinTests(unittest.TestCase):
+    def test_native_source_matches_the_workspace(self):
+        RELEASE.check_pins()
 
 
 if __name__ == '__main__':

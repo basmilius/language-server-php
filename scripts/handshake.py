@@ -40,7 +40,7 @@ def main():
     if version.stdout.strip() != 'php-language-server ' + metadata['version']:
         raise AssertionError('binary version differs from native-source.json')
 
-    with tempfile.TemporaryDirectory(prefix='adecore-php-stdio-') as directory:
+    with tempfile.TemporaryDirectory(prefix='php-language-server-stdio-') as directory:
         process = subprocess.Popen([str(binary), '--stdio'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=directory)
         messages = queue.Queue()
         threading.Thread(target=read_messages, args=(process.stdout, messages), daemon=True).start()

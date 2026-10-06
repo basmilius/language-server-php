@@ -1,38 +1,40 @@
-# @adecore/php-language-server
+# language-server-php
 
-[![npm](https://img.shields.io/npm/v/@adecore/php-language-server)](https://www.npmjs.com/package/@adecore/php-language-server)
-[![Docs](https://img.shields.io/badge/docs-adecore.dev-blue)](https://adecore.dev/php-language-server/)
+A language server for PHP 8.1 through 8.5, written in Rust, that speaks LSP over stdio. It indexes a project with its Composer packages and the standard library, and answers completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and the tests a file can run, with support for PHPUnit, Pest, Laravel and Symfony. It reads code and never runs it.
 
-A language server for PHP 8.1 through 8.5, written in Rust, that speaks LSP over stdio: completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and runnable tests, with support for Composer, PHPUnit, Pest, Laravel and Symfony. The package holds the Cargo workspace and a small Node entry point that finds a built binary. It downloads, builds, installs and starts nothing.
+## Install
 
-## Install and build
+Every [release](https://github.com/basmilius/language-server-php/releases) attaches an archive for macOS on Apple silicon, Linux arm64 and x64, and Windows x64, with a checksum each and a descriptor an installer pins. Or build it yourself with Rust 1.85 or newer:
 
 ```sh
-bun add @adecore/php-language-server
-cd node_modules/@adecore/php-language-server && cargo build --release --locked
+cargo build --release --locked
 ```
 
-Or install a release archive: every release attaches one for macOS on Apple silicon, Linux arm64 and x64, and Windows x64, with a checksum each and a descriptor to pin.
+The binary lands in `target/release/php-language-server`. PHP itself is not needed, to build or to run.
 
-```ts
-import { PHP_LANGUAGE_SERVER_METADATA, phpLanguageServerBinaryPath } from '@adecore/php-language-server';
-
-const executable = phpLanguageServerBinaryPath(); // the release build, or null
+```sh
+php-language-server --stdio
 ```
-
-Start it with `--stdio`. `--version` prints the server's own version, `PHP_LANGUAGE_SERVER_METADATA.version`, which is separate from the npm version.
 
 ## Documentation
 
-| Page | What it covers |
-|---|---|
-| [Getting started](https://adecore.dev/php-language-server/getting-started) | Building, finding, starting and connecting |
-| [Configuration](https://adecore.dev/php-language-server/configuration) | Settings, language level, Composer, stubs, cache and formatter |
-| [Features](https://adecore.dev/php-language-server/features) | What it answers, frameworks and runnable tests |
-| [Distribution](https://adecore.dev/php-language-server/distribution) | Release archives and the descriptor an installer pins |
-| [Maintaining](https://adecore.dev/php-language-server/maintaining) | The crates, checks and corpus |
+| Page                                          | What it covers                                                  |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| [Getting started](./docs/getting-started.md)  | Building, starting and connecting                               |
+| [Configuration](./docs/configuration.md)      | Settings, language level, Composer, stubs, cache and formatter  |
+| [Features](./docs/features.md)                | What it answers, frameworks and runnable tests                  |
+| [Distribution](./docs/distribution.md)        | Release archives and the descriptor an installer pins           |
+| [Maintaining](./docs/maintaining.md)          | The crates, checks, corpus and releases                         |
 
 [NATIVE.md](./NATIVE.md) describes the implementation, measurements and what is left to do.
+
+## Limits
+
+- Twig has no language model, and Blade only a minimal one: no `@foreach` scope, props, slots or component attributes.
+- Livewire, Inertia, DQL and the Doctrine query builder, Eloquent query strings and validation rule strings are not analyzed.
+- Usages are found in the project, not in installed packages, and not in ordinary strings and comments. There is no reference index kept on disk.
+- Composer autoloading is read from PSR-4 and PSR-0; an authoritative classmap and `files` are not looked up by name. `@psalm-type` aliases are not read.
+- Dynamic code, such as variable variables and members made at run time, gives `mixed`.
 
 ## License
 
