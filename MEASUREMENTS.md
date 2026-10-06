@@ -60,7 +60,7 @@ A change to a document parses the whole file again; at these speeds that is chea
 
 | | Before | After |
 | --- | --- | --- |
-| Lexing and parsing all of phpstorm-stubs | 67.0 to 67.6 ms | 66.4 to 68.5 ms |
+| Lexing and parsing every standard library stub | 67.0 to 67.6 ms | 66.4 to 68.5 ms |
 | Extracting the declarations of every stub file | 103.9 to 105.3 ms | 103.8 to 104.8 ms |
 | A typical file | 492 µs | 498 µs |
 | Lexing the 1.4 MB synthetic file | 3.65 ms | 3.92 ms |
