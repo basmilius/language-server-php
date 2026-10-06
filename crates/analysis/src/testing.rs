@@ -7,8 +7,7 @@ use php_index::extract::{ExtractOptions, extract};
 use php_index::{Index, Origin};
 use php_syntax::{PhpVersion, SyntaxNode, parse};
 
-/// Where a test puts the cursor.
-pub const CURSOR: &str = "$0";
+pub use lsc_text::testing::CURSOR;
 
 pub struct Fixture {
     pub index: Index,
@@ -117,10 +116,9 @@ impl Fixture {
 
 /// The text without the cursor marker, its tree and the offset where the marker was.
 pub fn split_cursor(text: &str) -> (String, SyntaxNode, u32) {
-    let offset = text.find(CURSOR).expect("the text has a cursor marker");
-    let clean = text.replacen(CURSOR, "", 1);
+    let (offset, clean) = lsc_text::testing::cursor(text);
     let root = parse(&clean).syntax();
-    (clean, root, offset as u32)
+    (clean, root, offset)
 }
 
 /// The files of a fixture as the place a search for usages reads from.

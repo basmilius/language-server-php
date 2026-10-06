@@ -252,8 +252,7 @@ final class NotATest { public function testIt(): void {} }
 fn completions(code: &str) -> Vec<String> {
     use crate::completion::{CompletionOptions, complete};
     let fixture = fixture(code);
-    let offset = code.find("$0").expect("a cursor marker") as u32;
-    let text = code.replacen("$0", "", 1);
+    let (offset, text) = lsc_text::testing::cursor(code);
     complete(&fixture.index, &text, offset, CompletionOptions::default())
         .items
         .into_iter()
@@ -331,8 +330,7 @@ final class FooTest {
 }
 "#;
     let fixture = Fixture::new(&[("phpunit.php", PHPUNIT), ("Other.php", other)]).with_current(code);
-    let offset = code.find("$0").unwrap() as u32;
-    let text = code.replacen("$0", "", 1);
+    let (offset, text) = lsc_text::testing::cursor(code);
     let labels: Vec<String> = crate::completion::complete(
         &fixture.index,
         &text,
@@ -443,8 +441,7 @@ final class FooTest extends TestCase {
     );
     let completing = code.replace("'se$0nd'", "'$0'");
     let fixture = mock_fixture(&completing);
-    let offset = completing.find("$0").unwrap() as u32;
-    let text = completing.replacen("$0", "", 1);
+    let (offset, text) = lsc_text::testing::cursor(&completing);
     let labels: Vec<String> = crate::completion::complete(
         &fixture.index,
         &text,
@@ -554,8 +551,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 final class FooTest {}
 "#;
     let fixture = mock_fixture(code);
-    let offset = code.find("$0").unwrap() as u32;
-    let text = code.replacen("$0", "", 1);
+    let (offset, text) = lsc_text::testing::cursor(code);
     let list = crate::completion::complete(
         &fixture.index,
         &text,

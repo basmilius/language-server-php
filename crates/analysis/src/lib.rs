@@ -20,7 +20,6 @@ mod imports;
 pub mod infer;
 pub mod inlay_hints;
 pub mod inspections;
-mod line_index;
 pub mod nav;
 pub mod pest;
 pub mod phpunit;
@@ -42,7 +41,7 @@ pub mod yaml;
 pub use diagnostics::{Diagnostic, DiagnosticSeverity, diagnostics};
 pub use folding::{Fold, FoldKind, folding_ranges};
 pub use infer::{Analyzer, Env};
-pub use line_index::{LineCol, LineIndex, PositionEncoding};
+pub use lsc_text::{LineCol, LineIndex, PositionEncoding};
 pub use selection::selection_ranges;
 pub use symbols::{Symbol, SymbolKind, document_symbols};
 

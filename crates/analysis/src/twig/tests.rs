@@ -3,7 +3,7 @@
 use php_index::framework::testing::{SYMFONY, TWIG as TWIG_LIBRARY};
 
 use super::*;
-use crate::testing::{CURSOR, Fixture};
+use crate::testing::Fixture;
 
 const TWIG: &[(&str, &str)] = &[
     (
@@ -28,8 +28,8 @@ fn fixture() -> Fixture {
 const PAGE: &str = "/project/templates/blog/index.html.twig";
 
 fn split(template: &str) -> (String, u32) {
-    let offset = template.find(CURSOR).expect("a cursor") as u32;
-    (template.replacen(CURSOR, "", 1), offset)
+    let (offset, text) = lsc_text::testing::cursor(template);
+    (text, offset)
 }
 
 fn places(template: &str) -> Vec<String> {
@@ -143,7 +143,7 @@ mod variables {
 
     use super::super::*;
     use crate::references::{Current, references_at};
-    use crate::testing::{CURSOR, Files, Fixture};
+    use crate::testing::{Files, Fixture};
 
     const POST: &str = "<?php\nnamespace App\\Entity;\nclass Post {\n    public string $slug = '';\n    public function getTitle(): string {}\n    public function isPublished(): bool {}\n    public function author(): User {}\n}\nclass User { public function getName(): string {} }\n";
     const CONTROLLER: &str = "<?php\nnamespace App\\Controller;\nuse App\\Entity\\Post;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nclass PostController extends AbstractController {\n    public function show(Post $post) {\n        return $this->render('blog/post.html.twig', ['post' => $post, 'posts' => [$post]]);\n    }\n}\n";
@@ -177,8 +177,8 @@ mod variables {
     }
 
     fn at(template: &str) -> (String, u32) {
-        let offset = template.find(CURSOR).expect("a cursor") as u32;
-        (template.replacen(CURSOR, "", 1), offset)
+        let (offset, text) = lsc_text::testing::cursor(template);
+        (text, offset)
     }
 
     #[test]
@@ -284,8 +284,7 @@ mod variables {
         assert_eq!(given.len(), 1);
         assert_eq!(given[0].1.display(true), "FormView");
         let text = "{{ form.title.va$0rs }}";
-        let offset = text.find(CURSOR).expect("a cursor") as u32;
-        let text = text.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(text);
         let hover = hover_at(&fixture.index, Some(path), &text, &given, offset).expect("a hover");
         assert!(hover.markdown.contains("vars"), "{}", hover.markdown);
     }

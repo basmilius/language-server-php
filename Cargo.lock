@@ -538,6 +538,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lsc-text"
+version = "0.1.0"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.0#ee8dc0272b446a856068f838eab1b08e8d91dd53"
+dependencies = [
+ "text-size",
+]
+
+[[package]]
 name = "lsp-server"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -621,6 +629,7 @@ version = "0.4.1"
 dependencies = [
  "criterion",
  "expect-test",
+ "lsc-text",
  "php-format",
  "php-index",
  "php-syntax",

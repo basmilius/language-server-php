@@ -6,7 +6,7 @@ use super::{ActionInput, ActionKind, apply, with_actions};
 use crate::inspections::tests::index_with;
 use crate::inspections::{Externals, InspectionEnv, InspectionSettings, Override, inspect};
 
-const CURSOR: &str = "$0";
+use crate::testing::CURSOR;
 
 pub(super) struct Applied {
     pub title: String,

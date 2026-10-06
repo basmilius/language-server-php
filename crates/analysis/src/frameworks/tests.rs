@@ -181,7 +181,7 @@ mod keys {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const CONFIG_APP: &str = "<?php\nreturn [\n    'name' => env('APP_NAME', 'Laravel'),\n    'locale' => 'en',\n    'nested' => ['a' => 1],\n];\n";
 
@@ -203,8 +203,7 @@ mod keys {
 
     fn completions(code: &str) -> Vec<String> {
         let fixture = project().with_current(code);
-        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -299,8 +298,7 @@ mod keys {
         ]);
         let code = "<?php use App\\Http\\Requests\\StoreUserRequest;\nfunction store(StoreUserRequest $request) { $request->input('$0'); }";
         let fixture = Fixture::framework(&files).with_current(code);
-        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -501,8 +499,7 @@ mod symfony {
 
     fn completions(code: &str) -> Vec<String> {
         let fixture = project().with_current(code);
-        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -691,8 +688,7 @@ mod symfony {
 
     fn event_completions(code: &str) -> Vec<String> {
         let fixture = with_events().with_current(code);
-        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -731,8 +727,7 @@ mod symfony {
             ("translations/messages.en.yaml", "app:\n    title: Title\n"),
         ]);
         let fixture = Fixture::framework(&files).with_current(code);
-        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -941,7 +936,7 @@ mod relation_strings {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::references::{Current, references_at};
-    use crate::testing::{CURSOR, Files, Fixture, split_cursor};
+    use crate::testing::{Files, Fixture, split_cursor};
 
     const USER: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\nclass User extends Model {\n    public function posts(): HasMany { return $this->hasMany(Post::class); }\n    public function helper() {}\n}\n";
     const POST: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\nclass Post extends Model {\n    public function comments(): HasMany { return $this->hasMany(Comment::class); }\n}\n";
@@ -981,8 +976,7 @@ mod relation_strings {
     fn segments_complete_from_their_model() {
         let fixture = fixture();
         let complete = |code: &str| -> Vec<String> {
-            let offset = code.find(CURSOR).expect("a cursor") as u32;
-            let text = code.replacen(CURSOR, "", 1);
+            let (offset, text) = lsc_text::testing::cursor(code);
             complete(&fixture.index, &text, offset, CompletionOptions::default())
                 .items
                 .into_iter()
@@ -1063,7 +1057,7 @@ mod validation_rules {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     fn fixture() -> Fixture {
         let mut files = HELPERS.to_vec();
@@ -1112,8 +1106,7 @@ mod validation_rules {
     fn rules_tables_columns_and_fields_complete() {
         let fixture = fixture();
         let complete = |code: &str| -> Vec<String> {
-            let offset = code.find(CURSOR).expect("a cursor") as u32;
-            let text = code.replacen(CURSOR, "", 1);
+            let (offset, text) = lsc_text::testing::cursor(code);
             complete(&fixture.index, &text, offset, CompletionOptions::default())
                 .items
                 .into_iter()
@@ -1164,7 +1157,7 @@ mod casts {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const USER: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass User extends Model {\n    protected $casts = ['email' => 'string', 'options' => 'encrypted:array', 'price' => 'decimal:2', 'born' => 'datetime:Y-m-d', 'money' => 'App\\Casts\\Money:EUR', 'wrong' => 'booleen', 'other' => 'App\\Nope'];\n    protected function casts(): array {\n        return ['id' => 'int', 'flag' => 'Bool'];\n    }\n}\n";
     const MONEY: &str = "<?php\nnamespace App\\Casts;\nclass Money {}\n";
@@ -1197,8 +1190,7 @@ mod casts {
     fn keys_complete_columns_and_values_casts() {
         let fixture = fixture();
         let complete = |code: &str| -> Vec<String> {
-            let offset = code.find(CURSOR).expect("a cursor") as u32;
-            let text = code.replacen(CURSOR, "", 1);
+            let (offset, text) = lsc_text::testing::cursor(code);
             complete(&fixture.index, &text, offset, CompletionOptions::default())
                 .items
                 .into_iter()
@@ -1243,7 +1235,7 @@ mod dql {
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
     use crate::references::{Current, references_at};
-    use crate::testing::{CURSOR, Files, Fixture, split_cursor};
+    use crate::testing::{Files, Fixture, split_cursor};
 
     const USER: &str = "<?php namespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n#[ORM\\Entity]\nclass User {\n    #[ORM\\Id] private int $id;\n    #[ORM\\Column] private string $email;\n    #[ORM\\Column] private string $firstName;\n}\n";
     const POST: &str = "<?php namespace App\\Entity;\nuse App\\Repository\\PostRepository;\nuse Doctrine\\ORM\\Mapping as ORM;\n#[ORM\\Entity(repositoryClass: PostRepository::class)]\nclass Post {\n    #[ORM\\Column] private string $title;\n    #[ORM\\ManyToOne(targetEntity: User::class)] private User $author;\n}\n";
@@ -1293,8 +1285,7 @@ mod dql {
     fn a_field_completes_after_its_alias() {
         let fixture = fixture();
         let code = REPOSITORY.replacen("->orderBy('p.nope')", "->orderBy('p.$0')", 1);
-        let offset = code.find(CURSOR).expect("a cursor") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(&code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -1364,7 +1355,7 @@ mod columns {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::references::{Current, references_at};
-    use crate::testing::{CURSOR, Files, Fixture, split_cursor};
+    use crate::testing::{Files, Fixture, split_cursor};
 
     const USER: &str =
         "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass User extends Model {}\n";
@@ -1402,8 +1393,7 @@ mod columns {
     fn a_column_completes_from_the_table() {
         let fixture = fixture();
         let code = "<?php\nuse App\\Models\\User;\nUser::where('$0');\n";
-        let offset = code.find(CURSOR).expect("a cursor") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -1447,7 +1437,7 @@ mod inertia {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const CONTROLLER: &str = "<?php\nuse Inertia\\Inertia;\nfunction index() {\n    Inertia::render('Users/Index', []);\n    inertia('Users/Edit');\n    Inertia::render('Users/Gone');\n}\n";
 
@@ -1476,8 +1466,7 @@ mod inertia {
             .collect();
         assert_eq!(found, ["/project/resources/js/Pages/Users/Index.vue"]);
         let code = "<?php\nInertia\\Inertia::render('Users/$0');\n";
-        let offset = code.find(CURSOR).expect("a cursor") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -1514,7 +1503,7 @@ mod pennant {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const PAGE: &str = "<?php\nuse Laravel\\Pennant\\Feature;\nfunction page($user) {\n    Feature::active('new-api');\n    Feature::for($user)->active('beta');\n    Feature::someAreActive(['beta', 'nope']);\n}\n";
 
@@ -1558,8 +1547,7 @@ mod pennant {
             ["/project/app/Features/Beta.php"]
         );
         let code = "<?php\n\\Laravel\\Pennant\\Feature::active('$0');\n";
-        let offset = code.find(CURSOR).expect("a cursor") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -1639,7 +1627,7 @@ mod serializer_groups {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const BOOK: &str = "<?php\nnamespace App\\Entity;\nuse Symfony\\Component\\Serializer\\Attribute\\Groups;\nclass Book {\n    #[Groups(['book:read', 'book:write'])]\n    public string $title;\n}\n";
     const API: &str = "<?php\nnamespace App\\Controller;\nuse Symfony\\Component\\Serializer\\Normalizer\\AbstractNormalizer;\nfunction show($serializer, $book) {\n    $serializer->serialize($book, 'json', [AbstractNormalizer::GROUPS => ['book:read', 'nope']]);\n    $validator->validate($book, null, [AbstractNormalizer::GROUPS => ['strict']]);\n    return new Response(context: ['groups' => 'book:write']);\n}\n";
@@ -1669,8 +1657,7 @@ mod serializer_groups {
             .collect();
         assert_eq!(found, ["/project/src/Entity/Book.php"]);
         let code = "<?php\nfunction f($s, $b) { $s->normalize($b, null, ['groups' => ['$0']]); }\n";
-        let offset = code.find(CURSOR).expect("a cursor") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -1753,7 +1740,7 @@ mod workflow {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const CONFIG: &str = "framework:\n    workflows:\n        blog_publishing:\n            type: workflow\n            places: [draft, reviewed, published]\n            transitions:\n                to_review:\n                    from: draft\n                    to: reviewed\n                publish:\n                    from: reviewed\n                    to: published\n";
     const CODE: &str = "<?php\nuse Symfony\\Component\\Workflow\\WorkflowInterface;\nuse Symfony\\Component\\Workflow\\Registry;\nuse Symfony\\Component\\Workflow\\Attribute\\AsGuardListener;\nfunction review(WorkflowInterface $workflow, Registry $registry, $post) {\n    $workflow->apply($post, 'publish');\n    $workflow->can($post, 'archive');\n    $registry->get($post, 'blog_publishing');\n}\n#[AsGuardListener(workflow: 'blog_publishing', transition: 'to_review')]\nfunction guard() {}\n";
@@ -1800,8 +1787,7 @@ mod workflow {
         assert_eq!(places(&fixture, "'to_review'", "'to_re$0view'"), ["to_review"]);
         let code =
             "<?php\nfunction f(\\Symfony\\Component\\Workflow\\WorkflowInterface $w, $p) { $w->apply($p, '$0'); }\n";
-        let offset = code.find(CURSOR).expect("a cursor") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -1838,7 +1824,7 @@ mod raxos {
     use crate::completion::{CompletionOptions, complete};
     use crate::infer::Analyzer;
     use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
-    use crate::testing::{CURSOR, Fixture, split_cursor};
+    use crate::testing::{Fixture, split_cursor};
 
     const ORDER: &str = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\{Model, ModelArrayList};\nuse Raxos\\Database\\Orm\\Attribute\\{Alias, BelongsTo, Column, HasMany, PrimaryKey, Visible};\nclass Order extends Model {\n    #[PrimaryKey] public int $id;\n    #[Column('created_on')] public string $createdOn;\n    #[BelongsTo] public ?User $buyer;\n    #[HasMany(OrderLine::class)] #[Visible(['id'])] public ModelArrayList $lines;\n}\n";
     const USER: &str = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\Model;\nuse Raxos\\Database\\Orm\\Attribute\\{Alias, Column};\nclass User extends Model {\n    #[Column('first_name')] #[Alias('firstName')] public string $firstName;\n    #[Column] public string $email;\n}\n";
@@ -1863,8 +1849,7 @@ mod raxos {
     fn completions(body: &str) -> Vec<String> {
         let code = with_imports(body);
         let fixture = project().with_current(&code);
-        let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-        let text = code.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(&code);
         let mut labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()

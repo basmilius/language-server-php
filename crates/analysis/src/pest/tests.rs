@@ -146,8 +146,7 @@ it('works', function () {
 });
 "#;
     let fixture = fixture(code);
-    let offset = code.find("$0").unwrap() as u32;
-    let text = code.replacen("$0", "", 1);
+    let (offset, text) = lsc_text::testing::cursor(code);
     let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
         .items
         .into_iter()

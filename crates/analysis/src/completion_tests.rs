@@ -53,8 +53,7 @@ class Str { public static function slug(string $s): string { return $s; } }
 
 fn run(fixture: Fixture, code: &str) -> CompletionList {
     let fixture = fixture.with_current(code);
-    let offset = code.find(CURSOR).expect("a cursor marker") as u32;
-    let text = code.replacen(CURSOR, "", 1);
+    let (offset, text) = lsc_text::testing::cursor(code);
     complete(&fixture.index, &text, offset, CompletionOptions::default())
 }
 
@@ -469,8 +468,7 @@ fn a_string_that_starts_a_qualified_name_completes_classes() {
         ("User.php", "<?php\nnamespace App\\Models;\nclass User {}\n"),
     ]);
     let labels = |code: &str| -> Vec<String> {
-        let offset = code.find("$0").expect("a cursor") as u32;
-        let text = code.replacen("$0", "", 1);
+        let (offset, text) = lsc_text::testing::cursor(code);
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()

@@ -490,7 +490,7 @@ mod tests {
     use php_index::framework::testing::SYMFONY;
 
     use super::*;
-    use crate::testing::{CURSOR, Fixture};
+    use crate::testing::Fixture;
 
     const SERVICES: &str = "parameters:\n    app.locale: 'en'\n\nservices:\n    App\\:\n        resource: '../src/'\n    app.mailer:\n        class: App\\Service\\Mailer\n        arguments: ['%app.locale%', '@logger', '%env(int:MAX)%']\n    App\\Service\\Missing: ~\n";
 
@@ -583,8 +583,7 @@ mod tests {
     fn completes_parameters_services_and_classes() {
         let fixture = fixture();
         let complete = |text: &str| -> Vec<String> {
-            let offset = text.find(CURSOR).expect("a cursor") as u32;
-            let text = text.replacen(CURSOR, "", 1);
+            let (offset, text) = lsc_text::testing::cursor(text);
             complete_at(&fixture.index, &text, offset, CompletionOptions::default())
                 .map(|list| list.items.into_iter().map(|item| item.label).collect())
                 .unwrap_or_default()

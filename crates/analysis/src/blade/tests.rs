@@ -3,7 +3,7 @@
 use php_index::framework::testing::HELPERS;
 
 use super::*;
-use crate::testing::{CURSOR, Fixture};
+use crate::testing::Fixture;
 
 fn fixture() -> Fixture {
     let mut files = HELPERS.to_vec();
@@ -22,8 +22,7 @@ fn fixture() -> Fixture {
 }
 
 fn places(template: &str) -> Vec<String> {
-    let offset = template.find(CURSOR).expect("a cursor") as u32;
-    let text = template.replacen(CURSOR, "", 1);
+    let (offset, text) = lsc_text::testing::cursor(template);
     definitions_at(&fixture().index, None, &text, &[], offset)
         .into_iter()
         .map(|place| {
@@ -41,8 +40,7 @@ fn places(template: &str) -> Vec<String> {
 }
 
 fn completions(template: &str) -> Vec<String> {
-    let offset = template.find(CURSOR).expect("a cursor") as u32;
-    let text = template.replacen(CURSOR, "", 1);
+    let (offset, text) = lsc_text::testing::cursor(template);
     complete_at(&fixture().index, None, &text, &[], offset, CompletionOptions::default())
         .map(|list| list.items.into_iter().map(|item| item.label).collect())
         .unwrap_or_default()
@@ -142,8 +140,7 @@ fn no_prefix_of_a_template_breaks_the_reading() {
 #[test]
 fn hovers_the_php_in_a_template() {
     let template = "{{ \\App\\Models\\User::cou$0nt() }}";
-    let offset = template.find(CURSOR).expect("a cursor") as u32;
-    let text = template.replacen(CURSOR, "", 1);
+    let (offset, text) = lsc_text::testing::cursor(template);
     let hover = hover_at(&fixture().index, None, &text, &[], offset).expect("a hover");
     assert!(hover.markdown.contains("count"), "{}", hover.markdown);
     assert_eq!(
@@ -153,8 +150,7 @@ fn hovers_the_php_in_a_template() {
 }
 
 fn hover(template: &str) -> String {
-    let offset = template.find(CURSOR).expect("a cursor") as u32;
-    let text = template.replacen(CURSOR, "", 1);
+    let (offset, text) = lsc_text::testing::cursor(template);
     hover_at(&fixture().index, None, &text, &[], offset)
         .map(|hover| hover.markdown)
         .unwrap_or_default()
@@ -463,7 +459,7 @@ mod layouts {
 
     use crate::blade::{complete_at, definitions_at};
     use crate::completion::CompletionOptions;
-    use crate::testing::{CURSOR, Fixture};
+    use crate::testing::Fixture;
 
     const FILES: &[(&str, &str)] = &[
         (
@@ -488,8 +484,7 @@ mod layouts {
     }
 
     fn completions(template: &str) -> Vec<String> {
-        let offset = template.find(CURSOR).expect("a cursor") as u32;
-        let text = template.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(template);
         let mut items: Vec<String> =
             complete_at(&fixture().index, None, &text, &[], offset, CompletionOptions::default())
                 .map(|list| list.items.into_iter().map(|item| item.label).collect())
@@ -499,8 +494,7 @@ mod layouts {
     }
 
     fn places(template: &str) -> Vec<String> {
-        let offset = template.find(CURSOR).expect("a cursor") as u32;
-        let text = template.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(template);
         let fixture = fixture();
         definitions_at(&fixture.index, None, &text, &[], offset)
             .into_iter()
@@ -675,7 +669,7 @@ mod diagnostics {
 
 mod livewire {
     use super::super::*;
-    use crate::testing::{CURSOR, Fixture};
+    use crate::testing::Fixture;
 
     const COMPONENT: &str = "<?php\nnamespace App\\Livewire\\Forum;\nuse Livewire\\Component;\nuse App\\Livewire\\Forms\\ReplyForm;\nclass EditReply extends Component {\n    public string $body = '';\n    public ReplyForm $form;\n    public function save(): void {}\n    public function mount(int $replyId): void {}\n}\n";
     const FORM: &str = "<?php\nnamespace App\\Livewire\\Forms;\nclass ReplyForm {\n    public string $title = '';\n}\n";
@@ -700,8 +694,7 @@ mod livewire {
     }
 
     fn places(fixture: &Fixture, path: Option<&Path>, template: &str) -> Vec<String> {
-        let offset = template.find(CURSOR).expect("a cursor") as u32;
-        let text = template.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(template);
         definitions_at(&fixture.index, path, &text, &[], offset)
             .into_iter()
             .map(|place| {
@@ -713,8 +706,7 @@ mod livewire {
     }
 
     fn labels(fixture: &Fixture, path: Option<&Path>, template: &str) -> Vec<String> {
-        let offset = template.find(CURSOR).expect("a cursor") as u32;
-        let text = template.replacen(CURSOR, "", 1);
+        let (offset, text) = lsc_text::testing::cursor(template);
         complete_at(&fixture.index, path, &text, &[], offset, CompletionOptions::default())
             .map(|list| list.items.into_iter().map(|item| item.label).collect())
             .unwrap_or_default()
