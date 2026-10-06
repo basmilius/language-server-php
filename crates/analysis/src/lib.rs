@@ -6,6 +6,7 @@
 pub mod actions;
 mod ast;
 pub mod blade;
+pub mod class_strings;
 pub mod completion;
 pub mod context;
 pub mod decl;

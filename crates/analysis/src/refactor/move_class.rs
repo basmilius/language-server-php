@@ -503,6 +503,23 @@ fn edit_references(
                 }
                 continue;
             }
+            if hit.kind == HitKind::String {
+                if crate::class_strings::kept_by_refactors(&file_hits.path) {
+                    continue;
+                }
+                let literal = file
+                    .root
+                    .covering_element(hit.range)
+                    .ancestors()
+                    .find(|node| node.kind() == php_syntax::SyntaxKind::LITERAL);
+                if let Some(found) = literal.and_then(|literal| crate::class_strings::read(index, &literal)) {
+                    edits.push(replace(
+                        found.name_range,
+                        crate::class_strings::spelled(&found, &moved.new),
+                    ));
+                }
+                continue;
+            }
             if written.starts_with('\\') || written.contains('\\') {
                 edits.push(replace(whole, format!("\\{}", moved.new)));
                 continue;

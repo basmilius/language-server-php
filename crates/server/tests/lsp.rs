@@ -656,6 +656,37 @@ fn a_type_alias_types_what_its_docs_name_and_leads_to_its_declaration() {
 }
 
 #[test]
+fn a_string_that_holds_a_class_name_leads_to_it_and_is_one_of_its_usages() {
+    let disk = Disk::new();
+    disk.write("project/composer.json", r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#);
+    let home = "<?php\nnamespace App\\Http;\n\nclass Home\n{\n    public function show() {}\n}\n";
+    disk.write("project/src/Http/Home.php", home);
+    let routes = "<?php\n$routes = ['App\\Http\\Home@show'];\n";
+    disk.write("project/routes.php", routes);
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/routes.php");
+    client.open(&uri, routes);
+    let class = client.at("textDocument/definition", &uri, 1, 23);
+    assert_eq!(class[0]["uri"], disk.uri("project/src/Http/Home.php"), "{class}");
+    assert_eq!(class[0]["range"]["start"]["line"], 3, "{class}");
+    let method = client.at("textDocument/definition", &uri, 1, 29);
+    assert_eq!(method[0]["range"]["start"]["line"], 5, "{method}");
+    let home_uri = disk.uri("project/src/Http/Home.php");
+    client.open(&home_uri, home);
+    let usages = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": home_uri },
+            "position": { "line": 3, "character": 8 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    let found = usages.as_array().expect("locations");
+    assert!(found.iter().any(|location| location["uri"] == uri), "{usages}");
+    client.shutdown();
+}
+
+#[test]
 fn finds_usages_and_highlights_across_the_project() {
     let disk = Disk::new();
     disk.write(

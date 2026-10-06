@@ -339,3 +339,35 @@ fn renames_a_class_imported_through_a_group() {
         "<?php\nuse Lib\\Fresh;\n$x = new Fresh();\n"
     );
 }
+
+#[test]
+fn renaming_a_class_or_a_method_renames_the_strings_that_hold_it() {
+    let home = "<?php\nnamespace App\\Http;\n\nclass Home {\n    public function show() {}\n}\n";
+    let routes = "<?php\n$routes = ['App\\Http\\Home', 'App\\Http\\Home@show', 'App\\Http\\Home::show', 'Home'];\n";
+    let migration = "<?php\n$type = 'App\\Http\\Home';\n";
+    let outcome = run(
+        &[
+            ("Http/Home.php", home),
+            ("routes.php", routes),
+            ("database/migrations/2020_01_01_000000_types.php", migration),
+        ],
+        "<?php\nnew \\App\\Http\\Ho$0me();\n",
+        "Start",
+    );
+    outcome.result.expect("renamed");
+    assert!(!outcome.texts.contains_key("2020_01_01_000000_types.php"));
+    assert_eq!(
+        outcome.texts["routes.php"],
+        "<?php\n$routes = ['App\\Http\\Start', 'App\\Http\\Start@show', 'App\\Http\\Start::show', 'Home'];\n"
+    );
+    let outcome = run(
+        &[("Http/Home.php", home), ("routes.php", routes)],
+        "<?php\n(new \\App\\Http\\Home())->sh$0ow();\n",
+        "index",
+    );
+    outcome.result.expect("renamed");
+    assert_eq!(
+        outcome.texts["routes.php"],
+        "<?php\n$routes = ['App\\Http\\Home', 'App\\Http\\Home@index', 'App\\Http\\Home::index', 'Home'];\n"
+    );
+}

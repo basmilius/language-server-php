@@ -123,6 +123,22 @@ impl Analyzer<'_> {
         if let Some(found) = self.doc_target_at(offset) {
             return vec![found];
         }
+        if let Some(found) = crate::class_strings::at(self.index, &self.root, offset) {
+            let target = match found.method {
+                Some((name, range)) if u32::from(range.start()) <= offset => Found {
+                    target: Target::Method {
+                        receiver: Type::class(found.class),
+                        name,
+                    },
+                    range,
+                },
+                _ => Found {
+                    target: Target::Class(found.class),
+                    range: found.short_range,
+                },
+            };
+            return vec![target];
+        }
         let Some(token) = token_at(&self.root, offset) else {
             return Vec::new();
         };

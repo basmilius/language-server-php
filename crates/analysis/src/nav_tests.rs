@@ -320,3 +320,30 @@ fn names_in_doc_comments_lead_to_their_declarations() {
         hover.markdown
     );
 }
+
+#[test]
+fn a_string_that_holds_a_qualified_class_name_leads_to_the_class() {
+    let fixture = Fixture::new(&[(
+        "Home.php",
+        "<?php\nnamespace App\\Http;\nclass Home {\n    public function show() {}\n}\n",
+    )]);
+    let places = |code: &str| -> Vec<String> {
+        let (_, root, offset) = split_cursor(code);
+        Analyzer::new(&fixture.index, &root, offset)
+            .definitions(offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+                text[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect()
+    };
+    assert_eq!(places("<?php\n$a = 'App\\Http\\Ho$0me';\n"), ["Home"]);
+    assert_eq!(places("<?php\n$a = \"\\\\App\\\\Ht$0tp\\\\Home\";\n"), ["Home"]);
+    assert_eq!(places("<?php\n$a = 'App\\Http\\Home::sh$0ow';\n"), ["show"]);
+    assert_eq!(places("<?php\n$a = 'App\\Http\\Home@sh$0ow';\n"), ["show"]);
+    assert_eq!(places("<?php\n$a = 'Ho$0me';\n"), Vec::<String>::new());
+    assert_eq!(places("<?php\n$a = 'App\\Http\\No$0pe';\n"), Vec::<String>::new());
+    assert_eq!(places("<?php\n$a = 'App\\Http\\Home::no$0pe';\n"), Vec::<String>::new());
+}

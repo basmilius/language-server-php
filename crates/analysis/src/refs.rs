@@ -86,6 +86,8 @@ pub enum HitKind {
     Import,
     /// A name in a doc comment.
     Doc,
+    /// A class or method a string holds by name.
+    String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -772,6 +774,9 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
             dql_hits(ctx, name, query, &mut hits);
         }
     }
+    if matches!(query.symbol, Symbol::Class(_) | Symbol::Method { .. }) {
+        class_string_hits(ctx, &word, query, &mut hits);
+    }
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits
@@ -806,6 +811,51 @@ fn relation_string_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut
                     symbol,
                 });
             }
+        }
+    }
+}
+
+/// The strings that hold the class, or a method of it after `::` or `@`.
+fn class_string_hits(ctx: &FileContext, word: &str, query: &Query, hits: &mut Vec<Hit>) {
+    for element in ctx.root.descendants_with_tokens() {
+        let Some(token) = element.into_token() else {
+            continue;
+        };
+        if token.kind() != STRING_LITERAL
+            || !token.text().contains('\\')
+            || !token.text().to_ascii_lowercase().contains(word)
+        {
+            continue;
+        }
+        let Some(found) = token
+            .parent()
+            .and_then(|literal| crate::class_strings::read(ctx.index, &literal))
+        else {
+            continue;
+        };
+        let (symbol, range) = match (&query.symbol, &found.method) {
+            (Symbol::Method { .. }, Some((name, range))) => {
+                let Some(declared) = ctx.index.find_method(&Type::class(found.class.clone()), name) else {
+                    continue;
+                };
+                let symbol = Symbol::Method {
+                    class: declared.class.decl.name.clone(),
+                    name: declared.member.name.clone(),
+                };
+                (symbol, *range)
+            }
+            (Symbol::Class(_), _) => (Symbol::Class(found.class.clone()), found.short_range),
+            _ => continue,
+        };
+        if query.matches(&symbol) {
+            hits.push(Hit {
+                range,
+                kind: HitKind::String,
+                access: Access::Read,
+                dollar: false,
+                via_alias: false,
+                symbol,
+            });
         }
     }
 }

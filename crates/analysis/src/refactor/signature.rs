@@ -238,7 +238,7 @@ pub(crate) fn family_in(rcx: &Rcx<'_>, home: &Loaded, function: &SyntaxNode) -> 
                     }
                     None => loose += 1,
                 },
-                HitKind::Import | HitKind::Doc => {}
+                HitKind::Import | HitKind::Doc | HitKind::String => {}
             }
         }
     }

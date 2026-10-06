@@ -289,3 +289,26 @@ fn refuses_a_file_with_two_classes() {
         result.map(|done| done.map(|done| done.files))
     );
 }
+
+#[test]
+fn a_string_that_holds_the_class_follows_it_in_its_own_spelling() {
+    let routes = "<?php\nnamespace App\\Http;\n\n$map = ['App\\Models\\User', \"\\\\App\\\\Models\\\\User\", 'App\\Models\\User::other', 'App\\Models\\Users'];\n";
+    let result = done_with(
+        setup("src/Models/User.php"),
+        &[
+            ("src/Models/Team.php", TEAM),
+            ("src/Contracts/Named.php", NAMED),
+            ("src/Http/routes.php", routes),
+            (
+                "src/Domain/Order.php",
+                "<?php\nnamespace App\\Domain;\n\nclass Order {}\n",
+            ),
+        ],
+        USER,
+        "Move class to namespace App\\Domain",
+    );
+    assert_eq!(
+        result.files["src/Http/routes.php"],
+        "<?php\nnamespace App\\Http;\n\n$map = ['App\\Domain\\User', \"\\\\App\\\\Domain\\\\User\", 'App\\Domain\\User::other', 'App\\Models\\Users'];\n"
+    );
+}

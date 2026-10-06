@@ -350,7 +350,9 @@ pub fn rename_symbols(
     let mut edits: BTreeMap<PathBuf, Vec<TextEdit>> = BTreeMap::new();
     for file in &files {
         for hit in &file.hits {
-            if hit.via_alias {
+            if hit.via_alias
+                || hit.kind == crate::refs::HitKind::String && crate::class_strings::kept_by_refactors(&file.path)
+            {
                 continue;
             }
             let replacement = if hit.dollar {

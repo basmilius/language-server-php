@@ -110,9 +110,9 @@ fn main() {
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut shown: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut lines = 0usize;
-    let mut dql = (0usize, 0usize);
-    // Counting reads every query a second time, so it stays out of the timing unless asked for.
-    let count_dql = std::env::var("DQL_PARTS").is_ok();
+    let mut dql = (0usize, 0usize, 0usize);
+    // Counting reads every query and string a second time, so it stays out of the timing unless asked for.
+    let count_dql = std::env::var("STRING_PARTS").is_ok();
     for path in &paths {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -134,6 +134,13 @@ fn main() {
         } else {
             Vec::new()
         };
+        if count_dql {
+            dql.2 += root
+                .descendants()
+                .filter(|node| node.kind() == php_syntax::SyntaxKind::LITERAL)
+                .filter(|literal| php_analysis::class_strings::read(&project.index, literal).is_some())
+                .count();
+        }
         for part in parts {
             match part {
                 php_analysis::frameworks::dql::Part::Field { .. } => dql.0 += 1,
@@ -169,7 +176,10 @@ fn main() {
         started.elapsed().as_millis()
     );
     if count_dql {
-        println!("DQL: {} fields and {} classes", dql.0, dql.1);
+        println!(
+            "DQL: {} fields and {} classes; {} strings hold a class name",
+            dql.0, dql.1, dql.2
+        );
     }
     for (code, count) in &counts {
         println!("{count:6}  {code}");

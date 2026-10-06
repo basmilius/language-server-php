@@ -457,3 +457,39 @@ fn a_function_outside_a_class_gets_no_override_suggestions() {
     let list = run(override_project(), "<?php\nfunction des$0\n");
     assert!(list.items.is_empty());
 }
+
+#[test]
+fn a_string_that_starts_a_qualified_name_completes_classes() {
+    let fixture = Fixture::new(&[
+        (
+            "Home.php",
+            "<?php\nnamespace App\\Http;\nclass Home {}\ninterface Handler {}\n",
+        ),
+        ("User.php", "<?php\nnamespace App\\Models;\nclass User {}\n"),
+    ]);
+    let labels = |code: &str| -> Vec<String> {
+        let offset = code.find("$0").expect("a cursor") as u32;
+        let text = code.replacen("$0", "", 1);
+        complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| format!("{} {}", item.label, item.edit.new_text))
+            .collect()
+    };
+    assert_eq!(
+        labels("<?php\n$a = 'App\\Http\\$0';\n"),
+        [
+            "App\\Http\\Handler App\\Http\\Handler",
+            "App\\Http\\Home App\\Http\\Home"
+        ]
+    );
+    assert_eq!(
+        labels("<?php\n$a = \"\\\\App\\\\Mo$0\";\n"),
+        ["App\\Models\\User App\\\\Models\\\\User"]
+    );
+    assert!(
+        labels("<?php\n$a = 'App$0';\n")
+            .iter()
+            .all(|label| !label.starts_with("App\\Http"))
+    );
+}

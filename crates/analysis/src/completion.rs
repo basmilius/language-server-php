@@ -175,6 +175,9 @@ pub fn complete(index: &Index, text: &str, offset: u32, options: CompletionOptio
     if let Some(list) = crate::frameworks::complete_key(index, &real, text, offset as u32, options) {
         return list;
     }
+    if let Some(list) = crate::class_strings::complete(index, &real, offset as u32, options) {
+        return list;
+    }
     if in_dead_zone(&real, offset as u32) {
         return CompletionList::default();
     }
@@ -446,7 +449,7 @@ fn previous_underscore(candidate: &str, position: usize) -> bool {
     candidate.as_bytes().get(position.wrapping_sub(1)) == Some(&b'_')
 }
 
-fn class_item_kind(kind: ClassKind) -> ItemKind {
+pub(crate) fn class_item_kind(kind: ClassKind) -> ItemKind {
     match kind {
         ClassKind::Class => ItemKind::Class,
         ClassKind::Interface => ItemKind::Interface,
