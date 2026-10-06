@@ -102,6 +102,8 @@ fn main() {
         .files()
         .filter(|file| file.origin == wanted)
         .map(|file| file.path.clone())
+        // The server reads a Blade template as a template; `blade_survey` measures those.
+        .filter(|path| !php_analysis::blade::is_template(path))
         .collect();
     paths.sort();
     let started = Instant::now();

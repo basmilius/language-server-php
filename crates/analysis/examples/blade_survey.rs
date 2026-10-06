@@ -109,6 +109,14 @@ fn main() {
         None,
     );
     let sources = Disk { words: &words };
+    if let Ok(file) = std::env::var("BLADE_VIRTUAL") {
+        let text = std::fs::read_to_string(&file).expect("the template");
+        println!(
+            "{}",
+            Template::read(index, Some(Path::new(&file)), &text, &[]).virt.text
+        );
+        return;
+    }
     if let Ok(file) = std::env::var("BLADE_GIVEN") {
         let began = Instant::now();
         for (name, ty) in blade::data::given(index, &sources, Path::new(&file)) {
