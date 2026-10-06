@@ -566,6 +566,13 @@ fn reports_functions_that_can_end_without_their_value() {
 }
 
 #[test]
+fn a_function_documented_as_never_is_no_missing_return() {
+    let source = "<?php\n/** @return never */\nfunction abort($code) { throw new Exception(); }\nfunction a(int $x): int {\n    if ($x) { return 1; }\n    abort(500);\n}\nfunction b() {\n    abort(404);\n    echo 'maybe';\n}\n";
+    assert_eq!(only("missing-return", source), Vec::<String>::new());
+    assert_eq!(only("unreachable-code", source), Vec::<String>::new());
+}
+
+#[test]
 fn a_never_function_ends_the_flow() {
     let source = "<?php\nfunction fail(): never { throw new Exception(); }\nfunction a(int $x): int {\n    if ($x) { return 1; }\n    fail();\n}\nfunction b() {\n    fail();\n    echo 'never';\n}\n";
     assert_eq!(only("missing-return", source), Vec::<String>::new());

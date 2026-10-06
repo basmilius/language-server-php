@@ -187,20 +187,29 @@ fn expression_end(cx: &Cx, statement: &SyntaxNode) -> End {
     };
     match expression.kind() {
         THROW_EXPR | EXIT_EXPR => End::Terminates,
-        CALL_EXPR if returns_never(cx, &expression) => End::Terminates,
+        CALL_EXPR => call_end(cx, &expression),
         _ => End::Completes,
     }
 }
 
-fn returns_never(cx: &Cx, call: &SyntaxNode) -> bool {
+/// A call of a function declared `never` ends the flow. One only documented as `never` (Laravel's
+/// `abort()`) most likely does, which is too little to call code after it unreachable and enough
+/// not to call a return missing.
+fn call_end(cx: &Cx, call: &SyntaxNode) -> End {
     let analyzer = cx.file.analyzer(call);
     let env = analyzer.env_around(call);
     let mut callees = analyzer.callees(call, &env);
     callees.dedup_by(|left, right| left.name == right.name);
     let [callee] = callees.as_slice() else {
-        return false;
+        return End::Completes;
     };
-    callee.callable.native_return(cx.index.level) == Some(&Type::Never)
+    if callee.callable.native_return(cx.index.level) == Some(&Type::Never) {
+        End::Terminates
+    } else if callee.callable.doc_ret.as_ref() == Some(&Type::Never) {
+        End::Unknown
+    } else {
+        End::Completes
+    }
 }
 
 fn if_end(cx: &Cx, statement: &SyntaxNode) -> End {
