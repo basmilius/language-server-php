@@ -55,11 +55,29 @@ impl Section for ConfigKeys {
             let stem = relative.with_extension("").to_string_lossy().replace(['/', '\\'], ".");
             keys.tree.add_file(&stem, &path, &text, None);
         }
+        // Since Laravel 11 the framework's own config files lie under the project's, key by key, and
+        // stand for the files the project does not have. The project's keys come first.
+        let root = index.framework_root();
+        let merges = index
+            .read_text(&root.join("bootstrap").join("app.php"))
+            .is_none_or(|text| !text.contains("dontMergeFrameworkConfiguration"));
+        if merges {
+            let base = root.join("vendor").join("laravel").join("framework").join("config");
+            for path in index.files_below(&base) {
+                if path.extension().is_none_or(|ext| ext != "php") || path.parent() != Some(base.as_path()) {
+                    continue;
+                }
+                let (Some(text), Some(stem)) = (index.read_text(&path), path.file_stem()) else {
+                    continue;
+                };
+                keys.tree.add_file(&stem.to_string_lossy(), &path, &text, None);
+            }
+        }
         keys
     }
 
     fn depends_on(root: &Path, path: &Path) -> bool {
-        super::is_below(root, path, "config")
+        super::is_below(root, path, "config") || path == root.join("bootstrap").join("app.php")
     }
 }
 
@@ -274,6 +292,28 @@ return [
             "a file that is not there may come from a package"
         );
         assert!(!keys.is_missing(&index, "app"));
+    }
+
+    #[test]
+    fn the_framework_config_stands_under_the_projects() {
+        let (index, keys) = keys(&[
+            (
+                "vendor/laravel/framework/config/app.php",
+                "<?php return ['name' => 'Base', 'frontend_url' => 'http://localhost'];",
+            ),
+            (
+                "vendor/laravel/framework/config/view.php",
+                "<?php return ['compiled' => 'x'];",
+            ),
+        ]);
+        assert!(!keys.is_missing(&index, "app.frontend_url"));
+        assert!(!keys.is_missing(&index, "view.compiled"));
+        assert!(keys.is_missing(&index, "view.nope"));
+        assert_eq!(
+            keys.find("app.name").and_then(|entry| entry.value.clone()).as_deref(),
+            Some("env('APP_NAME', 'Laravel')"),
+            "the project's own file comes first"
+        );
     }
 
     #[test]
