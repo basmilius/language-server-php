@@ -351,3 +351,34 @@ fn names_the_project_and_its_extensions_lack_are_reported() {
     );
     assert!(findings("{% from 'macros.html.twig' import input %}{{ input() }}{% macro own() %}{% endmacro %}{{ parent() }}{% include '@Bundle/x.html.twig' %}").len() == 1, "only the template is unknown");
 }
+
+#[test]
+fn the_workflow_functions_name_transitions_and_places() {
+    let mut files = SYMFONY.to_vec();
+    files.extend_from_slice(TWIG_LIBRARY);
+    files.extend_from_slice(TWIG);
+    files.extend_from_slice(&[
+        (
+            "config/packages/workflow.yaml",
+            "framework:\n    workflows:\n        blog:\n            places: [draft, published]\n            transitions:\n                publish:\n                    from: draft\n                    to: published\n",
+        ),
+        (
+            "vendor/symfony/twig/WorkflowExtension.php",
+            "<?php\nnamespace Symfony\\Bridge\\Twig\\Extension;\nuse Twig\\Extension\\AbstractExtension;\nuse Twig\\TwigFunction;\nfinal class WorkflowExtension extends AbstractExtension {\n    public function getFunctions(): array { return [new TwigFunction('workflow_can', $this->canTransition(...)), new TwigFunction('workflow_has_marked_place', $this->hasMarkedPlace(...))]; }\n    public function canTransition(object $subject, string $transitionName, ?string $name = null): bool {}\n    public function hasMarkedPlace(object $subject, string $placeName, ?string $name = null): bool {}\n}\n",
+        ),
+    ]);
+    let fixture = Fixture::framework(&files);
+    let at = |template: &str| -> Vec<String> {
+        let (text, offset) = split(template);
+        definitions_at(&fixture.index, Some(Path::new(PAGE)), &text, &[], offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+                source[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect()
+    };
+    assert_eq!(at("{% if workflow_can(post, 'pub$0lish') %}{% endif %}"), ["publish"]);
+    assert_eq!(at("{{ workflow_has_marked_place(post, 'dr$0aft') }}"), ["draft"]);
+}
