@@ -59,6 +59,8 @@ pub enum KeyKind {
     Table,
     /// A column of the table the scope names.
     Column,
+    /// A Livewire component, by the name a template writes it under.
+    Livewire,
 }
 
 impl KeyKind {
@@ -81,6 +83,7 @@ impl KeyKind {
             "stack" => KeyKind::Stack,
             "relation" => KeyKind::Relation,
             "column" => KeyKind::Column,
+            "livewire" => KeyKind::Livewire,
             _ => return None,
         })
     }
@@ -108,6 +111,7 @@ impl KeyKind {
             KeyKind::Relation => "relation",
             KeyKind::Table => "table",
             KeyKind::Column => "column",
+            KeyKind::Livewire => "Livewire component",
         }
     }
 
@@ -361,6 +365,13 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                 );
             }
         }
+        KeyKind::Livewire => out.extend(
+            index
+                .section::<super::livewire::Livewire>()
+                .components
+                .iter()
+                .map(|component| candidate(&component.name, Some(component.class.clone()))),
+        ),
     }
     out
 }
@@ -420,6 +431,35 @@ fn component_text(index: &Index, tag: &str) -> Option<String> {
 
 fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
     let mut out = Vec::new();
+    if let Some(name) = tag.strip_prefix("livewire:") {
+        let livewire = index.section::<super::livewire::Livewire>();
+        let Some(class) = livewire.find(name).and_then(|component| index.class(&component.class)) else {
+            return out;
+        };
+        // A Livewire component takes its attributes into its public properties, or into `mount()`.
+        out.extend(
+            class
+                .decl
+                .properties
+                .iter()
+                .filter(|property| property.visibility == crate::model::Visibility::Public && !property.is_static)
+                .map(|property| Prop {
+                    name: property.name.clone(),
+                    path: class.file.path.clone(),
+                    span: property.name_span,
+                    detail: property.ty.as_ref().map(|ty| ty.display(true)),
+                }),
+        );
+        if let Some(mount) = class.decl.method("mount") {
+            out.extend(mount.callable.params.iter().map(|param| Prop {
+                name: param.name.clone(),
+                path: class.file.path.clone(),
+                span: param.span,
+                detail: param.ty.as_ref().map(|ty| ty.display(true)),
+            }));
+        }
+        return out;
+    }
     let views = index.section::<Views>();
     if let Some(class) = views
         .components
@@ -651,6 +691,12 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                 );
             }
         }
+        KeyKind::Livewire => out.extend(
+            index
+                .section::<super::livewire::Livewire>()
+                .find(key)
+                .map(|component| definition(&component.path, component.name_span, component.class.clone())),
+        ),
     }
     out
 }

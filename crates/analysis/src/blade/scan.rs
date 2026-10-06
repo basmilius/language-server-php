@@ -46,11 +46,13 @@ impl Directive {
     }
 }
 
-/// `<x-name ...>`, `<x-name ... />` or `</x-name>`.
+/// `<x-name ...>`, `<x-name ... />` or `</x-name>`, and the same with `livewire:` for `x-`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tag {
     pub start: u32,
     pub closing: bool,
+    /// `<livewire:name>`, a Livewire component rather than a Blade one.
+    pub livewire: bool,
     /// What follows `x-`: `alert`, `forms.input`, `slot:title`, `mail::button`.
     pub name: String,
     pub name_start: u32,
@@ -150,7 +152,11 @@ fn scan_range(text: &str, position: &mut usize, limit: usize, out: &mut Vec<Node
                 echo,
             });
             *position = (end + 2).min(text.len());
-        } else if rest.starts_with("<x-") || rest.starts_with("</x-") {
+        } else if rest.starts_with("<x-")
+            || rest.starts_with("</x-")
+            || rest.starts_with("<livewire:")
+            || rest.starts_with("</livewire:")
+        {
             *position = tag(text, at, out);
         } else if bytes[at] == b'@' && (at == 0 || !is_word(bytes[at - 1])) {
             *position = directive(text, at, limit, out);
@@ -255,7 +261,9 @@ fn is_attribute_byte(byte: u8) -> bool {
 fn tag(text: &str, at: usize, out: &mut Vec<Node>) -> usize {
     let bytes = text.as_bytes();
     let closing = text[at..].starts_with("</");
-    let name_start = at + if closing { 4 } else { 3 };
+    let opener = if closing { 2 } else { 1 };
+    let livewire = text[at + opener..].starts_with("livewire:");
+    let name_start = at + opener + if livewire { "livewire:".len() } else { "x-".len() };
     let name_length = text[name_start..]
         .bytes()
         .take_while(|byte| is_tag_name_byte(*byte))
@@ -264,6 +272,7 @@ fn tag(text: &str, at: usize, out: &mut Vec<Node>) -> usize {
     let mut tag = Tag {
         start: at as u32,
         closing,
+        livewire,
         name: text[name_start..name_end].to_string(),
         name_start: name_start as u32,
         name_end: name_end as u32,

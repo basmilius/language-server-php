@@ -672,3 +672,90 @@ mod diagnostics {
         );
     }
 }
+
+mod livewire {
+    use super::super::*;
+    use crate::testing::{CURSOR, Fixture};
+
+    const COMPONENT: &str = "<?php\nnamespace App\\Livewire\\Forum;\nuse Livewire\\Component;\nuse App\\Livewire\\Forms\\ReplyForm;\nclass EditReply extends Component {\n    public string $body = '';\n    public ReplyForm $form;\n    public function save(): void {}\n    public function mount(int $replyId): void {}\n}\n";
+    const FORM: &str = "<?php\nnamespace App\\Livewire\\Forms;\nclass ReplyForm {\n    public string $title = '';\n}\n";
+    const VIEW: &str = "resources/views/livewire/forum/edit-reply.blade.php";
+
+    fn fixture() -> Fixture {
+        let mut files = php_index::framework::testing::HELPERS.to_vec();
+        files.extend_from_slice(&[
+            (
+                "vendor/livewire/Component.php",
+                "<?php\nnamespace Livewire;\nabstract class Component {}\n",
+            ),
+            ("app/Livewire/Forum/EditReply.php", COMPONENT),
+            ("app/Livewire/Forms/ReplyForm.php", FORM),
+            (VIEW, "x"),
+        ]);
+        Fixture::framework(&files)
+    }
+
+    fn view() -> std::path::PathBuf {
+        std::path::PathBuf::from(format!("/project/{VIEW}"))
+    }
+
+    fn places(fixture: &Fixture, path: Option<&Path>, template: &str) -> Vec<String> {
+        let offset = template.find(CURSOR).expect("a cursor") as u32;
+        let text = template.replacen(CURSOR, "", 1);
+        definitions_at(&fixture.index, path, &text, &[], offset)
+            .into_iter()
+            .map(|place| {
+                let path = place.path.expect("a file");
+                let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+                source[place.span.start as usize..place.span.end as usize].to_string()
+            })
+            .collect()
+    }
+
+    fn labels(fixture: &Fixture, path: Option<&Path>, template: &str) -> Vec<String> {
+        let offset = template.find(CURSOR).expect("a cursor") as u32;
+        let text = template.replacen(CURSOR, "", 1);
+        complete_at(&fixture.index, path, &text, &[], offset, CompletionOptions::default())
+            .map(|list| list.items.into_iter().map(|item| item.label).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_component_tag_leads_to_its_class_and_attributes_to_what_they_fill() {
+        let fixture = fixture();
+        assert_eq!(places(&fixture, None, "<livewire:forum.edit-r$0eply />"), ["EditReply"]);
+        assert_eq!(
+            places(&fixture, None, "<livewire:forum.edit-reply :reply-i$0d=\"1\" />"),
+            ["int $replyId"]
+        );
+        assert_eq!(places(&fixture, None, "@livewire('forum.edit-re$0ply')"), ["EditReply"]);
+        assert_eq!(labels(&fixture, None, "<livewire:for$0"), ["forum.edit-reply"]);
+    }
+
+    #[test]
+    fn wire_attributes_name_the_members_of_the_component_whose_view_it_is() {
+        let fixture = fixture();
+        let path = view();
+        let at = |template: &str| places(&fixture, Some(&path), template);
+        assert_eq!(at("<input wire:model.live=\"bo$0dy\">"), ["$body"]);
+        assert_eq!(at("<input wire:model=\"form.ti$0tle\">"), ["$title"]);
+        assert_eq!(at("<button wire:click=\"sa$0ve\">"), ["save"]);
+        assert_eq!(labels(&fixture, Some(&path), "<button wire:click=\"$0\">"), ["save"]);
+        assert_eq!(
+            labels(&fixture, Some(&path), "<input wire:model=\"$0\">"),
+            ["body", "form"]
+        );
+        assert!(places(&fixture, None, "<button wire:click=\"sa$0ve\">").is_empty());
+    }
+
+    #[test]
+    fn a_view_rendered_by_convention_is_given_the_public_properties() {
+        let fixture = fixture();
+        let given = data::given(&fixture.index, &crate::references::NoSources, &view());
+        let names: Vec<String> = given
+            .iter()
+            .map(|(name, ty)| format!("{name}: {}", ty.display(true)))
+            .collect();
+        assert_eq!(names, ["body: string", "form: ReplyForm"]);
+    }
+}

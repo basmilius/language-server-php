@@ -636,6 +636,10 @@ A string literal whose text is a qualified name of a class the index knows (`'Ap
 
 Names in a doc comment lead somewhere now: a class in a type, `Class::member()` and `function()` after `@see`, the names `@property` and `@method` declare, and an alias, which goes to its `@psalm-type` line and hovers as `type Point = array{x: int, y: int}`. Find usages from a doc comment, and from a DQL field or a validation rule in a string, asks the same targets. An alias has no usages of its own and cannot be renamed. Over the vendor code of `kimai/kimai` (285 files with aliases among 11,779) `survey --vendor` reports exactly what it did before, and none of the projects used for measuring writes an alias itself.
 
+### More frameworks
+
+**Livewire.** The components of a project are the subclasses of `Livewire\Component` below the class namespace (`livewire.class_namespace`, else `App\Livewire` or `App\Http\Livewire`), named in kebab case with dots for folders, and the ones `Livewire::component()` registers in a provider (`framework/livewire.rs`). Each renders the view its `render()` returns, or `livewire.{name}` without one. In Blade, `<livewire:forum.edit-reply>` and `@livewire('forum.edit-reply')` lead to the class and complete the names, an attribute (`:reply-id`) leads to the public property or the `mount()` parameter it fills and completes them, and the PHP of a bound attribute is read like that of `<x-...>`. In the view of a component (the one view exactly one component renders), `wire:model` names a public property, and `form.title` the property of the form object it holds, while `wire:click`, `wire:submit`, `wire:keydown`, `wire:poll` and the other actions name a public method: hover, definition and completion work there, find usages of the property or method lists them, and the lifecycle methods (`mount`, `render`, `updated*`) are not offered. A view rendered by convention is given the public properties too. Nothing is reported: a component a package registers, a JavaScript expression and `$refresh`-style magic are left alone. On `laravelio/laravel.io` the 22 component tags and the 5 `wire:` names all resolve, and the Blade survey finds nothing and no panic; the bound attributes of the tags add 25 variables to the count of typed ones, 15 of them typed.
+
 ### Corpus
 
 ```sh
@@ -688,6 +692,6 @@ Measured on an Apple Silicon laptop, release build: lexing about 345 MiB/s, pars
 
 What is left after the planned phases:
 
-- Livewire and Inertia.
-- Other frameworks and packages in the same overlay format (Livewire, Filament, Pennant, API Platform, Symfony Messenger and Workflow), and the container of Laravel's `bootstrap/app.php` and `bind` calls outside providers.
+- Inertia.
+- Other frameworks and packages in the same overlay format (Filament, Pennant, API Platform, Symfony Messenger and Workflow).
 - A PHP 8.6 level, when its syntax exists.

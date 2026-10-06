@@ -10,6 +10,7 @@
 mod compile;
 pub mod data;
 mod diagnostics;
+pub mod livewire;
 pub mod scan;
 
 use std::path::Path;
@@ -166,6 +167,10 @@ impl Template {
 /// The names a component tag gives: the component, its attributes, the slot it fills. The tags that
 /// are open say which component a slot belongs to.
 fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<NameRef>) {
+    if tag.livewire {
+        livewire_names(tag, names);
+        return;
+    }
     if tag.closing {
         if let Some(at) = open.iter().rposition(|name| *name == tag.name) {
             open.truncate(at);
@@ -237,6 +242,86 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
     }
     if !tag.self_closing {
         open.push(tag.name.clone());
+    }
+}
+
+/// The members of a Livewire component a `wire:` attribute can name.
+fn wire_items(
+    index: &Index,
+    text: &str,
+    wire: &livewire::WireRef,
+    offset: u32,
+    options: CompletionOptions,
+) -> CompletionList {
+    use crate::completion::{CompletionItem, ItemKind, TextEdit, match_score};
+    let (start, end) = (u32::from(wire.range.start()), u32::from(wire.range.end()));
+    let typed = text.get(start as usize..offset as usize).unwrap_or_default();
+    let kind = match wire.member {
+        livewire::Member::Property => ItemKind::Property,
+        livewire::Member::Method => ItemKind::Method,
+    };
+    let mut items: Vec<(u8, CompletionItem)> = livewire::candidates(index, wire)
+        .into_iter()
+        .filter_map(|(name, detail)| {
+            let score = match_score(&name, typed)?;
+            Some((
+                score,
+                CompletionItem {
+                    label: name.clone(),
+                    kind,
+                    detail,
+                    description: Some(wire.owner.clone()),
+                    edit: TextEdit {
+                        start,
+                        end,
+                        new_text: name.clone(),
+                    },
+                    additional_edits: Vec::new(),
+                    sort_text: name.to_ascii_lowercase(),
+                    filter_text: Some(name),
+                    deprecated: false,
+                    data: None,
+                },
+            ))
+        })
+        .collect();
+    items.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.label.cmp(&right.1.label)));
+    let incomplete = items.len() > options.limit;
+    CompletionList {
+        items: items.into_iter().take(options.limit).map(|(_, item)| item).collect(),
+        incomplete,
+    }
+}
+
+/// The names a `<livewire:...>` tag gives: the component and the attributes that fill it.
+fn livewire_names(tag: &Tag, names: &mut Vec<NameRef>) {
+    if tag.name.is_empty() {
+        return;
+    }
+    names.push(NameRef {
+        kind: KeyKind::Livewire,
+        value: tag.name.clone(),
+        start: tag.name_start,
+        end: tag.name_end,
+        scope: None,
+    });
+    if tag.closing {
+        return;
+    }
+    for attribute in &tag.attributes {
+        if attribute.name.is_empty()
+            || attribute.name.contains([':', '.', '@', '{'])
+            || attribute.name.starts_with("wire")
+        {
+            continue;
+        }
+        names.push(NameRef {
+            kind: KeyKind::Attribute,
+            value: attribute.name.clone(),
+            start: attribute.name_start,
+            end: attribute.name_end,
+            scope: Some(format!("livewire:{}", tag.name)),
+        });
     }
 }
 
@@ -363,6 +448,14 @@ pub fn definitions_at(
     given: &[(String, Type)],
     offset: u32,
 ) -> Vec<Place> {
+    if let Some(wire) = livewire::wire_at(index, path, text, offset) {
+        let root = parse("<?php").syntax();
+        return Analyzer::new(index, &root, 0)
+            .describe(&wire.target())
+            .into_iter()
+            .filter_map(|description| description.place)
+            .collect();
+    }
     let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         return definitions(index, name.kind, &name.value, name.scope.as_deref())
@@ -392,6 +485,18 @@ pub fn hover_at(
     given: &[(String, Type)],
     offset: u32,
 ) -> Option<HoverResult> {
+    if let Some(wire) = livewire::wire_at(index, path, text, offset) {
+        let root = parse("<?php").syntax();
+        let sections: Vec<String> = Analyzer::new(index, &root, 0)
+            .describe(&wire.target())
+            .iter()
+            .map(hover_markdown)
+            .collect();
+        return (!sections.is_empty()).then(|| HoverResult {
+            markdown: sections.join("\n\n---\n\n"),
+            range: wire.range,
+        });
+    }
     let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         let sections: Vec<String> =
@@ -422,6 +527,9 @@ pub fn complete_at(
     offset: u32,
     options: CompletionOptions,
 ) -> Option<CompletionList> {
+    if let Some(wire) = livewire::wire_at(index, path, text, offset) {
+        return Some(wire_items(index, text, &wire, offset, options));
+    }
     let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         let typed = text.get(name.start as usize..offset as usize)?;
@@ -435,10 +543,15 @@ pub fn complete_at(
         ));
     }
     if let Some(tag) = template.tag_with_room_at(offset) {
+        let scope = if tag.livewire {
+            format!("livewire:{}", tag.name)
+        } else {
+            tag.name.clone()
+        };
         return Some(key_items(
             index,
             KeyKind::Attribute,
-            Some(&tag.name),
+            Some(&scope),
             "",
             (offset, offset),
             options,
@@ -466,6 +579,11 @@ pub fn symbols_at(
     given: &[(String, Type)],
     offset: u32,
 ) -> Option<(TextRange, Vec<Symbol>)> {
+    if let Some(wire) = livewire::wire_at(index, path, text, offset) {
+        let root = parse("<?php").syntax();
+        let symbols = crate::refs::from_targets(&Analyzer::new(index, &root, 0), vec![wire.target()]);
+        return (!symbols.is_empty()).then_some((wire.range, symbols));
+    }
     let template = Template::read(index, path, text, given);
     if let Some(name) = template.name_at(offset) {
         return Some((
@@ -503,6 +621,24 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
                     via_alias: false,
                     symbol,
                 });
+            }
+        }
+    }
+    if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
+        let empty = parse("<?php").syntax();
+        let analyzer = Analyzer::new(index, &empty, 0);
+        for wire in livewire::wire_refs(index, path, text) {
+            for symbol in crate::refs::from_targets(&analyzer, vec![wire.target()]) {
+                if query.matches(&symbol) {
+                    out.push(Hit {
+                        range: wire.range,
+                        kind: HitKind::Reference,
+                        access: Access::Read,
+                        dollar: false,
+                        via_alias: false,
+                        symbol,
+                    });
+                }
             }
         }
     }

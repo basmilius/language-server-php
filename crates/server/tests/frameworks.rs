@@ -963,3 +963,27 @@ fn a_binding_of_bootstrap_app_types_what_the_container_gives() {
     assert!(items.contains(&"title".to_string()), "{items:?}");
     client.shutdown();
 }
+
+#[test]
+fn livewire_tags_and_wire_attributes_lead_to_the_component() {
+    let disk = laravel();
+    disk.write(
+        "project/vendor/laravel/livewire/Component.php",
+        "<?php\nnamespace Livewire;\n\nabstract class Component {}\n",
+    );
+    let counter = "<?php\nnamespace App\\Livewire;\n\nuse Livewire\\Component;\n\nclass Counter extends Component\n{\n    public int $count = 0;\n\n    public function increment(): void {}\n}\n";
+    disk.write("project/app/Livewire/Counter.php", counter);
+    let view = "<div>\n    <button wire:click=\"increment\">{{ $count }}</button>\n</div>\n";
+    disk.write("project/resources/views/livewire/counter.blade.php", view);
+    let mut client = indexed_server(&disk);
+    let page = disk.uri("project/resources/views/page.blade.php");
+    client.open(&page, "<livewire:counter />\n");
+    let found = client.at("textDocument/definition", &page, 0, 13);
+    assert_eq!(found[0]["uri"], disk.uri("project/app/Livewire/Counter.php"), "{found}");
+    let uri = disk.uri("project/resources/views/livewire/counter.blade.php");
+    client.open(&uri, view);
+    let found = client.at("textDocument/definition", &uri, 1, 27);
+    assert_eq!(found[0]["uri"], disk.uri("project/app/Livewire/Counter.php"), "{found}");
+    assert_eq!(found[0]["range"]["start"]["line"], 9, "{found}");
+    client.shutdown();
+}

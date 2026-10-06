@@ -138,6 +138,7 @@ fn main() {
     let (mut diagnostics_time, mut diagnostics_slowest) = (Duration::ZERO, Duration::ZERO);
     let mut read_time = Duration::ZERO;
     let mut largest = (0usize, Duration::ZERO);
+    let mut livewire = (0usize, 0usize, 0usize, 0usize);
     for path in &templates {
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
@@ -181,6 +182,26 @@ fn main() {
                 found.message
             );
         }
+        for name in template
+            .names
+            .iter()
+            .filter(|name| name.kind == php_index::framework::keys::KeyKind::Livewire)
+        {
+            livewire.0 += 1;
+            if !php_index::framework::keys::definitions(index, name.kind, &name.value, None).is_empty() {
+                livewire.1 += 1;
+            } else if std::env::var("BLADE_LIVEWIRE").is_ok() {
+                eprintln!("unresolved <livewire:{}> in {}", name.value, path.display());
+            }
+        }
+        for wire in blade::livewire::wire_refs(index, Some(path), &text) {
+            livewire.2 += 1;
+            if !blade::definitions_at(index, Some(path), &text, &[], u32::from(wire.range.start())).is_empty() {
+                livewire.3 += 1;
+            } else if std::env::var("BLADE_LIVEWIRE").is_ok() {
+                eprintln!("unresolved wire {} in {}", wire.name, path.display());
+            }
+        }
         let (counted, missing) = untyped_variables(index, &template);
         variables += counted;
         untyped += missing;
@@ -219,6 +240,10 @@ fn main() {
     println!("{findings} findings, diagnostics in {diagnostics_time:?}, the slowest template {diagnostics_slowest:?}");
     println!("given: {given_count} variables in {given_time:?}, the slowest template {given_slowest:?}");
     println!("{variables} variables, {untyped} without a type, {untyped_alone} without what the template is given");
+    println!(
+        "Livewire: {} of {} component tags and {} of {} wire names resolve",
+        livewire.1, livewire.0, livewire.3, livewire.2
+    );
 }
 
 /// The variables of a template's PHP, and how many of them the type layer cannot type.

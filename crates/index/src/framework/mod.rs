@@ -26,6 +26,7 @@ pub mod inflect;
 pub mod keys;
 pub mod keytree;
 pub mod layouts;
+pub mod livewire;
 pub mod migrations;
 pub mod overlay;
 pub mod routes;

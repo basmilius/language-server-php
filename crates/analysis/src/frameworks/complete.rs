@@ -17,7 +17,7 @@ fn item_kind(kind: KeyKind) -> ItemKind {
         KeyKind::Env => ItemKind::Variable,
         KeyKind::Ability => ItemKind::Keyword,
         KeyKind::Field => ItemKind::Property,
-        KeyKind::Component => ItemKind::Class,
+        KeyKind::Component | KeyKind::Livewire => ItemKind::Class,
         KeyKind::Service => ItemKind::Class,
         KeyKind::Parameter => ItemKind::Constant,
         KeyKind::Template => ItemKind::Module,

@@ -87,6 +87,11 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
         )
     };
     let mut found = Found::default();
+    // A Livewire component without a `render()` of its own renders its view by convention, which
+    // no call names.
+    if let Some(component) = super::livewire::component_of(index, path).and_then(|class| index.class(&class)) {
+        public_properties(&component, &mut found);
+    }
     for name in &names {
         let query = Query::new(
             index,
@@ -329,7 +334,12 @@ fn from_class(index: &Index, call: &SyntaxNode, found: &mut Found) {
     let Some(found_class) = index.class(&qualified) else {
         return;
     };
-    for property in &found_class.decl.properties {
+    public_properties(&found_class, found);
+}
+
+/// The public properties of a class that renders a view, which the view is given.
+fn public_properties(class: &php_index::Class<'_>, found: &mut Found) {
+    for property in &class.decl.properties {
         if property.is_static || property.visibility != php_index::Visibility::Public {
             continue;
         }

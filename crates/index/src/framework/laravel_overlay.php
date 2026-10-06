@@ -992,6 +992,8 @@ namespace Illuminate\View\Compilers {
 
 class BladeCompiler
 {
+    /** @key livewire */
+    public function livewire($name, $params = []) {}
     /** @key view */
     public function include($view, $data = []) {}
     /** @key view */
