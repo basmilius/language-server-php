@@ -191,7 +191,7 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             };
             let matches = match &name {
                 Some(name) => param_name == Some(name),
-                None => wanted == index_of,
+                None => wanted == index_of || wanted == php_index::framework::overlay::ANY_POSITION,
             };
             if !matches {
                 continue;
@@ -205,7 +205,7 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             };
             let fits = match kind {
                 KeyKind::EntityField => place == Place::Key,
-                KeyKind::Relation => true,
+                KeyKind::Relation | KeyKind::Column => true,
                 _ => place == Place::Argument,
             };
             if !fits {
@@ -213,6 +213,9 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
             }
             let asks_existence = matches!(callee.method.to_ascii_lowercase().as_str(), "has" | "exists");
             let has_default = kind == KeyKind::Config && argument_count > 1;
+            if kind == KeyKind::Column {
+                return column_key(analyzer, &callee, &value, span);
+            }
             let scope = match kind {
                 KeyKind::EntityField => callee.receiver.as_ref().and_then(|receiver| {
                     php_index::framework::symfony::doctrine::entity_of_repository(
@@ -236,6 +239,42 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
         }
     }
     None
+}
+
+/// A column a query names, of the table of the model it is a query of: `email`, `posts.title` with
+/// its table, `options->theme` of a JSON column, `name as label` in a select. Anything else written
+/// there, a raw expression or `*`, names no column.
+fn column_key(analyzer: &Analyzer<'_>, callee: &Callee, value: &str, span: php_index::Span) -> Option<KeyString> {
+    let column = value.split_once("->").map_or(value, |(column, _)| column);
+    let column = match column.to_ascii_lowercase().find(" as ") {
+        Some(at) => &column[..at],
+        None => column,
+    };
+    let (table, column, skipped) = match column.split_once('.') {
+        Some((table, column)) => (Some(table.to_string()), column, table.len() + 1),
+        None => (None, column, 0),
+    };
+    if !column.chars().all(|char| char.is_ascii_alphanumeric() || char == '_') {
+        return None;
+    }
+    let table = match table {
+        Some(table) => table,
+        None => {
+            let model = callee
+                .receiver_type
+                .as_ref()
+                .and_then(|receiver| super::relations::model_of(analyzer, receiver))?;
+            php_index::framework::eloquent::table(analyzer.index, &model)?
+        }
+    };
+    let start = span.start + skipped as u32;
+    Some(KeyString {
+        kind: KeyKind::Column,
+        value: column.to_string(),
+        range: range_of(start, start + column.len() as u32),
+        scope: Some(table),
+        guarded: true,
+    })
 }
 
 /// Whether an array is the argument a callee reads as validation rules by field.

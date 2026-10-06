@@ -1315,3 +1315,86 @@ mod dql {
         assert_eq!(in_repository, ["email", "email"]);
     }
 }
+
+mod columns {
+    use php_index::framework::testing::{ELOQUENT, VALIDATION};
+
+    use crate::completion::{CompletionOptions, complete};
+    use crate::infer::Analyzer;
+    use crate::references::{Current, references_at};
+    use crate::testing::{CURSOR, Files, Fixture, split_cursor};
+
+    const USER: &str =
+        "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass User extends Model {}\n";
+    const PAGE: &str = "<?php\nuse App\\Models\\User;\nfunction page() {\n    User::where('email', 'a')->orderBy('users.email')->get();\n    User::query()->where(['email' => 'a'])->orderBy('email as address');\n    User::where('nope', 1)->orderBy('count(*)');\n}\n";
+    const MIGRATION: &str = "database/migrations/2020_01_01_000000_create_users_table.php";
+
+    fn fixture() -> Fixture {
+        let mut files = ELOQUENT.to_vec();
+        files.extend(VALIDATION.iter().filter(|(path, _)| path.contains("migrations")));
+        files.extend_from_slice(&[("app/Models/User.php", USER), ("app/Http/page.php", PAGE)]);
+        Fixture::framework(&files)
+    }
+
+    #[test]
+    fn a_column_leads_to_its_migration() {
+        let fixture = fixture();
+        let at = |from: &str, to: &str| -> Vec<String> {
+            let code = PAGE.replacen(from, to, 1);
+            let (_, root, offset) = split_cursor(&code);
+            Analyzer::new(&fixture.index, &root, offset)
+                .definitions(offset)
+                .into_iter()
+                .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
+                .collect()
+        };
+        let migration = format!("/project/{MIGRATION}");
+        assert_eq!(at("where('email'", "where('em$0ail'"), [migration.clone()]);
+        assert_eq!(at("'users.email'", "'users.em$0ail'"), [migration.clone()]);
+        assert_eq!(at("['email' =>", "['em$0ail' =>"), [migration.clone()]);
+        assert_eq!(at("'email as", "'em$0ail as"), [migration]);
+        assert_eq!(at("'nope'", "'no$0pe'"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_column_completes_from_the_table() {
+        let fixture = fixture();
+        let code = "<?php\nuse App\\Models\\User;\nUser::where('$0');\n";
+        let offset = code.find(CURSOR).expect("a cursor") as u32;
+        let text = code.replacen(CURSOR, "", 1);
+        let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
+            .items
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(labels, ["email", "id"]);
+    }
+
+    #[test]
+    fn the_usages_of_a_column_are_its_strings() {
+        let fixture = fixture();
+        let path = std::path::PathBuf::from(format!("/project/{MIGRATION}"));
+        let text = fixture.sources.get(&path).cloned().expect("the migration");
+        let root = php_syntax::parse(&text).syntax();
+        let offset = text.find("'email'").expect("the column") as u32 + 2;
+        let found = references_at(
+            &fixture.index,
+            &Files(fixture.sources.clone()),
+            &Current {
+                path: &path,
+                text: &text,
+                root: &root,
+            },
+            offset,
+        )
+        .expect("usages");
+        let in_page: Vec<&str> = found
+            .files
+            .iter()
+            .filter(|file| file.path.ends_with("page.php"))
+            .flat_map(|file| file.hits.iter())
+            .map(|hit| &PAGE[usize::from(hit.range.start())..usize::from(hit.range.end())])
+            .collect();
+        assert_eq!(in_page, ["email", "email", "email", "email"]);
+    }
+}

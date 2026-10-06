@@ -530,12 +530,205 @@ trait Authorizable
 
 // The directives of a Blade template are the methods of this class: the one named after a directive
 // says which of its arguments is a name.
+namespace Illuminate\Database\Query {
+
+// The strings that name a column of the table of the model a query is of. `*` marks every argument
+// of a method that takes a list of them.
+class Builder
+{
+    /** @key column * */
+    public function select(...$columns) {}
+    /** @key column * */
+    public function addSelect(...$columns) {}
+    /** @key column 0 */
+    public function where(...$columns) {}
+    /** @key column 0 */
+    public function orWhere(...$columns) {}
+    /** @key column 0 */
+    public function whereNot(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNot(...$columns) {}
+    /** @key column 0 */
+    public function whereColumn(...$columns) {}
+    /** @key column 0 */
+    public function orWhereColumn(...$columns) {}
+    /** @key column 0 */
+    public function whereIn(...$columns) {}
+    /** @key column 0 */
+    public function orWhereIn(...$columns) {}
+    /** @key column 0 */
+    public function whereNotIn(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNotIn(...$columns) {}
+    /** @key column * */
+    public function whereNull(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNull(...$columns) {}
+    /** @key column * */
+    public function whereNotNull(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNotNull(...$columns) {}
+    /** @key column 0 */
+    public function whereBetween(...$columns) {}
+    /** @key column 0 */
+    public function orWhereBetween(...$columns) {}
+    /** @key column 0 */
+    public function whereNotBetween(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNotBetween(...$columns) {}
+    /** @key column 0 */
+    public function whereDate(...$columns) {}
+    /** @key column 0 */
+    public function orWhereDate(...$columns) {}
+    /** @key column 0 */
+    public function whereTime(...$columns) {}
+    /** @key column 0 */
+    public function whereDay(...$columns) {}
+    /** @key column 0 */
+    public function whereMonth(...$columns) {}
+    /** @key column 0 */
+    public function whereYear(...$columns) {}
+    /** @key column 0 */
+    public function whereLike(...$columns) {}
+    /** @key column 0 */
+    public function orWhereLike(...$columns) {}
+    /** @key column 0 */
+    public function whereJsonContains(...$columns) {}
+    /** @key column * */
+    public function groupBy(...$columns) {}
+    /** @key column 0 */
+    public function having(...$columns) {}
+    /** @key column 0 */
+    public function orderBy(...$columns) {}
+    /** @key column 0 */
+    public function orderByDesc(...$columns) {}
+    /** @key column 0 */
+    public function latest(...$columns) {}
+    /** @key column 0 */
+    public function oldest(...$columns) {}
+    /**
+     * @key column 0
+     * @key column 1
+     */
+    public function pluck(...$columns) {}
+    /** @key column 0 */
+    public function value(...$columns) {}
+    /** @key column 0 */
+    public function sum(...$columns) {}
+    /** @key column 0 */
+    public function avg(...$columns) {}
+    /** @key column 0 */
+    public function min(...$columns) {}
+    /** @key column 0 */
+    public function max(...$columns) {}
+    /** @key column 0 */
+    public function increment(...$columns) {}
+    /** @key column 0 */
+    public function decrement(...$columns) {}
+    /** @key column 0 */
+    public function firstWhere(...$columns) {}
+}
+
+}
+
 namespace Illuminate\Database\Eloquent {
 
 // The strings that name a relation of the model the query, the relation or the collection is of;
-// `posts.comments` names one relation of each model in turn.
+// `posts.comments` names one relation of each model in turn. The columns are the ones of the query
+// builder, which Eloquent declares again for some.
 class Builder
 {
+    /** @key column * */
+    public function select(...$columns) {}
+    /** @key column * */
+    public function addSelect(...$columns) {}
+    /** @key column 0 */
+    public function where(...$columns) {}
+    /** @key column 0 */
+    public function orWhere(...$columns) {}
+    /** @key column 0 */
+    public function whereNot(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNot(...$columns) {}
+    /** @key column 0 */
+    public function whereColumn(...$columns) {}
+    /** @key column 0 */
+    public function orWhereColumn(...$columns) {}
+    /** @key column 0 */
+    public function whereIn(...$columns) {}
+    /** @key column 0 */
+    public function orWhereIn(...$columns) {}
+    /** @key column 0 */
+    public function whereNotIn(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNotIn(...$columns) {}
+    /** @key column * */
+    public function whereNull(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNull(...$columns) {}
+    /** @key column * */
+    public function whereNotNull(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNotNull(...$columns) {}
+    /** @key column 0 */
+    public function whereBetween(...$columns) {}
+    /** @key column 0 */
+    public function orWhereBetween(...$columns) {}
+    /** @key column 0 */
+    public function whereNotBetween(...$columns) {}
+    /** @key column 0 */
+    public function orWhereNotBetween(...$columns) {}
+    /** @key column 0 */
+    public function whereDate(...$columns) {}
+    /** @key column 0 */
+    public function orWhereDate(...$columns) {}
+    /** @key column 0 */
+    public function whereTime(...$columns) {}
+    /** @key column 0 */
+    public function whereDay(...$columns) {}
+    /** @key column 0 */
+    public function whereMonth(...$columns) {}
+    /** @key column 0 */
+    public function whereYear(...$columns) {}
+    /** @key column 0 */
+    public function whereLike(...$columns) {}
+    /** @key column 0 */
+    public function orWhereLike(...$columns) {}
+    /** @key column 0 */
+    public function whereJsonContains(...$columns) {}
+    /** @key column * */
+    public function groupBy(...$columns) {}
+    /** @key column 0 */
+    public function having(...$columns) {}
+    /** @key column 0 */
+    public function orderBy(...$columns) {}
+    /** @key column 0 */
+    public function orderByDesc(...$columns) {}
+    /** @key column 0 */
+    public function latest(...$columns) {}
+    /** @key column 0 */
+    public function oldest(...$columns) {}
+    /**
+     * @key column 0
+     * @key column 1
+     */
+    public function pluck(...$columns) {}
+    /** @key column 0 */
+    public function value(...$columns) {}
+    /** @key column 0 */
+    public function sum(...$columns) {}
+    /** @key column 0 */
+    public function avg(...$columns) {}
+    /** @key column 0 */
+    public function min(...$columns) {}
+    /** @key column 0 */
+    public function max(...$columns) {}
+    /** @key column 0 */
+    public function increment(...$columns) {}
+    /** @key column 0 */
+    public function decrement(...$columns) {}
+    /** @key column 0 */
+    public function firstWhere(...$columns) {}
     /** @key relation */
     public function with($relations, $callback = null) {}
     /** @key relation */

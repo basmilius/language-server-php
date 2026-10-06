@@ -125,6 +125,14 @@ fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(Tex
             scope: None,
         }]
     };
+    if let Some((table, name, span)) = php_index::framework::keys::column_declared_at(index, current.path, offset) {
+        let column = Symbol::Key {
+            kind: php_index::framework::keys::KeyKind::Column,
+            name,
+            scope: Some(table),
+        };
+        return Some((range_of(span.start, span.end), vec![column]));
+    }
     if let Some((kind, name, span)) = php_index::framework::keys::declared_at(index, current.path, offset) {
         return Some((range_of(span.start, span.end), key(kind, name)));
     }

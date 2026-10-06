@@ -37,6 +37,9 @@ enum Owner {
     Symfony,
 }
 
+/// The position of a `@key *` marker: every argument, for a method that takes a list of names.
+pub const ANY_POSITION: usize = usize::MAX;
+
 /// What a function or method of the overlay says about its arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Marker {
@@ -96,7 +99,10 @@ fn markers() -> &'static HashMap<String, Vec<Entry>> {
                         };
                         let word = words.next();
                         let name = word.and_then(|word| word.strip_prefix('$')).map(str::to_string);
-                        let position = word.and_then(|word| word.parse().ok()).unwrap_or(0);
+                        let position = match word {
+                            Some("*") => ANY_POSITION,
+                            word => word.and_then(|word| word.parse().ok()).unwrap_or(0),
+                        };
                         Marker::Key {
                             kind: kind.to_string(),
                             position,

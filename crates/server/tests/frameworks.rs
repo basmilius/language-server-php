@@ -917,3 +917,34 @@ fn a_dql_field_leads_to_its_property_and_an_unknown_one_is_reported() {
     assert_eq!(places(&usages), ["BookRepository.php:11"], "{usages}");
     client.shutdown();
 }
+
+#[test]
+fn a_query_column_leads_to_its_migration_and_is_one_of_its_usages() {
+    let disk = laravel();
+    let mut client = indexed_server(&disk);
+    let uri = disk.uri("project/app/Http/Find.php");
+    client.open(
+        &uri,
+        "<?php\nuse App\\Models\\User;\nfunction find() {\n    return User::where('email', 'a')->first();\n}\n",
+    );
+    let migration = disk.uri("project/database/migrations/2020_01_01_000000_create_users_table.php");
+    let found = client.at("textDocument/definition", &uri, 3, 25);
+    assert_eq!(found[0]["uri"], migration, "{found}");
+    assert_eq!(found[0]["range"]["start"]["line"], 6, "{found}");
+    let items = complete_at(&mut client, &uri, 3, 24);
+    assert!(items.contains(&"name".to_string()), "{items:?}");
+    client.open(
+        &migration,
+        "<?php\nreturn new class {\n    public function up() {\n        Schema::create('users', function (Blueprint $table) {\n            $table->id();\n            $table->string('name');\n            $table->string('email');\n            $table->timestamps();\n        });\n    }\n};\n",
+    );
+    let usages = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": migration },
+            "position": { "line": 6, "character": 29 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    assert!(places(&usages).contains(&"Find.php:3".to_string()), "{usages}");
+    client.shutdown();
+}

@@ -844,12 +844,25 @@ fn dql_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut Vec<Hit>) {
     }
 }
 
+fn query_is_column(query: &Query) -> bool {
+    matches!(
+        query.symbol,
+        Symbol::Key {
+            kind: KeyKind::Column,
+            ..
+        }
+    )
+}
+
 /// The strings that name a route, a config key or the like. Only a literal that holds the name is
 /// asked what it is, which is what keeps a search cheap.
 fn key_hits(ctx: &FileContext, name: &str, query: &Query) -> Vec<Hit> {
     let mut hits = Vec::new();
     for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
-        if php_index::test_facts::string_value(&node).is_none_or(|(value, _)| value != name) {
+        // A column may be written with its table, `posts.title`.
+        if php_index::test_facts::string_value(&node)
+            .is_none_or(|(value, _)| value != name && !(query_is_column(query) && value.contains(name)))
+        {
             continue;
         }
         let analyzer = ctx.analyzer(&node);

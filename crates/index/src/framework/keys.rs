@@ -80,6 +80,7 @@ impl KeyKind {
             "section" => KeyKind::Section,
             "stack" => KeyKind::Stack,
             "relation" => KeyKind::Relation,
+            "column" => KeyKind::Column,
             _ => return None,
         })
     }
@@ -662,6 +663,17 @@ pub fn declared_at(index: &Index, path: &std::path::Path, offset: u32) -> Option
             && definition.span.start < definition.span.end
             && definition.span.start <= offset
             && offset <= definition.span.end
+    })
+}
+
+/// The column a migration adds at an offset, with its table.
+pub fn column_declared_at(index: &Index, path: &std::path::Path, offset: u32) -> Option<(String, String, Span)> {
+    let tables = index.section::<super::migrations::Tables>();
+    tables.names().find_map(|table| {
+        tables.table(table)?.columns.iter().find_map(|column| {
+            (column.path == path && column.span.start <= offset && offset <= column.span.end)
+                .then(|| (table.clone(), column.name.clone(), column.span))
+        })
     })
 }
 
