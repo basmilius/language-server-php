@@ -13,6 +13,7 @@ mod insight;
 mod refactors;
 mod runnables;
 mod server;
+mod sql;
 mod usages;
 mod workspace;
 

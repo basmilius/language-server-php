@@ -122,6 +122,12 @@ impl Server {
             .filter_map(|action| serde_json::to_value(action).ok())
             .collect();
         actions.extend(refactors);
+        let range = {
+            let document = self.documents.get(&uri)?;
+            selection(&document.mapper(self.encoding), params.range)
+        };
+        let sql = self.sql_code_actions(&uri, range, &params.context.diagnostics, only.as_deref());
+        actions.extend(sql.into_iter().filter_map(|action| serde_json::to_value(action).ok()));
         Some(actions)
     }
 

@@ -27,6 +27,8 @@ pub struct DocumentState {
     pub twig: bool,
     /// A YAML file, of which only a Symfony project's configuration is read.
     pub yaml: bool,
+    /// The `sql` setting of this document alone, when the client gave one.
+    pub sql: Option<serde_json::Value>,
 }
 
 pub trait ParseDocument {

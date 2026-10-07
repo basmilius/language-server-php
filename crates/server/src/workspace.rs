@@ -19,6 +19,13 @@ pub enum Internal {
     /// The stubs are on disk at this path and are about to be read.
     StubsLocated(PathBuf),
     StubsFailed(String),
+    /// The `.sql` files of the workspace folders with their text.
+    SqlFiles(Vec<(PathBuf, String)>),
+    /// The database a project's configuration names.
+    SqlDialect {
+        root: PathBuf,
+        dialect: Option<sql_embed::Dialect>,
+    },
 }
 
 /// The names every standard library stub declares, for telling a name that a project's extensions

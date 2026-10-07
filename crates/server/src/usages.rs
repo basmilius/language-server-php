@@ -172,6 +172,10 @@ impl Server {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
         let include_declaration = params.context.include_declaration;
+        let offset = self.offset_of(&uri, position.position)?;
+        if let Some(locations) = self.sql_references(&uri, offset, include_declaration) {
+            return Some(locations);
+        }
         let path = uri_to_path(&uri)?;
         self.sync_symbols(&uri);
         self.ensure_words(&path);
@@ -224,6 +228,10 @@ impl Server {
     pub(crate) fn document_highlight(&mut self, params: DocumentHighlightParams) -> Option<Vec<DocumentHighlight>> {
         let position = params.text_document_position_params;
         let uri = position.text_document.uri;
+        let offset = self.offset_of(&uri, position.position)?;
+        if let Some(highlights) = self.sql_highlights(&uri, offset) {
+            return Some(highlights);
+        }
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
         let blade = self.documents.get(&uri)?.state.blade;
@@ -320,6 +328,11 @@ impl Server {
         params: lsp_types::TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>, String> {
         let uri = params.text_document.uri;
+        if let Some(offset) = self.offset_of(&uri, params.position) {
+            if let Some(prepared) = self.sql_prepare_rename(&uri, offset) {
+                return prepared;
+            }
+        }
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
         let given = self.template_given(&uri);
@@ -350,6 +363,11 @@ impl Server {
     pub(crate) fn rename(&mut self, params: RenameParams) -> Result<Option<WorkspaceEdit>, String> {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
+        if let Some(offset) = self.offset_of(&uri, position.position) {
+            if let Some(renamed) = self.sql_rename(&uri, offset, &params.new_name) {
+                return renamed;
+            }
+        }
         let Some(path) = uri_to_path(&uri) else {
             return Err("Only files can be renamed".to_string());
         };

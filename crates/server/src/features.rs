@@ -252,6 +252,12 @@ impl Server {
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
     }
 
+    /// The byte offset of a position in an open document.
+    pub(crate) fn offset_of(&self, uri: &Uri, position: lsp_types::Position) -> Option<u32> {
+        let document = self.documents.get(uri)?;
+        Some(u32::from(document.mapper(self.encoding).offset(position)))
+    }
+
     pub(crate) fn hover(&mut self, params: HoverParams) -> Option<Hover> {
         let position = params.text_document_position_params;
         if self
@@ -260,6 +266,10 @@ impl Server {
             .is_some_and(|document| document.state.blade || document.state.twig || document.state.yaml)
         {
             return self.blade_hover(&position.text_document.uri, position.position);
+        }
+        let offset = self.offset_of(&position.text_document.uri, position.position)?;
+        if let Some(hover) = self.sql_hover(&position.text_document.uri, offset) {
+            return Some(hover);
         }
         self.load_missing_classes(&position.text_document.uri, position.position);
         self.with_analyzer(
@@ -297,6 +307,14 @@ impl Server {
             .is_some_and(|document| document.state.blade || document.state.twig || document.state.yaml)
         {
             return self.blade_definition(&params);
+        }
+        let position = &params.text_document_position_params;
+        let offset = self.offset_of(&position.text_document.uri, position.position)?;
+        if let Some(locations) = self
+            .sql_definition(&position.text_document.uri, offset)
+            .filter(|locations| !locations.is_empty())
+        {
+            return Some(GotoDefinitionResponse::Array(locations));
         }
         self.navigate(params, |analyzer, offset| analyzer.definitions(offset))
     }
@@ -374,6 +392,18 @@ impl Server {
     pub(crate) fn completion(&mut self, params: CompletionParams) -> Option<CompletionResponse> {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
+        let offset = self.offset_of(&uri, position.position)?;
+        // Inside a string of SQL its items go before whatever PHP would offer there.
+        if let Some(list) = self.sql_completion(&uri, offset) {
+            return Some(CompletionResponse::List(list));
+        }
+        let trigger = params
+            .context
+            .as_ref()
+            .and_then(|context| context.trigger_character.as_deref());
+        if matches!(trigger, Some("." | " ")) {
+            return None;
+        }
         self.sync_symbols(&uri);
         let path = uri_to_path(&uri);
         let given = self.template_given(&uri);

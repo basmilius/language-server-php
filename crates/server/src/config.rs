@@ -32,6 +32,8 @@ pub struct Settings {
     pub format: Option<FormatSettings>,
     /// `usages.packages`: find usages and incoming calls also read the installed packages.
     pub usages_packages: Option<bool>,
+    /// `sql`: how SQL is found in strings and read, as given; `sql::config` reads it per document.
+    pub sql: Option<Value>,
 }
 
 /// The keys of `format`, each of which leaves the formatter's default alone when absent.
@@ -108,6 +110,7 @@ impl Settings {
                 .get("usages")
                 .and_then(|usages| usages.get("packages"))
                 .and_then(Value::as_bool),
+            sql: object.get("sql").filter(|sql| sql.is_object()).cloned(),
         }
     }
 }

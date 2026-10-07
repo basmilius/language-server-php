@@ -64,7 +64,8 @@ const WATCHED_FILES: [&str; 14] = [
     "**/config/**/*.yaml",
     "**/config/**/*.yml",
     "**/config/**/*.xml",
-    "**/database/schema/*.sql",
+    // The DDL of `.sql` files, the schema dumps of Laravel among them.
+    "**/*.sql",
     "**/resources/{js,ts}/{Pages,pages}/**",
 ];
 
@@ -112,7 +113,7 @@ pub(crate) struct Server {
     folding_characters: bool,
     configuration_support: bool,
     diagnostic_refresh_support: bool,
-    watch_support: bool,
+    pub(crate) watch_support: bool,
     semantic_refresh_support: bool,
     inlay_refresh_support: bool,
     /// The client takes `documentChanges` in a workspace edit.
@@ -125,6 +126,10 @@ pub(crate) struct Server {
     pub(crate) code_action_resolve: bool,
     /// The client takes snippet text edits in a workspace edit.
     pub(crate) snippet_edits: bool,
+    /// The client takes snippets in completion items.
+    pub(crate) snippet_support: bool,
+    /// The watcher of the schema snapshots is registered with the client.
+    pub(crate) snapshot_watch_registered: bool,
     /// Documents whose diagnostics are out of date, published once the queue of messages is empty.
     dirty: Vec<Uri>,
     /// Questions asked of the client: which document each `workspace/configuration` answer is for.
@@ -132,12 +137,14 @@ pub(crate) struct Server {
     last_trim: std::time::Instant,
     pub(crate) workspace: Workspace,
     initial_folders: Vec<PathBuf>,
-    internal_sender: Sender<Internal>,
+    pub(crate) internal_sender: Sender<Internal>,
     internal_receiver: Receiver<Internal>,
     progress: Progress,
     /// What the places that render a template give it, by template, until a file other than the
     /// template itself changes.
     pub(crate) given_cache: HashMap<PathBuf, Vec<(String, php_index::Type)>>,
+    /// SQL in the strings of PHP documents.
+    pub(crate) sql: crate::sql::SqlState,
 }
 
 /// Whether Composer's autoload maps point at a file that exists for the class, which the index
@@ -181,6 +188,7 @@ impl Server {
             .as_ref()
             .and_then(|workspace| workspace.workspace_edit.as_ref());
         let (internal_sender, internal_receiver) = crossbeam_channel::unbounded();
+        let settings_sql = settings.sql.clone();
         let workspace = Workspace::new(
             settings.storage_path.clone(),
             settings.stubs_path.clone(),
@@ -246,6 +254,12 @@ impl Server {
                 .and_then(|actions| actions.resolve_support.as_ref())
                 .is_some_and(|support| support.properties.iter().any(|property| property == "edit")),
             snippet_edits: false,
+            snippet_support: text_document
+                .and_then(|text_document| text_document.completion.as_ref())
+                .and_then(|completion| completion.completion_item.as_ref())
+                .and_then(|item| item.snippet_support)
+                .unwrap_or(false),
+            snapshot_watch_registered: false,
             dirty: Vec::new(),
             pending_configuration: HashMap::new(),
             last_trim: std::time::Instant::now(),
@@ -267,6 +281,7 @@ impl Server {
                 },
             ),
             given_cache: HashMap::new(),
+            sql: crate::sql::SqlState::new(settings_sql),
         }
     }
 
@@ -318,6 +333,7 @@ impl Server {
                         lsp_types::CodeActionKind::new("refactor.move"),
                         lsp_types::CodeActionKind::SOURCE,
                         lsp_types::CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                        lsp_types::CodeActionKind::new(crate::sql::FIX_ALL),
                     ]),
                     resolve_provider: Some(true),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -338,7 +354,8 @@ impl Server {
             }),
             completion_provider: Some(CompletionOptions {
                 resolve_provider: Some(true),
-                trigger_characters: Some(["$", ">", ":", "\\", "#", "["].map(String::from).to_vec()),
+                // `.` and a space only ever complete inside SQL; the rest are PHP's.
+                trigger_characters: Some(["$", ">", ":", "\\", "#", "[", ".", " "].map(String::from).to_vec()),
                 all_commit_characters: None,
                 work_done_progress_options: WorkDoneProgressOptions::default(),
                 completion_item: None,
@@ -545,12 +562,14 @@ impl Server {
         }
         let _document = php_analysis::document::enter(uri_to_path(uri).as_deref());
         let level = self.level_of(uri, self.documents.get(uri)?.state.level);
-        self.inspect_document(uri, |env, mapper, parse| {
+        let mut items: Vec<lsp_types::Diagnostic> = self.inspect_document(uri, |env, mapper, parse| {
             let mut found = diagnostics(parse, level);
             found.extend(inspect(env).into_iter().map(|finding| finding.diagnostic));
             found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
             found.iter().map(|found| convert::diagnostic(mapper, found)).collect()
-        })
+        })?;
+        items.extend(self.sql_diagnostics(uri));
+        Some(items)
     }
 
     /// What is certainly wrong in an open Blade or Twig template.
@@ -689,6 +708,7 @@ impl Server {
                 let params: DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
                 let uri = params.text_document.uri;
                 self.documents.close(&uri);
+                self.sql.forget_document(&uri);
                 self.given_cache.clear();
                 self.dirty.retain(|dirty| *dirty != uri);
                 self.reindex_from_disk(&uri);
@@ -715,6 +735,9 @@ impl Server {
                     if let Some(path) = uri_to_path(&folder.uri) {
                         self.open_folder(&path);
                     }
+                }
+                if self.sql.forget_files() {
+                    self.scan_sql_files();
                 }
             }
             _ => {}
@@ -746,6 +769,9 @@ impl Server {
         }
         for folder in std::mem::take(&mut self.initial_folders) {
             self.open_folder(&folder);
+        }
+        if crate::sql::config::resolve(self.sql.setting.as_ref(), None, None).enabled {
+            self.scan_sql_files();
         }
         Ok(())
     }
@@ -804,6 +830,8 @@ impl Server {
                 }
                 IndexEvent::Finished(stats) => {
                     self.workspace.indexed.insert(root.clone());
+                    self.sql.changed();
+                    self.find_project_dialect(&root);
                     self.resync_open_documents();
                     for uri in self.documents.uris() {
                         self.mark_dirty(uri);
@@ -824,6 +852,15 @@ impl Server {
                     self.refresh_editor_features()?;
                 }
             },
+            Internal::SqlFiles(files) => {
+                self.sql.files_read(files);
+                self.sql_settled()?;
+            }
+            Internal::SqlDialect { root, dialect } => {
+                if self.sql.set_project_dialect(root, dialect) {
+                    self.sql_settled()?;
+                }
+            }
             Internal::StubsLocated(dir) => {
                 self.workspace.stubs_dir = Some(dir);
                 self.workspace.stubs.clear();
@@ -845,6 +882,7 @@ impl Server {
                 IndexEvent::Persisted(moved) => self.workspace.move_stubs_to_cache(moved),
                 IndexEvent::Finished(stats) => {
                     self.workspace.apply_stubs();
+                    self.sql.changed();
                     self.resync_open_documents();
                     self.log(
                         MessageType::INFO,
@@ -937,10 +975,12 @@ impl Server {
         self.given_cache.clear();
         let mut composer_roots: Vec<PathBuf> = Vec::new();
         let mut folders: Vec<PathBuf> = Vec::new();
+        let mut sql_changed = false;
         for change in params.changes {
             let Some(path) = uri_to_path(&change.uri) else {
                 continue;
             };
+            sql_changed |= self.sql.file_changed(&path, change.typ == FileChangeType::DELETED);
             let name = path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
@@ -1008,7 +1048,20 @@ impl Server {
             }
         }
         self.apply_folder_change(change);
+        if sql_changed {
+            self.sql_settled()?;
+        }
         Ok(())
+    }
+
+    /// What the SQL of every open document was read against changed: its diagnostics, tokens and
+    /// hints are asked for again.
+    fn sql_settled(&mut self) -> Result<(), BoxError> {
+        for uri in self.documents.uris() {
+            self.mark_dirty(uri);
+        }
+        self.refresh_pulled_diagnostics()?;
+        self.refresh_editor_features()
     }
 
     /// `composer.json` or the installed packages changed: read them again and index from scratch.
@@ -1063,6 +1116,11 @@ impl Server {
         if pushed.usages_packages.is_some() {
             self.settings.usages_packages = pushed.usages_packages;
         }
+        if pushed.sql.is_some() {
+            self.settings.sql = pushed.sql.clone();
+            self.sql.setting = pushed.sql;
+            self.sql.changed();
+        }
         self.refresh_editor_features()?;
         if pushed.php_version.is_some() || !self.configuration_support {
             self.settings.php_version = pushed.php_version;
@@ -1114,6 +1172,17 @@ impl Server {
         let format = answer.as_ref().and_then(|settings| settings.format.clone());
         document.state.format = format;
         document.state.usages_packages = answer.as_ref().and_then(|settings| settings.usages_packages);
+        let sql = answer.as_ref().and_then(|settings| settings.sql.clone());
+        if document.state.sql != sql {
+            document.state.sql = sql;
+            self.sql.changed();
+            self.mark_dirty(uri.clone());
+            self.refresh_pulled_diagnostics()?;
+            self.refresh_editor_features()?;
+        }
+        let Some(document) = self.documents.get_mut(&uri) else {
+            return Ok(());
+        };
         let inspections = answer.and_then(|settings| settings.inspections);
         if document.state.level != level || document.state.inspections != inspections {
             document.state.level = level;
@@ -1189,6 +1258,9 @@ impl Handler for Server {
 
     /// Typing sends a change per keystroke: they are all answered before time goes to diagnostics.
     fn idle(&mut self) -> Result<(), BoxError> {
+        if !self.watch_support && self.sql.snapshots_changed() {
+            self.sql_settled()?;
+        }
         self.publish_dirty()?;
         self.trim_indexes();
         Ok(())

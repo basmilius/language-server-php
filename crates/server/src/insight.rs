@@ -9,20 +9,24 @@ use lsp_types::{
     SemanticTokensResult, SignatureHelp, SignatureHelpParams, SignatureInformation,
 };
 use php_analysis::inlay_hints::{HintKind, HintOptions, inlay_hints};
-use php_analysis::semantic_tokens::{TOKEN_MODIFIERS, TOKEN_TYPES, semantic_tokens};
+use php_analysis::semantic_tokens::semantic_tokens;
 use php_analysis::signature::signature_help;
 use php_syntax::TextSize;
 
 use crate::documents::ParseDocument;
 use crate::server::Server;
 
-/// The token types and modifiers a client is told to expect, in the order the analysis numbers them.
+/// The token types and modifiers a client is told to expect: PHP's in the order the analysis
+/// numbers them, then the ones only the SQL in strings has.
 pub(crate) fn semantic_legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
-        token_types: TOKEN_TYPES.iter().map(|name| SemanticTokenType::new(name)).collect(),
-        token_modifiers: TOKEN_MODIFIERS
-            .iter()
-            .map(|name| SemanticTokenModifier::new(name))
+        token_types: crate::sql::legend_types()
+            .into_iter()
+            .map(SemanticTokenType::new)
+            .collect(),
+        token_modifiers: crate::sql::legend_modifiers()
+            .into_iter()
+            .map(SemanticTokenModifier::new)
             .collect(),
     }
 }
@@ -47,32 +51,32 @@ impl Server {
             None => &self.workspace.loose,
         };
         let hints = inlay_hints(&project.index, &root, Some(range), options);
-        Some(
-            hints
-                .into_iter()
-                .map(|hint| {
-                    let position = mapper.position(TextSize::from(hint.offset));
-                    InlayHint {
-                        position,
-                        label: InlayHintLabel::String(hint.label),
-                        kind: Some(match hint.kind {
-                            HintKind::Parameter => InlayHintKind::PARAMETER,
-                            HintKind::Type => InlayHintKind::TYPE,
-                        }),
-                        text_edits: hint.insert.map(|text| {
-                            vec![lsp_types::TextEdit {
-                                range: lsp_types::Range::new(position, position),
-                                new_text: text,
-                            }]
-                        }),
-                        tooltip: None,
-                        padding_left: Some(false),
-                        padding_right: Some(true),
-                        data: None,
-                    }
-                })
-                .collect(),
-        )
+        let mut out: Vec<InlayHint> = hints
+            .into_iter()
+            .map(|hint| {
+                let position = mapper.position(TextSize::from(hint.offset));
+                InlayHint {
+                    position,
+                    label: InlayHintLabel::String(hint.label),
+                    kind: Some(match hint.kind {
+                        HintKind::Parameter => InlayHintKind::PARAMETER,
+                        HintKind::Type => InlayHintKind::TYPE,
+                    }),
+                    text_edits: hint.insert.map(|text| {
+                        vec![lsp_types::TextEdit {
+                            range: lsp_types::Range::new(position, position),
+                            new_text: text,
+                        }]
+                    }),
+                    tooltip: None,
+                    padding_left: Some(false),
+                    padding_right: Some(true),
+                    data: None,
+                }
+            })
+            .collect();
+        out.extend(self.sql_inlay_hints(&uri, range));
+        Some(out)
     }
 
     /// The tokens of a document, or of a range of it, in the delta encoding LSP uses.
@@ -88,7 +92,19 @@ impl Server {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let tokens = semantic_tokens(&project.index, &root, range);
+        let tokens: Vec<crate::sql::Token> = semantic_tokens(&project.index, &root, range)
+            .into_iter()
+            .map(|token| crate::sql::Token {
+                start: token.start,
+                end: token.end,
+                ty: token.ty,
+                modifiers: token.modifiers,
+            })
+            .collect();
+        let sql = self.sql_tokens(uri, range);
+        let tokens = crate::sql::merge_tokens(tokens, sql);
+        let document = self.documents.get(uri)?;
+        let mapper = document.mapper(encoding);
         let mut data = Vec::with_capacity(tokens.len());
         let (mut previous_line, mut previous_start) = (0, 0);
         for token in tokens {
@@ -135,6 +151,10 @@ impl Server {
     pub(crate) fn signature_help(&mut self, params: SignatureHelpParams) -> Option<SignatureHelp> {
         let position = params.text_document_position_params;
         let uri = position.text_document.uri;
+        let offset = self.offset_of(&uri, position.position)?;
+        if let Some(help) = self.sql_signature_help(&uri, offset) {
+            return Some(help);
+        }
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
         let encoding = self.encoding;
