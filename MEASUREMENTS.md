@@ -304,7 +304,7 @@ Every diagnostic was read: the hints are right (`COUNT()` of a `NOT NULL` column
 | completion | 14.0 ms | 1.4 ms |
 | semantic tokens | 25.9 ms | 31.9 ms |
 | a keystroke until its diagnostics | 40.0 ms | 33.3 ms |
-| Marveld, `BookablePrice.php` (349 lines, 30 strings of `literal()`), typing in a `literal()` | | |
+| Marveld, `BookablePrice.php` (349 lines, 28 strings of SQL, most of them in `literal()`), typing in a `literal()` | | |
 | completion | 14.5 ms | 0.9 ms |
 | semantic tokens | 18.9 ms | 27.7 ms |
 | a keystroke until its diagnostics | 33.5 ms | 28.6 ms |
