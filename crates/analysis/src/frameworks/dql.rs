@@ -315,6 +315,11 @@ fn role_of(analyzer: &Analyzer<'_>, argument: &SyntaxNode) -> Option<bool> {
     })
 }
 
+/// Whether a call reads an argument as DQL, which reads like SQL and is none.
+pub(crate) fn is_dql_argument(analyzer: &Analyzer<'_>, argument: &SyntaxNode) -> bool {
+    analyzer.index.frameworks().any() && role_of(analyzer, argument).is_some()
+}
+
 /// The argument whose expression a literal is a piece of.
 fn argument_around(literal: &SyntaxNode) -> Option<SyntaxNode> {
     let mut node = literal.clone();

@@ -95,6 +95,13 @@ namespace Illuminate\Database\Query {
         public function get() {}
     }
 }
+namespace Illuminate\Support\Facades {
+    /**
+     * @method static array select(string $query, array $bindings = [])
+     * @method static \Illuminate\Database\Query\Builder table(string $table, ?string $as = null)
+     */
+    class DB {}
+}
 namespace Illuminate\Database\Eloquent {
     /**
      * @template TModel of \Illuminate\Database\Eloquent\Model
@@ -329,8 +336,11 @@ fn laravel_raw_methods_see_the_table_of_the_model_and_of_the_builder() {
 namespace App;
 use App\Models\User;
 use Illuminate\Database\Connection;
+use Illuminate\Support\Facades\DB;
 function report(Connection $db) {
     $db->select('select * from people where id = ?', [1]);
+    DB::select('select count(*) from people');
+    DB::table('people')->whereRaw('age > ?', [18]);
     User::query()->whereRaw('active = 1 and age > ?', [18]);
     $db->table('orders as o')->selectRaw('count(*) as total')->orderBy($db->raw('total desc'));
 }
@@ -339,6 +349,8 @@ function report(Connection $db) {
         found(&[LARAVEL, USER], code),
         [
             "Sink Statements: select * from people where id = ?",
+            "Sink Statements: select count(*) from people",
+            "Sink Condition: SELECT * FROM people WHERE age > ?",
             "Sink Condition: SELECT * FROM people WHERE active = 1 and age > ?",
             "Sink SelectList: SELECT count(*) as total FROM orders AS o",
             "Sink OrderBy: SELECT * FROM orders AS o ORDER BY total desc",
@@ -405,5 +417,23 @@ function report(string $q, int $limit) {
             "Sink OrderBy: SELECT * FROM app_scan ORDER BY score desc",
             "Sink Statements: select name from contact where name like ? limit ?",
         ]
+    );
+}
+
+#[test]
+fn dql_reads_like_sql_and_is_left_to_doctrine() {
+    use php_index::framework::testing::{DOCTRINE, SYMFONY};
+    let mut files = SYMFONY.to_vec();
+    files.extend_from_slice(DOCTRINE);
+    let code = r#"<?php
+use Doctrine\ORM\EntityManagerInterface;
+function posts(EntityManagerInterface $em) {
+    $em->createQuery('SELECT p FROM Post p WHERE p.title = :title');
+    $em->createNativeQuery('SELECT id FROM posts WHERE title = :title', $mapping);
+}
+"#;
+    assert_eq!(
+        found(&files, code),
+        ["Sink Statements: SELECT id FROM posts WHERE title = :title"]
     );
 }

@@ -398,6 +398,51 @@ namespace Illuminate\Database {
     }
 }
 
+// The facade's own `@method` lines make its methods, so they are named here as well.
+namespace Illuminate\Support\Facades {
+    class DB
+    {
+        /** @sql statements $query */
+        public static function select($query) {}
+
+        /** @sql statements $query */
+        public static function selectOne($query) {}
+
+        /** @sql statements $query */
+        public static function scalar($query) {}
+
+        /** @sql statements $query */
+        public static function cursor($query) {}
+
+        /** @sql statements $query */
+        public static function insert($query) {}
+
+        /** @sql statements $query */
+        public static function update($query) {}
+
+        /** @sql statements $query */
+        public static function delete($query) {}
+
+        /** @sql statements $query */
+        public static function statement($query) {}
+
+        /** @sql statements $query */
+        public static function affectingStatement($query) {}
+
+        /** @sql statements $query */
+        public static function unprepared($query) {}
+
+        /**
+         * @sql expression $value
+         * @sql-refine
+         */
+        public static function raw($value) {}
+
+        /** @sql-table $table $as */
+        public static function table($table, $as) {}
+    }
+}
+
 namespace Illuminate\Database\Query {
     class Builder
     {

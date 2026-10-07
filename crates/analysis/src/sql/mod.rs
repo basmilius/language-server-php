@@ -489,6 +489,15 @@ impl<'a> Finder<'a> {
         None
     }
 
+    /// Whether a string is an argument Doctrine reads as DQL.
+    fn is_dql(&self, expression: &SyntaxNode) -> bool {
+        let Some((argument, _)) = argument_of(expression) else {
+            return false;
+        };
+        let analyzer = self.ctx.analyzer(&argument);
+        crate::frameworks::dql::is_dql_argument(&analyzer, &argument)
+    }
+
     /// What a string is, if it is SQL.
     fn decide(&self, root: &SyntaxNode) -> Option<Embedded> {
         let (context, mut format) = match argument_of(root) {
@@ -565,6 +574,7 @@ impl<'a> Finder<'a> {
             && heuristic_place(&context)
             && starts_statement(&text)
             && looks_like_a_query(&text, pieces.has_holes())
+            && !self.is_dql(&context)
         {
             let fragment = pieces.fragment(FragmentKind::Statements, &[], appended);
             if fragment.confidence(Dialect::Generic) >= self.detection.threshold {
