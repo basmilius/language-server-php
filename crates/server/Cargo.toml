@@ -20,6 +20,7 @@ php-index = { version = "0.4.1", path = "../index" }
 php-syntax = { version = "0.4.1", path = "../syntax" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sql-embed.workspace = true
 
 [dev-dependencies]
 lsc-server = { workspace = true, features = ["testing"] }

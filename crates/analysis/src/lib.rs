@@ -32,6 +32,7 @@ pub mod runnables;
 mod selection;
 pub mod semantic_tokens;
 pub mod signature;
+pub mod sql;
 mod symbols;
 pub mod target;
 pub mod twig;

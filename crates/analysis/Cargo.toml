@@ -15,6 +15,7 @@ php-format = { version = "0.4.1", path = "../format" }
 php-index = { version = "0.4.1", path = "../index" }
 php-syntax = { version = "0.4.1", path = "../syntax" }
 rayon = "1.12.0"
+sql-embed.workspace = true
 
 [dev-dependencies]
 lsc-text = { workspace = true, features = ["testing"] }

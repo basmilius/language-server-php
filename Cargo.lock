@@ -656,6 +656,7 @@ dependencies = [
  "php-syntax",
  "rayon",
  "serde_json",
+ "sql-embed",
 ]
 
 [[package]]
@@ -701,6 +702,7 @@ dependencies = [
  "php-syntax",
  "serde",
  "serde_json",
+ "sql-embed",
  "tempfile",
 ]
 
@@ -1030,6 +1032,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 dependencies = [
  "lock_api",
+]
+
+[[package]]
+name = "sql-analysis"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.2#ceff0736f3f0d2883f31de56d300272ee8b4f5b0"
+dependencies = [
+ "lsc-text",
+ "sql-catalog",
+ "sql-syntax",
+]
+
+[[package]]
+name = "sql-catalog"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.2#ceff0736f3f0d2883f31de56d300272ee8b4f5b0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sql-syntax",
+]
+
+[[package]]
+name = "sql-embed"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.2#ceff0736f3f0d2883f31de56d300272ee8b4f5b0"
+dependencies = [
+ "serde_json",
+ "sql-analysis",
+ "sql-catalog",
+ "sql-syntax",
+]
+
+[[package]]
+name = "sql-syntax"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.2#ceff0736f3f0d2883f31de56d300272ee8b4f5b0"
+dependencies = [
+ "lsc-syntax",
+ "rowan",
 ]
 
 [[package]]
