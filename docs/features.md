@@ -10,12 +10,13 @@
 | Writing       | Completion with resolve, rename with prepare, code actions with resolve, formatting, range formatting, formatting on type at newline, `}` and `;` |
 | Files         | `workspace/willRenameFiles` for PHP files and folders                                                        |
 | Tests         | Code lenses and the request `php/runnables`                                                                 |
+| SQL           | Every request above for the [SQL in strings](./sql.md), in the positions of the PHP file                   |
 
 Positions are UTF-8 when the client offers it and UTF-16 otherwise. A document is parsed whole on every change; a burst of changes is parsed once.
 
 ## Completion
 
-Completion offers variables, members by the visibility of the place, classes, functions, constants, enum cases, named arguments, keywords, attributes and methods to override. After `Status::` the enum cases come first. Where the code expects a type, its values come before the rest: after `$ticket->status === ` the cases of the status enum, in an argument the cases of the parameter's enum, `true` and `false` where a `bool` is expected. Inside `$chart['` the keys of an `array{...}` shape from PHPDoc complete with their types. The named arguments of an attribute complete like those of `new`. A class from elsewhere comes with its `use` line as an additional edit. At most 300 items come back, with `isIncomplete` set when there were more. The trigger characters are `$`, `>`, `:`, `\`, `#` and `[`.
+Completion offers variables, members by the visibility of the place, classes, functions, constants, enum cases, named arguments, keywords, attributes and methods to override. After `Status::` the enum cases come first. Where the code expects a type, its values come before the rest: after `$ticket->status === ` the cases of the status enum, in an argument the cases of the parameter's enum, `true` and `false` where a `bool` is expected. Inside `$chart['` the keys of an `array{...}` shape from PHPDoc complete with their types. The named arguments of an attribute complete like those of `new`. A class from elsewhere comes with its `use` line as an additional edit. At most 300 items come back, with `isIncomplete` set when there were more. The trigger characters are `$`, `>`, `:`, `\`, `#` and `[`, and inside SQL also `.` and a space.
 
 Types follow declarations, PHPDoc with generics and array shapes, narrowing by conditions, closure arguments, return types read from bodies, `@psalm-assert`, and `@psalm-type` and `@phpstan-type` aliases with their imports. What cannot be known, such as variable variables, is `mixed`, which offers nothing rather than a wrong guess.
 
@@ -69,6 +70,10 @@ Support turns on by the packages Composer installed: `laravel/framework` or `ill
 Blade templates are read as a whole. The PHP in them knows its variables: the ones `@foreach`, `@php`, `@props` and `@inject` make, and the ones the controllers, mailables, components, Livewire components, `@include` and component tags that render the template pass it. Hover, definition, completion, usages, highlights and rename work in that PHP, sections and stacks lead to the layout, attributes and slots to the component, and finding the usages of a class or a method also finds the templates. A template gets diagnostics for PHP that does not parse, block directives that do not close, and views, routes, config keys and translations the project does not have.
 
 Twig templates complete and lead to the templates they extend, include and import, the blocks of their parents, the functions, filters and tests of the project's and the packages' extensions, and the routes, translations and workflow transitions their functions and filters name. Their variables have the types the controllers that render them pass, so `post.title` hovers, completes and leads to `getTitle()`, and finding the usages of a route, a translation or a getter lists the templates too. A Twig template gets diagnostics for what does not parse, tags that do not close, templates and routes the project does not have, and functions, filters and tests no extension declares.
+
+## SQL in strings
+
+Strings that hold SQL get what a SQL editor gives: diagnostics, completion, hover, definition into `.sql` files, signature help, highlights, find usages, rename of aliases, quick fixes, inlay hints and colors. A string is SQL when a `language=SQL` comment or a heredoc label says so, when it is passed to a function or method that takes SQL (PDO, mysqli, SQLite3, PostgreSQL, WordPress, Raxos, Laravel, Doctrine DBAL, Yii, CodeIgniter, CakePHP, Nette, Laminas, Cycle, Aura.Sql), or when it reads as a whole statement. Parts of a query builder see the tables of their query. [SQL in strings](./sql.md) has the details and [configuration](./configuration.md#sql-in-strings) the dialect, schema and detection settings.
 
 ## Tests
 

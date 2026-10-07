@@ -9,7 +9,8 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
     "inlayHints": { "parameterNames": true, "closureTypes": false },
     "inspections": { "unused-import": "off", "undefined-class": "warning", "deprecated": { "severity": "hint" } },
     "format": { "lineLength": 100, "alignAssignments": true },
-    "usages": { "packages": false }
+    "usages": { "packages": false },
+    "sql": { "dialect": "mysql", "version": "8.4", "schema": "db/schema.json" }
 }
 ```
 
@@ -24,6 +25,7 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
 | `inspections`               |         | Per inspection code: `false` or `'off'`, a severity, or `{ enabled, severity }`          |
 | `format`                    |         | The [formatter](#formatter)                                                              |
 | `usages.packages`           | `false` | Find usages and incoming calls also read the installed packages                          |
+| `sql`                       |         | [SQL in strings](#sql-in-strings)                                                        |
 
 A severity is `error`, `warning`, `information` (or `info`) or `hint`. Pass the folders at initialization.
 
@@ -62,3 +64,44 @@ With a `storagePath`, each project keeps its index in `<storagePath>/cache`, so 
 | `editorconfig`             | Boolean                    | `true`     |
 
 The indentation comes from the client's formatting options. With `editorconfig` on, the nearest `.editorconfig` files up to `root = true` set `indent_style`, `indent_size`, `tab_width` and `max_line_length`, and a `format` setting overrides those.
+
+## SQL in strings
+
+The `sql` setting says whether and how the server reads the [SQL in strings](./sql.md). Without it, SQL is found and read in no dialect and without a schema.
+
+```json
+{
+    "sql": {
+        "enabled": true,
+        "dialect": "mariadb",
+        "version": "11.4",
+        "schema": "db/schema.json",
+        "sqlMode": "STRICT_TRANS_TABLES",
+        "inspections": { "double-quoted-string": "off", "missing-where": "error" },
+        "inlayHints": { "insertColumns": true, "selectColumns": true, "parameterNames": false },
+        "questionPlaceholders": true,
+        "detection": { "markers": true, "sinks": true, "heuristic": true, "threshold": 0.8 },
+        "overrides": [
+            { "path": "modules/reports", "dialect": "postgres", "version": "18", "schema": "/srv/reports.json" }
+        ]
+    }
+}
+```
+
+| Key                       | Default   | Meaning |
+| ------------------------- | --------- | ------- |
+| `enabled`                 | `true`    | Whether strings are read as SQL at all |
+| `dialect`                 | none      | `sqlite`, `mysql`, `mariadb`, `postgres` (also `postgresql`, `pgsql`) or `generic`. Without one, the dialect of the function a string is passed to or the one the project is configured for, else none |
+| `version`                 | the newest | The version of the server, such as `8.4`, `11.4` or `3.47.2`; it counts only for its own dialect |
+| `schema`                  | none      | A schema snapshot: absolute, a `file:` URI, or relative to the workspace folder of the document |
+| `sqlMode`                 | the snapshot's | MySQL's and MariaDB's `sql_mode` of the connection, which decides some inspections |
+| `inspections`             |           | Per SQL inspection id or row of the feature table: `false` or `"off"`, a severity, or `{ enabled, severity }` |
+| `inlayHints`              | all on    | `insertColumns`, `selectColumns` and `parameterNames` |
+| `questionPlaceholders`    | `true`    | A `?` is a placeholder of the database layer, also in PostgreSQL |
+| `detection.markers`       | `true`    | `language=SQL` comments and heredocs labeled `SQL` |
+| `detection.sinks`         | `true`    | Strings passed to the functions and methods that take SQL |
+| `detection.heuristic`     | `true`    | Strings elsewhere that read as a whole statement |
+| `detection.threshold`     | `0.8`     | How sure the heuristic has to be, from 0 to 1; higher finds fewer strings |
+| `overrides`               |           | Entries with a `path` (a file or folder: absolute, a `file:` URI, or relative to the workspace folder of the document) and any of `dialect`, `version`, `schema` and `sqlMode`; the most specific path wins, key by key |
+
+The SQL inspections and their ids are listed in the [SQL language server's documentation](https://github.com/basmilius/language-server-sql/blob/main/docs/inspections.md), and so is the [snapshot format](https://github.com/basmilius/language-server-sql/blob/main/docs/snapshot-format.md). Like the rest of the settings, `sql` may be answered per folder through `workspace/configuration`. A setting that cannot be read, such as an unknown dialect, is logged once and left out; a snapshot that cannot be read is shown once and read again when it changes.

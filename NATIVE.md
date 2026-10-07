@@ -18,15 +18,15 @@ Nothing was taken from the bytecode or the decompiled classes of any IDE plugin,
 
 ## Layout
 
-A Cargo workspace with five crates. Only the server knows LSP. What every language server does the same way comes from `basmilius/language-server-core`, a Git dependency pinned to a tag: `lsc-text` (the line index and position encodings), `lsc-syntax` (the token cursor and tree builder the parser is written on) and `lsc-server` (documents and their incremental sync, `file:` URIs, encoding negotiation, request dispatch, work done progress, the main loop and `main`).
+A Cargo workspace with five crates. Only the server knows LSP. What every language server does the same way comes from `basmilius/language-server-core`, a Git dependency pinned to a tag: `lsc-text` (the line index and position encodings), `lsc-syntax` (the token cursor and tree builder the parser is written on) and `lsc-server` (documents and their incremental sync, `file:` URIs, encoding negotiation, request dispatch, work done progress, the main loop and `main`). What SQL means comes from `sql-embed` of `basmilius/language-server-sql`, also a Git dependency pinned to a tag: the SQL language server's analysis, asked about a fragment of a host's strings and answering in the host's offsets.
 
 | Crate | Holds |
 | --- | --- |
 | `crates/syntax` (`php-syntax`) | The lexer, the parser, the tree (on `rowan`), the language level table and the pass that checks a tree against a level. |
 | `crates/format` (`php-format`) | The formatter: it reads a tree and decides the whitespace between tokens, and nothing else, and reads `.editorconfig`. |
 | `crates/index` (`php-index`) | The declarations of a file with their PHPDoc, name resolution, PHPDoc types, Composer metadata, the standard library stubs, the persistent cache, the parallel indexer, the class hierarchy, the word index, the test facts (groups, Pest datasets, bindings of a test case to a folder) and the framework layer (`framework/`). |
-| `crates/analysis` (`php-analysis`) | Questions about a tree and an index: symbols, folding, selection, diagnostics, the type layer, hover, navigation, completion, usages, rename, signature help, hierarchies, semantic tokens, inlay hints, inspections, fixes, refactors, tests and runnables, the strings of the frameworks (`frameworks/`), Blade (`blade/`), Twig (`twig/`), YAML (`yaml.rs`) and the class names in strings (`class_strings.rs`). |
-| `crates/server` (`php-language-server`) | The LSP front end over stdio: documents, incremental sync, workspace folders, background indexing with progress, configuration, and the conversion of everything above to LSP. Library and binary. |
+| `crates/analysis` (`php-analysis`) | Questions about a tree and an index: symbols, folding, selection, diagnostics, the type layer, hover, navigation, completion, usages, rename, signature help, hierarchies, semantic tokens, inlay hints, inspections, fixes, refactors, tests and runnables, the strings of the frameworks (`frameworks/`), Blade (`blade/`), Twig (`twig/`), YAML (`yaml.rs`), the class names in strings (`class_strings.rs`) and which strings hold SQL (`sql/`). |
+| `crates/server` (`php-language-server`) | The LSP front end over stdio: documents, incremental sync, workspace folders, background indexing with progress, configuration, the SQL of strings with its schema (`sql/`), and the conversion of everything above to LSP. Library and binary. |
 
 ## Syntax
 
@@ -76,7 +76,7 @@ Besides the requests the sections below describe, it answers:
 
 ### Configuration
 
-Only standard LSP channels are used: `initializationOptions`, `workspace/configuration` for the section `phpLanguageServer` with the document as `scopeUri` (so a client can answer per project or folder), and `workspace/didChangeConfiguration`, each with the settings bare or under `phpLanguageServer`. The settings are `phpVersion`, `storagePath`, `stubsPath`, `inlayHints`, `inspections`, `format` and `usages.packages`, described in [docs/configuration.md](./docs/configuration.md). The level of a document is the answer for its scope, else the project's, else the default.
+Only standard LSP channels are used: `initializationOptions`, `workspace/configuration` for the section `phpLanguageServer` with the document as `scopeUri` (so a client can answer per project or folder), and `workspace/didChangeConfiguration`, each with the settings bare or under `phpLanguageServer`. The settings are `phpVersion`, `storagePath`, `stubsPath`, `inlayHints`, `inspections`, `format`, `usages.packages` and `sql`, described in [docs/configuration.md](./docs/configuration.md). The level of a document is the answer for its scope, else the project's, else the default.
 
 ### Documents
 
@@ -209,7 +209,7 @@ Incoming calls are the usages of a function or method grouped by the function th
 
 ### Semantic tokens
 
-`textDocument/semanticTokens/full` and `/range`. Keywords, strings, numbers and comments are left to the editor's grammar.
+`textDocument/semanticTokens/full` and `/range`. Keywords, strings, numbers and comments of PHP are left to the editor's grammar; inside a string that holds SQL the grammar sees one string, so the SQL gets tokens of its own ([SQL in strings](#sql-in-strings)).
 
 | Types | `namespace`, `class`, `interface`, `enum`, `struct` (traits), `typeParameter` (`@template` names), `parameter`, `variable`, `property`, `enumMember`, `function`, `method`, `keyword` (doc tags), `decorator` (the name of an attribute) |
 | --- | --- |
@@ -516,6 +516,49 @@ Diagnostics, all of them certain: an unclosed `{{` or `{%`, a token nothing take
 
 The YAML of a Symfony project's `config/` and `translations/` is read for the names in it (`yaml.rs`, on the tree `framework/yaml.rs` reads): `%parameter%` and `%env(PROCESSOR:NAME)%` in any string, `@service` and `@?service`, the classes services are declared by (a key under `services:` that is a class, and `class:`), and `controller: App\Controller\Blog::show`. A scalar whose text differs from its value is left alone, so a range never lands beside the name. They hover, lead to the declaration and complete as they are typed, from the text, so a document that does not parse yet still completes; the place a file declares a parameter, service, route or translation key has usages. Finding the usages of a class or method from PHP lists the configuration that names it, and renaming a class renames it there. `undefined-class` reports a class a service is declared by that neither the index nor Composer's maps know.
 
+## SQL in strings
+
+### Which strings hold SQL
+
+`php-analysis` decides, for every string expression of a PHP document, whether it holds SQL, what kind of SQL and which tables a part of a query sees (`sql/`). A string expression is a literal, an interpolated string, a heredoc or a nowdoc, or a concatenation or parentheses with one of them in it; it is read whole, as one fragment. Three signals make it SQL, strongest first:
+
+- **A marker a person writes.** A comment with `language=SQL` (or a dialect: `language=PostgreSQL`, `MySQL`, `MariaDB`, `SQLite`) right before the string, before the `sprintf()` that formats it, or before the statement it is the first string of, and a heredoc or nowdoc labeled `SQL` or with the name of a dialect. A dialect a marker names goes before every setting.
+- **A function or method that takes SQL.** `sinks.php` is a table written as PHP and read as data, like the overlays of the frameworks: a declaration per function or method with tags that say which parameter takes SQL and of which kind, which call adds a table to a query, and which call's result reads as what the call it is passed to takes. A call matches an entry by the class of its receiver as the type layer knows it (a subclass or an implementation counts), else by what the call resolves to (a facade, a `@mixin`), and a function by its resolved name, so `$pdo->query()` is SQL and `$cache->query()` is not. A string assigned to a variable with `=` is SQL when its function passes that variable to such a parameter; a variable that also gets `.=` reads with an open end, and one that is the format of a `sprintf()` has its placeholders as holes.
+- **A string that reads as a statement**, with the heuristic on: passed to any call, assigned with `=`, returned, or the value of a constant or a property, starting with the first word of a statement, written as a query (its first word in capitals, or the punctuation of SQL, or something put into it) rather than as a sentence, and rated by `sql-embed`'s confidence at the threshold or above. A string Doctrine reads as DQL is left to the DQL support.
+
+Interface text such as "Select a file" or "Update failed" starts with the same words; the sentence shape, the confidence and the absence of a sink or marker keep it out.
+
+### Kinds and tables
+
+A function that takes whole statements gives `Statements`. A query builder takes parts: a condition, a `HAVING` condition, a select list, an expression, items of `ORDER BY` or `GROUP BY`, a table reference, the assignments of `SET`, and `sql-embed` reads each inside a statement written around it. A wrapper such as Raxos' `literal()`, Laravel's `DB::raw()` or Yii's `Expression` is an expression that reads as what the call it is passed to takes, also from inside an array (`orderBy([literal('score desc')])` is an item of `ORDER BY`). A part a call puts anywhere (Raxos' `raw()`) and a marked string that is no statement are read as whichever of an expression, a condition or the clauses that end a query (`JOIN ...`, `WHERE ...`, `ORDER BY ...`) has the fewest syntax errors.
+
+The tables a part sees come from the chain of calls it is in: the calls the table marks as adding a table (`from()`, `table()`, the joins, with an alias from another argument or written as `users u` or `users as u`), the model a static call starts from or a query is typed with (Raxos' `#[Table]`, also on a parent, and Eloquent's table), the chains on the same variable in the same function (a builder set up over several statements), and the query around a closure the part's chain is in (`->join('t', fn ($q) => $q->on(literal(...)))`). A table reference itself sees none, so it never meets its own alias twice.
+
+### Pieces and holes
+
+Each literal goes into the fragment with its offsets and its escapes (single-quoted, double-quoted, heredoc, or none for a nowdoc); a heredoc leaves the indentation of its closing marker out of every line and the line break before the marker out of the value. Everything else is a hole: an interpolation (`$id`, `{$user->id}`), a concatenated expression, and a placeholder of `sprintf()` or `wpdb::prepare()` (`%%` is one `%`). What a hole stands for is read from the text around it: inside a string of SQL or after an operator, `LIMIT`, `OFFSET`, `LIKE` or `BETWEEN` a value, inside backticks or glued to the letters of a name a name (`{$prefix}users`), the result of `implode()` inside parentheses a list, a cast to a number or a numeric function a value, and anything else open, which `sql-embed` fills with whatever parses. Nothing is reported about a hole and no edit reaches into one.
+
+### Dialect and schema
+
+A fragment is read in the dialect of a marker, else the one the `sql` setting gives the document's path (its `overrides` per folder, most specific first), else the one the function is for (`pg_query()` is PostgreSQL, `SQLite3` SQLite, `mysqli` MySQL, or MariaDB in a project configured for it), else the one the project is configured for, else none, which reads every dialect's syntax and reports only what no dialect accepts. A version or `sqlMode` set for another dialect is dropped with it.
+
+The project's dialect is read in the background once a project is indexed, from what its configuration says without running anything: Laravel's `DB_CONNECTION` or the fallback of `config/database.php`, the scheme of a `DATABASE_URL` (and `serverVersion=...-MariaDB`), and the connection classes of Raxos the project registers. Of `.env` only those two keys are read, and of the URL only its scheme and server version.
+
+The schema is a snapshot the settings name (read when a document first needs it, watched, and checked by its modification time for a client that does not watch) and the DDL of the workspace folders' `.sql` files, read in a background thread and kept per file, built once per dialect and read again per changed file. Without either nothing about tables or columns is reported. An environment per settings, snapshot and dialect is shared by every fragment that uses it.
+
+### In the server
+
+The strings of an open PHP document are found and analyzed once per version, on the first request that needs them (diagnostics, tokens, hints, completion), and kept until the document, the settings, a snapshot, the `.sql` files, the index or a project's dialect changes; finding them reuses one context for the file, resolves each call once, and reads each function's variables once. A request at an offset in a string's SQL is answered by SQL; one in a hole, in the quotes or outside goes to PHP:
+
+- diagnostics have the source `sql`, the inspection's id as code and `data.feature` for a row of the feature table, after PHP's;
+- completion of SQL wins inside SQL when it has items; `.` and a space are trigger characters that answer only there;
+- hover, signature help and document highlights answer for SQL; definition leads into the string or a `.sql` file, and falls back to PHP when SQL finds nothing;
+- references list the names of a local symbol in its string, and of a table or column the strings of every open document and the `.sql` files;
+- rename changes what a string declares (an alias, a common table expression, a column alias) and refuses a table or column, whose definition is elsewhere;
+- code actions add SQL's quick fixes and rewrites for a range inside one string, and `source.fixAll.sql` with every safe fix of the document's SQL when a client asks for `source.fixAll`; every edit stays inside one literal and is escaped for it;
+- semantic tokens: the legend is PHP's followed by what only SQL has (`comment`, `string`, `number`, `operator`, `type`), with the modifiers mapped by name; SQL's tokens replace any PHP token they overlap, and a token over a hole is left out;
+- inlay hints add SQL's, the column a value of an `INSERT` goes to and the parameter an argument fills.
+
 ## Build, test and check
 
 ```sh
@@ -527,7 +570,7 @@ python3 scripts/test-native-release.py
 python3 scripts/handshake.py target/release/php-language-server
 ```
 
-The default test run needs no network and no PHP. It holds snapshot tests of the tree per construct (`UPDATE_EXPECT=1 cargo test` rewrites them), error recovery tests, a round trip test (the text of the tree equals the input for every prefix of a sample file and after every single edit), the language level table, the PHPDoc and type grammar, name resolution, the extractor, Composer metadata, the cache and the indexer on temporary folders, the hierarchy, type inference, completion, imports, hover, navigation, usages, rename, signature help, hierarchies, semantic tokens and inlay hints, every inspection, every refactor (each result parsed and inspected again, so it brings no syntax error and no new finding), the formatter, the test support, every catalog of the framework layer and every kind of string (`crates/index/src/framework/*`, `crates/analysis/src/frameworks/tests.rs`), Blade and Twig, and end-to-end tests of the server over an in-memory connection against projects written to a folder (`crates/server/tests/`). The pieces of Laravel, Symfony and their packages these tests need are in `php-index`'s `testing` feature.
+The default test run needs no network and no PHP. It holds snapshot tests of the tree per construct (`UPDATE_EXPECT=1 cargo test` rewrites them), error recovery tests, a round trip test (the text of the tree equals the input for every prefix of a sample file and after every single edit), the language level table, the PHPDoc and type grammar, name resolution, the extractor, Composer metadata, the cache and the indexer on temporary folders, the hierarchy, type inference, completion, imports, hover, navigation, usages, rename, signature help, hierarchies, semantic tokens and inlay hints, every inspection, every refactor (each result parsed and inspected again, so it brings no syntax error and no new finding), the formatter, the test support, every catalog of the framework layer and every kind of string (`crates/index/src/framework/*`, `crates/analysis/src/frameworks/tests.rs`), Blade and Twig, which strings hold SQL and how they read (`crates/analysis/src/sql/`), and end-to-end tests of the server over an in-memory connection against projects written to a folder (`crates/server/tests/`). The pieces of Laravel, Symfony and their packages these tests need are in `php-index`'s `testing` feature.
 
 The corpus of real PHP is fetched on demand:
 
@@ -546,3 +589,4 @@ cargo run --release -p php-syntax --example corpus -- phpt --oracle --verbose
 - Interned strings, if the memory of the summaries ever matters.
 - `#[ApiFilter(properties: [...])]` as entity fields, Messenger handlers configured in YAML, and an injected `WorkflowInterface` tied to its workflow by the argument's name.
 - No diagnostics for query columns, Filament names and `wire:` attributes, where accessors and magic make "unknown" uncertain; a reason to add one would be a way to know the attributes a model has at run time.
+- SQL in strings: a schema from the models of the ORMs (Raxos' columns, Eloquent's migrations, Doctrine's mappings) for completion where no snapshot or DDL is given; a project function that passes its parameter on to a function that takes SQL counting as one itself; quick fixes whose edit would span two concatenated literals.

@@ -1,6 +1,6 @@
 # language-server-php
 
-A language server for PHP 8.1 through 8.6, written in Rust, that speaks LSP over stdio. It indexes a project with its Composer packages and the standard library, and answers completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and the tests a file can run, with support for PHPUnit, Pest, Laravel and Symfony. It reads code and never runs it.
+A language server for PHP 8.1 through 8.6, written in Rust, that speaks LSP over stdio. It indexes a project with its Composer packages and the standard library, and answers completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and the tests a file can run, with support for PHPUnit, Pest, Laravel and Symfony. The SQL in its strings is read as SQL, with diagnostics, completion against a schema and the rest. It reads code and never runs it.
 
 ## Install
 
@@ -23,6 +23,7 @@ php-language-server --stdio
 | [Getting started](./docs/getting-started.md)  | Building, starting and connecting                               |
 | [Configuration](./docs/configuration.md)      | Settings, language level, Composer, stubs, cache and formatter  |
 | [Features](./docs/features.md)                | What it answers, frameworks and runnable tests                  |
+| [SQL in strings](./docs/sql.md)               | Which strings are SQL, how to mark one, dialects and schemas    |
 | [Clients](./docs/clients.md)                  | What an editor sends and announces for each feature             |
 | [Distribution](./docs/distribution.md)        | Release archives and the descriptor an installer pins           |
 | [Maintaining](./docs/maintaining.md)          | The crates, checks, corpus and releases                         |
