@@ -16,6 +16,7 @@ All measurements are release builds on an Apple Silicon laptop with 16 cores, un
 | `inertiajs/pingcrm` | Laravel with Inertia and Vue | 44 |
 | `api-platform/demo` (`api/`) | Symfony with API Platform | 89 |
 | Laravel 13 and Symfony 8.1 skeletons | Fresh projects with a few models, entities, routes and templates added | 45 and 17 |
+| Marveld, Latte, Intranet | Private PHP applications on the Raxos ORM, with SQL in `literal()`, heredocs and query builders | 345, 778 and 373 own |
 
 The public projects are cloned into a folder outside the repository, installed with `composer install --no-scripts`, and deleted afterwards.
 
@@ -37,6 +38,8 @@ cargo run --release -p php-analysis --example refactor_smoke -- <project> <stubs
 cargo run --release -p php-analysis --example key_usages -- <project> <stubs>
 cargo run --release -p php-analysis --example blade_survey -- <project> <stubs>
 cargo run --release -p php-analysis --example twig_survey -- <project> <stubs>
+cargo run --release -p php-analysis --example sql_survey -- <project> <stubs> [--ddl] [--list] [--code <code>] [--file <path>]
+python3 scripts/measure-typing.py <binary> <project> <stubs> <file> <text before the cursor> [--no-sql] [--keys <n>]
 python3 scripts/measure-memory.py <binary> <project> <stubs> <storage> <file> <class>
 python3 scripts/measure-usages.py ...
 python3 scripts/survey-usages.py ...
@@ -267,3 +270,44 @@ On symfony-demo: the 32 templates are read in 2 ms; 202 functions, filters and t
 ### YAML
 
 Over the 27 YAML files of symfony-demo and the 26 of Kimai, `undefined-class` reports two classes, both real (in Kimai's test configuration: a route to a removed `LayoutController` and a service `App\Importer\ImporterService` that does not exist).
+
+## SQL in strings, 2026-10-07
+
+Measured with other work running on the machine (a load of about 20); every number was taken in alternating runs and repeated, and the medians agree between repeats.
+
+### What is found
+
+`sql_survey` reads every PHP file of the project as the server does. Without `--ddl` the strings are read in the dialect the project is configured for and without a schema; with it, against the DDL of the project's `.sql` files.
+
+| | Passly | Marveld | Latte | Intranet |
+| --- | --- | --- | --- | --- |
+| Dialect from the configuration | MariaDB (Raxos) | MariaDB (Raxos) | MariaDB (Raxos) | none |
+| Strings read as SQL | 343 | 154 | 161 | 13 |
+| by a marker (heredoc labels, comments) | 138 | 0 | 1 | 0 |
+| by a function or builder that takes SQL | 158 | 154 | 160 | 12 |
+| by the heuristic | 47 | 0 | 0 | 1 |
+| Syntax errors | none | none | none | none |
+| `.sql` files read with `--ddl` | 85 | 5 | 18 | 0 |
+| Diagnostics with `--ddl` | 9 `count-not-null-column` hints | 44 `double-quoted-string` | 42 `double-quoted-string` | 1 `distinct-with-group-by` |
+| Finding the strings of every file | 72 ms, 5 ms for the slowest file | 25 ms, 3 ms | 62 ms, 3 ms | 19 ms, under 1 ms |
+| Reading them as SQL | 14 ms (27 ms with the DDL) | 3 ms | 3 ms | 5 ms |
+
+Every diagnostic was read: the hints are right (`COUNT()` of a `NOT NULL` column over inner joins), the double-quoted strings are what the inspection is for (`json_object("id", ...)`), and the `DISTINCT` with `GROUP BY` is real. The 47 strings the heuristic finds in Passly are whole statements passed to a method of the project that runs them, and the one in Intranet is `SELECT UUID()`. Before it was found that a hole may join a table and that a part's qualifier may name a table of the query around it, Passly's DDL gave 23 unknown tables and aliases and 15 unknown columns, all wrong, and the units of `TIMESTAMPDIFF()` were taken for columns; both were fixed in `sql-embed` and the SQL analysis.
+
+### Typing
+
+`measure-typing.py` types 60 characters into a string, one per change, and asks completion at the cursor and the semantic tokens of the whole file after each, then waits for the diagnostics of that version. Off is the same server with `sql.enabled` set to `false`.
+
+| | SQL on | SQL off |
+| --- | --- | --- |
+| Passly, `MerchantStatisticsBuyersService.php` (1,249 lines, 17 heredocs of SQL), typing in a `WHERE` | | |
+| completion | 14.0 ms | 1.4 ms |
+| semantic tokens | 25.9 ms | 31.9 ms |
+| a keystroke until its diagnostics | 40.0 ms | 33.3 ms |
+| Marveld, `BookablePrice.php` (349 lines, 30 strings of `literal()`), typing in a `literal()` | | |
+| completion | 14.5 ms | 0.9 ms |
+| semantic tokens | 18.9 ms | 27.7 ms |
+| a keystroke until its diagnostics | 33.5 ms | 28.6 ms |
+
+The first request after a change pays for finding and reading the strings of the file, and for the sections of the framework layer the change dropped, which the type layer needs to resolve the calls; with SQL on that is completion, which then costs what the semantic tokens no longer do. A keystroke costs 5 to 7 ms more in all, about 20 percent, and the later requests of the same version reuse the analyses.
+

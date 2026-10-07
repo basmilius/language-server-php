@@ -1,7 +1,9 @@
 //! Finds the SQL in the strings of a project's PHP files as the server does, reads each string
 //! with `sql-embed` and counts what it finds and what SQL reports, to find strings taken for SQL
 //! that are none and diagnostics that are wrong: `cargo run --release -p php-analysis --example
-//! sql_survey -- <project> <stubs> [--dialect <name>] [--list] [--code <code>] [--no-heuristic]`.
+//! sql_survey -- <project> <stubs> [--dialect <name>] [--list] [--code <code>] [--no-heuristic]
+//! [--ddl] [--file <path>]`. With `--ddl` the strings are read against the DDL of the project's
+//! `.sql` files, as the server reads them.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -21,7 +23,9 @@ fn line_of(text: &str, offset: u32) -> usize {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
-        eprintln!("usage: sql_survey <project> <stubs> [--dialect <name>] [--list] [--code <code>] [--no-heuristic]");
+        eprintln!(
+            "usage: sql_survey <project> <stubs> [--dialect <name>] [--list] [--code <code>] [--no-heuristic] [--ddl] [--file <path>]"
+        );
         std::process::exit(2);
     }
     let option = |name: &str| {
@@ -83,7 +87,15 @@ fn main() {
         dialect,
         ..Settings::default()
     };
-    let env = Environment::new(settings, None, None);
+    let workspace = args
+        .iter()
+        .any(|arg| arg == "--ddl")
+        .then(|| sql_embed::Workspace::scan(dialect, std::slice::from_ref(&project.root)))
+        .and_then(|workspace| {
+            println!("{} .sql files read", workspace.paths().count());
+            workspace.schema()
+        });
+    let env = Environment::new(settings, None, workspace);
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
     let mut codes: BTreeMap<String, usize> = BTreeMap::new();
     let mut detect_time = Duration::ZERO;
