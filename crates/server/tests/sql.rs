@@ -162,6 +162,47 @@ fn completes_hovers_and_navigates_inside_a_string() {
 }
 
 #[test]
+fn completes_a_name_begun_with_a_backtick_and_passes_the_quote_on() {
+    let disk = disk();
+    let mut client = started(&disk, PROGRESS_CAPABILITIES(), json!({}));
+    let uri = disk.uri("project/src/Quoted.php");
+    let text =
+        "<?php\nfunction quoted(PDO $pdo) {\n    /* language=MySQL */\n    $pdo->query('SELECT * FROM `us`');\n}\n";
+    client.open(&uri, text);
+
+    let (line, character) = at(text, "`us`", 3);
+    let list = client.request(
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character },
+            "context": { "triggerKind": 1 }
+        }),
+    );
+    let users = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["label"] == "users")
+        .unwrap_or_else(|| panic!("users among {list}"));
+    assert_eq!(users["textEdit"]["newText"], "`users`");
+    assert_eq!(covered(text, &users["textEdit"]["range"]), "`us`");
+
+    let (line, character) = at(PAGE, "    echo", 0);
+    client.open(&disk.uri("project/src/Page.php"), PAGE);
+    let nothing = client.request(
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": disk.uri("project/src/Page.php") },
+            "position": { "line": line, "character": character + 4 },
+            "context": { "triggerKind": 2, "triggerCharacter": "`" }
+        }),
+    );
+    assert!(nothing.is_null(), "a backtick completes nothing in PHP: {nothing}");
+    client.shutdown();
+}
+
+#[test]
 fn renames_an_alias_within_its_string_and_refuses_a_table() {
     let disk = disk();
     let mut client = started(&disk, PROGRESS_CAPABILITIES(), json!({}));

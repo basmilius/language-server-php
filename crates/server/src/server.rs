@@ -354,8 +354,12 @@ impl Server {
             }),
             completion_provider: Some(CompletionOptions {
                 resolve_provider: Some(true),
-                // `.` and a space only ever complete inside SQL; the rest are PHP's.
-                trigger_characters: Some(["$", ">", ":", "\\", "#", "[", ".", " "].map(String::from).to_vec()),
+                // `.`, a space, a backtick and a double quote only ever complete inside SQL; the rest are PHP's.
+                trigger_characters: Some(
+                    ["$", ">", ":", "\\", "#", "[", ".", " ", "`", "\""]
+                        .map(String::from)
+                        .to_vec(),
+                ),
                 all_commit_characters: None,
                 work_done_progress_options: WorkDoneProgressOptions::default(),
                 completion_item: None,

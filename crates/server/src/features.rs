@@ -393,15 +393,15 @@ impl Server {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
         let offset = self.offset_of(&uri, position.position)?;
-        // Inside a string of SQL its items go before whatever PHP would offer there.
-        if let Some(list) = self.sql_completion(&uri, offset) {
-            return Some(CompletionResponse::List(list));
-        }
         let trigger = params
             .context
             .as_ref()
             .and_then(|context| context.trigger_character.as_deref());
-        if matches!(trigger, Some("." | " ")) {
+        // Inside a string of SQL its items go before whatever PHP would offer there.
+        if let Some(list) = self.sql_completion(&uri, offset, trigger.and_then(|text| text.chars().next())) {
+            return Some(CompletionResponse::List(list));
+        }
+        if matches!(trigger, Some("." | " " | "`" | "\"")) {
             return None;
         }
         self.sync_symbols(&uri);

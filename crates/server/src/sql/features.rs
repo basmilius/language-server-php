@@ -153,10 +153,11 @@ impl Server {
     }
 
     /// What completes at an offset in SQL, when the offset is in SQL and there is anything.
-    pub(crate) fn sql_completion(&mut self, uri: &Uri, offset: u32) -> Option<CompletionList> {
+    pub(crate) fn sql_completion(&mut self, uri: &Uri, offset: u32, trigger: Option<char>) -> Option<CompletionList> {
         let (items, position) = self.sql_at(uri, offset)?;
         let options = CompletionOptions {
             snippets: self.snippet_support,
+            trigger,
             ..CompletionOptions::default()
         };
         let list = items[position].analysis.completion(offset, options);
