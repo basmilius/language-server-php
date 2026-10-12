@@ -166,9 +166,10 @@ fn completes_a_name_begun_with_a_backtick_and_passes_the_quote_on() {
     let disk = disk();
     let mut client = started(&disk, PROGRESS_CAPABILITIES(), json!({}));
     let uri = disk.uri("project/src/Quoted.php");
-    let text =
-        "<?php\nfunction quoted(PDO $pdo) {\n    /* language=MySQL */\n    $pdo->query('SELECT * FROM `us`');\n}\n";
+    let text = "<?php\nfunction quoted(PDO $pdo) {\n    /* language=MySQL */\n    $pdo->query('SELECT emial FROM users');\n    /* language=MySQL */\n    $pdo->query('SELECT * FROM `us`');\n}\n";
     client.open(&uri, text);
+    // The `.sql` files are read in the background; the typo is a problem only once they were.
+    sql_diagnostics(&mut client, &uri);
 
     let (line, character) = at(text, "`us`", 3);
     let list = client.request(
