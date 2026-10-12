@@ -4,6 +4,7 @@
 mod common;
 
 use common::*;
+use php_language_server::hold::{self, Hold, Job};
 use serde_json::{Value, json};
 
 const SCHEMA: &str = "CREATE TABLE orgs (id int PRIMARY KEY, title varchar(100));\nCREATE TABLE users (id int PRIMARY KEY, org_id int REFERENCES orgs (id), email varchar(255) NOT NULL, name varchar(100), status varchar(10));\n";
@@ -593,4 +594,90 @@ fn a_function_completes_without_arguments_when_the_call_arguments_setting_is_off
     );
     assert_eq!(item["textEdit"]["newText"], "date_format($1)$0", "{item}");
     assert!(item.get("command").is_none_or(Value::is_null), "{item}");
+}
+
+const NOPE: &str = "<?php\nfunction add(PDO $pdo) {\n    $pdo->query('SELECT nope FROM orgs');\n}\n";
+
+/// Starts the server with `jobs` of the project held back.
+fn held(jobs: &[Job]) -> (Disk, Client, Vec<Hold>) {
+    let disk = disk();
+    let root = disk.path("project");
+    let holds = jobs.iter().map(|job| hold::close(&root, *job)).collect();
+    let client = started(&disk, PROGRESS_CAPABILITIES(), json!({}));
+    (disk, client, holds)
+}
+
+#[test]
+fn reports_the_sql_of_a_document_opened_before_the_files_were_read() {
+    let (disk, mut client, holds) = held(&[Job::SqlFiles]);
+    let uri = disk.uri("project/src/Page.php");
+    client.open(&uri, NOPE);
+    assert!(
+        client
+            .diagnostics(&uri)
+            .iter()
+            .all(|diagnostic| diagnostic["source"] != "sql")
+    );
+    holds[0].release();
+    let found = sql_diagnostics(&mut client, &uri);
+    assert_eq!(found[0]["code"], "unresolved-column");
+    client.shutdown();
+}
+
+#[test]
+fn reports_the_sql_of_a_document_opened_after_the_files_were_read() {
+    let (disk, mut client, holds) = held(&[Job::SqlFiles]);
+    holds[0].release();
+    let uri = disk.uri("project/src/Page.php");
+    client.open(&uri, NOPE);
+    let found = sql_diagnostics(&mut client, &uri);
+    assert_eq!(found[0]["code"], "unresolved-column");
+    client.shutdown();
+}
+
+#[test]
+fn reports_the_sql_before_the_dialect_of_the_project_was_found() {
+    let (disk, mut client, holds) = held(&[Job::SqlDialect]);
+    let uri = disk.uri("project/src/Page.php");
+    client.open(&uri, NOPE);
+    let found = sql_diagnostics(&mut client, &uri);
+    assert_eq!(found[0]["code"], "unresolved-column");
+    holds[0].release();
+    client.shutdown();
+}
+
+#[test]
+fn asks_for_completion_again_while_the_files_are_still_being_read() {
+    let (disk, mut client, holds) = held(&[Job::SqlFiles]);
+    let uri = disk.uri("project/src/Page.php");
+    let text = "<?php\nfunction add(PDO $pdo) {\n    $pdo->query('SELECT * FROM us');\n}\n";
+    client.open(&uri, text);
+    let (line, character) = at(text, "us'", 2);
+    let ask = |client: &mut Client| {
+        client.request(
+            "textDocument/completion",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "context": { "triggerKind": 1 }
+            }),
+        )
+    };
+    assert_eq!(ask(&mut client)["isIncomplete"], true);
+    holds[0].release();
+    let again = loop {
+        let list = ask(&mut client);
+        if list["isIncomplete"] == false {
+            break list;
+        }
+    };
+    assert!(
+        again["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .any(|item| item["label"] == "users"),
+        "{again}"
+    );
+    client.shutdown();
 }

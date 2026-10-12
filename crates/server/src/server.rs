@@ -856,13 +856,17 @@ impl Server {
                     self.refresh_editor_features()?;
                 }
             },
+            // The loop goes idle only after a message of the client, so these publish for themselves.
             Internal::SqlFiles(files) => {
-                self.sql.files_read(files);
-                self.sql_settled()?;
+                if self.sql.files_read(files) {
+                    self.sql_settled()?;
+                    self.publish_dirty()?;
+                }
             }
             Internal::SqlDialect { root, dialect } => {
                 if self.sql.set_project_dialect(root, dialect) {
                     self.sql_settled()?;
+                    self.publish_dirty()?;
                 }
             }
             Internal::StubsLocated(dir) => {

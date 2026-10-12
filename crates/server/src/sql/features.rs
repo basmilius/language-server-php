@@ -162,8 +162,12 @@ impl Server {
             ..CompletionOptions::default()
         };
         let list = items[position].analysis.completion(offset, options);
+        let pending = self.sql.files_pending();
         if list.items.is_empty() {
-            return None;
+            return pending.then(|| CompletionList {
+                is_incomplete: true,
+                items: Vec::new(),
+            });
         }
         let document = self.documents.get(uri)?;
         let mapper = document.mapper(self.encoding);
@@ -201,7 +205,7 @@ impl Server {
             })
             .collect();
         Some(CompletionList {
-            is_incomplete: list.incomplete,
+            is_incomplete: list.incomplete || pending,
             items,
         })
     }

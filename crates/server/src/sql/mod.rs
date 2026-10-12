@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use crate::hold::Job;
 use crossbeam_channel::Sender;
 use lsc_server::paths::uri_to_path;
 use lsp_types::{MessageType, ShowMessageParams, Uri};
@@ -61,6 +62,7 @@ pub(crate) struct SqlState {
     /// The `.sql` files of the workspace folders with their text, once read.
     files: BTreeMap<PathBuf, String>,
     scan_started: bool,
+    files_loaded: bool,
     workspaces: HashMap<Dialect, Option<WorkspaceSchema>>,
     snapshots: HashMap<PathBuf, LoadedSnapshot>,
     environments: Vec<(sql_embed::Settings, Option<PathBuf>, Environment)>,
@@ -90,22 +92,34 @@ impl SqlState {
 
     /// The workspace folders changed: the `.sql` files are read again. Whether they had been read.
     pub fn forget_files(&mut self) -> bool {
+        self.files_loaded = false;
         std::mem::take(&mut self.scan_started)
+    }
+
+    /// Whether the `.sql` files are still being read, so that a schema answer may be missing tables.
+    pub fn files_pending(&self) -> bool {
+        self.scan_started && !self.files_loaded
     }
 
     pub fn forget_document(&mut self, uri: &Uri) {
         self.documents.remove(uri);
     }
 
-    /// The `.sql` files read in the background arrived.
-    pub fn files_read(&mut self, files: Vec<(PathBuf, String)>) {
-        self.files = files.into_iter().collect();
+    /// The `.sql` files read in the background arrived; whether they differ from what was known.
+    pub fn files_read(&mut self, files: Vec<(PathBuf, String)>) -> bool {
+        let files: BTreeMap<PathBuf, String> = files.into_iter().collect();
+        self.files_loaded = true;
+        if files == self.files {
+            return false;
+        }
+        self.files = files;
         self.workspaces.clear();
         self.changed();
+        true
     }
 
     pub fn set_project_dialect(&mut self, root: PathBuf, dialect: Option<Dialect>) -> bool {
-        let changed = self.project_dialects.get(&root) != Some(&dialect);
+        let changed = self.project_dialects.get(&root).copied().flatten() != dialect;
         self.project_dialects.insert(root, dialect);
         if changed {
             self.changed();
@@ -306,6 +320,9 @@ impl Server {
             .collect();
         let sender: Sender<Internal> = self.internal_sender.clone();
         std::thread::spawn(move || {
+            if let Some(root) = roots.first() {
+                crate::hold::pass(root, Job::SqlFiles);
+            }
             let files = sql_embed::sql_files(&roots)
                 .into_iter()
                 .filter_map(|path| {
@@ -336,6 +353,7 @@ impl Server {
         let root = root.to_path_buf();
         let sender = self.internal_sender.clone();
         std::thread::spawn(move || {
+            crate::hold::pass(&root, Job::SqlDialect);
             let dialect = php_analysis::sql::project_dialect(&root, frameworks, &files);
             let _ = sender.send(Internal::SqlDialect { root, dialect });
         });
