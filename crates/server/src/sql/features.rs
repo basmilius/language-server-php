@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use lsp_types::{
-    CodeAction, CodeActionKind, CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionList,
-    CompletionTextEdit, Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DiagnosticTag, DocumentChanges,
-    DocumentHighlight, DocumentHighlightKind, Documentation, Hover, HoverContents, InlayHint, InlayHintKind,
-    InlayHintLabel, InsertTextFormat, Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
+    CodeAction, CodeActionKind, Command, CompletionItem, CompletionItemKind, CompletionItemLabelDetails,
+    CompletionList, CompletionTextEdit, Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DiagnosticTag,
+    DocumentChanges, DocumentHighlight, DocumentHighlightKind, Documentation, Hover, HoverContents, InlayHint,
+    InlayHintKind, InlayHintLabel, InsertTextFormat, Location, MarkupContent, MarkupKind, NumberOrString, OneOf,
     OptionalVersionedTextDocumentIdentifier, ParameterInformation, ParameterLabel, PrepareRenameResponse,
     RegistrationParams, SignatureHelp, SignatureInformation, TextDocumentEdit, TextEdit, Uri, WorkspaceEdit,
 };
@@ -157,6 +157,7 @@ impl Server {
         let (items, position) = self.sql_at(uri, offset)?;
         let options = CompletionOptions {
             snippets: self.snippet_support,
+            call_arguments: self.call_arguments_enabled(uri),
             trigger,
             ..CompletionOptions::default()
         };
@@ -191,6 +192,11 @@ impl Server {
                     mapper.range(range_of(item.edit.span)),
                     item.edit.new_text,
                 ))),
+                command: item.trigger_parameter_hints.then(|| Command {
+                    title: String::new(),
+                    command: "editor.action.triggerParameterHints".to_string(),
+                    arguments: None,
+                }),
                 ..CompletionItem::default()
             })
             .collect();

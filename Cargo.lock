@@ -1036,8 +1036,8 @@ dependencies = [
 
 [[package]]
 name = "sql-analysis"
-version = "0.1.4"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.4#8b7087ba29cc81c3e94fa473fc5b324474bfe44e"
+version = "0.2.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
 dependencies = [
  "lsc-text",
  "sql-catalog",
@@ -1046,8 +1046,8 @@ dependencies = [
 
 [[package]]
 name = "sql-catalog"
-version = "0.1.4"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.4#8b7087ba29cc81c3e94fa473fc5b324474bfe44e"
+version = "0.2.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
 dependencies = [
  "serde",
  "serde_json",
@@ -1056,8 +1056,8 @@ dependencies = [
 
 [[package]]
 name = "sql-embed"
-version = "0.1.4"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.4#8b7087ba29cc81c3e94fa473fc5b324474bfe44e"
+version = "0.2.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
 dependencies = [
  "serde_json",
  "sql-analysis",
@@ -1067,8 +1067,8 @@ dependencies = [
 
 [[package]]
 name = "sql-syntax"
-version = "0.1.4"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.1.4#8b7087ba29cc81c3e94fa473fc5b324474bfe44e"
+version = "0.2.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
 dependencies = [
  "lsc-syntax",
  "rowan",

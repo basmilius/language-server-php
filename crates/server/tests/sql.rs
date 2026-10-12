@@ -517,3 +517,79 @@ fn applies_every_safe_fix_of_the_sql_of_a_document_at_once() {
     assert!(written.iter().all(|text| text.contains("IS")), "{written:?}");
     client.shutdown();
 }
+
+/// The completion of the first function whose label is `label`, at the end of `needle` in `source`.
+fn function_completion(source: &str, needle: &str, label: &str, capabilities: Value, options: Value) -> Value {
+    let disk = disk();
+    let mut client = started(&disk, capabilities, options);
+    let uri = disk.uri("project/src/Page.php");
+    client.open(&uri, source);
+    let (line, character) = at(source, needle, needle.len());
+    let list = client.request(
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": character },
+            "context": { "triggerKind": 1 }
+        }),
+    );
+    client.shutdown();
+    list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| {
+            item["label"]
+                .as_str()
+                .is_some_and(|text| text.eq_ignore_ascii_case(label))
+        })
+        .unwrap_or_else(|| panic!("{label} in {list}"))
+        .clone()
+}
+
+fn snippet_client() -> Value {
+    json!({
+        "window": { "workDoneProgress": true },
+        "textDocument": { "completion": { "completionItem": { "snippetSupport": true } } }
+    })
+}
+
+const MYSQL: fn() -> Value = || json!({ "sql": { "dialect": "mysql" } });
+
+fn date_format_in(quote: char) -> String {
+    format!("<?php\nfunction run(PDO $pdo) {{\n    $pdo->query({quote}SELECT date_for FROM users{quote});\n}}\n")
+}
+
+#[test]
+fn a_function_snippet_survives_a_single_and_a_double_quoted_string_and_asks_for_signature_help() {
+    for quote in ['\'', '"'] {
+        let item = function_completion(
+            &date_format_in(quote),
+            "date_for",
+            "date_format",
+            snippet_client(),
+            MYSQL(),
+        );
+        assert_eq!(item["insertTextFormat"], 2, "{item}");
+        assert_eq!(
+            item["textEdit"]["newText"], "date_format(${1:date}, ${2:format})$0",
+            "{quote}: {item}"
+        );
+        assert_eq!(item["command"]["command"], "editor.action.triggerParameterHints");
+    }
+}
+
+#[test]
+fn a_function_completes_without_arguments_when_the_call_arguments_setting_is_off() {
+    let mut options = MYSQL();
+    options["completion"] = json!({ "callArguments": false });
+    let item = function_completion(
+        &date_format_in('\''),
+        "date_for",
+        "date_format",
+        snippet_client(),
+        options,
+    );
+    assert_eq!(item["textEdit"]["newText"], "date_format($1)$0", "{item}");
+    assert!(item.get("command").is_none_or(Value::is_null), "{item}");
+}

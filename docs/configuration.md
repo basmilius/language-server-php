@@ -98,6 +98,7 @@ The `sql` setting says whether and how the server reads the [SQL in strings](./s
 | `sqlMode`                 | the snapshot's | MySQL's and MariaDB's `sql_mode` of the connection, which decides some inspections |
 | `inspections`             |           | Per SQL inspection id or row of the feature table: `false` or `"off"`, a severity, or `{ enabled, severity }` |
 | `inlayHints`              | all on    | `insertColumns`, `selectColumns` and `parameterNames` |
+| `completion.callArguments` | `true`   | A function in SQL completes with a placeholder per required argument. Applies together with the top-level `completion.callArguments`: either one set to `false` turns it off |
 | `questionPlaceholders`    | `true`    | A `?` is a placeholder of the database layer, also in PostgreSQL |
 | `detection.markers`       | `true`    | `language=SQL` comments and heredocs labeled `SQL` |
 | `detection.sinks`         | `true`    | Strings passed to the functions and methods that take SQL |

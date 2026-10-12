@@ -389,6 +389,15 @@ impl Server {
         Some(WorkspaceSymbolResponse::Flat(symbols))
     }
 
+    /// `completion.callArguments` for a document: its own answer, else the pushed setting, else on.
+    pub(crate) fn call_arguments_enabled(&self, uri: &Uri) -> bool {
+        self.documents
+            .get(uri)
+            .and_then(|document| document.state.completion_call_arguments)
+            .or(self.settings.completion_call_arguments)
+            .unwrap_or(true)
+    }
+
     pub(crate) fn completion(&mut self, params: CompletionParams) -> Option<CompletionResponse> {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
@@ -409,13 +418,7 @@ impl Server {
         let given = self.template_given(&uri);
         let encoding = self.encoding;
         let options = CompletionOptions {
-            call_snippets: self.snippet_support
-                && self
-                    .documents
-                    .get(&uri)
-                    .and_then(|document| document.state.completion_call_arguments)
-                    .or(self.settings.completion_call_arguments)
-                    .unwrap_or(true),
+            call_snippets: self.snippet_support && self.call_arguments_enabled(&uri),
             ..CompletionOptions::default()
         };
         let document = self.documents.get_mut(&uri)?;
