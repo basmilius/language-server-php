@@ -132,6 +132,7 @@ impl Builder<'_> {
                 sort_text: format!("!0{position:03}"),
                 filter_text: Some(label),
                 deprecated: case.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                call: crate::completion::CallInsert::None,
                 data: Some(format!("const:{fqn}::{}", case.name)),
             };
             self.push(score, item);

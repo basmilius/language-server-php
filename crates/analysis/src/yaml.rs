@@ -434,6 +434,7 @@ fn class_items(index: &Index, typed: &str, (start, end): (u32, u32), options: Co
                     sort_text: name.clone(),
                     filter_text: Some(name),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))

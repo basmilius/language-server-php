@@ -850,6 +850,7 @@ pub fn complete_at(
                         sort_text: name.clone(),
                         filter_text: Some(name),
                         deprecated: false,
+                        call: crate::completion::CallInsert::None,
                         data: None,
                     },
                 ))
@@ -886,6 +887,7 @@ pub fn complete_at(
                     sort_text: format!("0{name}"),
                     filter_text: Some(name.clone()),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))
@@ -949,6 +951,7 @@ fn callable_items(
                     sort_text: entry.name.clone(),
                     filter_text: Some(entry.name.clone()),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))

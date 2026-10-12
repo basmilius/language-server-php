@@ -1120,6 +1120,9 @@ impl Server {
         if pushed.usages_packages.is_some() {
             self.settings.usages_packages = pushed.usages_packages;
         }
+        if pushed.completion_call_arguments.is_some() {
+            self.settings.completion_call_arguments = pushed.completion_call_arguments;
+        }
         if pushed.sql.is_some() {
             self.settings.sql = pushed.sql.clone();
             self.sql.setting = pushed.sql;
@@ -1176,6 +1179,8 @@ impl Server {
         let format = answer.as_ref().and_then(|settings| settings.format.clone());
         document.state.format = format;
         document.state.usages_packages = answer.as_ref().and_then(|settings| settings.usages_packages);
+        document.state.completion_call_arguments =
+            answer.as_ref().and_then(|settings| settings.completion_call_arguments);
         let sql = answer.as_ref().and_then(|settings| settings.sql.clone());
         if document.state.sql != sql {
             document.state.sql = sql;

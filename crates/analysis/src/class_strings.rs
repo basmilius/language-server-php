@@ -187,6 +187,7 @@ pub fn complete(
                 sort_text: name.to_ascii_lowercase(),
                 filter_text: Some(written),
                 deprecated: false,
+                call: crate::completion::CallInsert::None,
                 data: None,
             }
         })

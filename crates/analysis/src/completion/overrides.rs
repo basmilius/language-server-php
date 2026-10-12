@@ -67,6 +67,7 @@ impl Builder<'_> {
                         ),
                         filter_text: Some(method.name.clone()),
                         deprecated: method.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                        call: crate::completion::CallInsert::None,
                         data: Some(format!("method:{}::{}", decl.name, method.name)),
                     },
                 );

@@ -1,4 +1,6 @@
-use crate::completion::{CompletionItem, CompletionList, CompletionOptions, ItemKind, complete};
+use crate::completion::{
+    CallInsert, CompletionItem, CompletionList, CompletionOptions, ItemKind, complete, escape_snippet,
+};
 use crate::testing::{CURSOR, Fixture};
 
 fn project() -> Fixture {
@@ -382,7 +384,10 @@ fn limits_the_list_and_says_so() {
         &Fixture::new(&[("many.php", &source)]).index,
         "<?php\nIte",
         9,
-        CompletionOptions { limit: 50 },
+        CompletionOptions {
+            limit: 50,
+            ..CompletionOptions::default()
+        },
     );
     assert_eq!(list.items.len(), 50);
     assert!(list.incomplete);
@@ -640,4 +645,214 @@ fn completes_named_arguments_of_an_attribute() {
         "<?php\nuse App\\Models\\Route;\n#[Route(pa$0)]\nfunction f() {}\n",
     );
     assert_eq!(labels(&list).first(), Some(&"path:"), "{:?}", labels(&list));
+}
+
+fn calls() -> Fixture {
+    Fixture::with_level(
+        php_syntax::PhpVersion::V8_4,
+        &[(
+            "src/Calls.php",
+            r#"<?php
+namespace App;
+
+function plain(int $first, string $second): void {}
+function with_default(int $first, string $second = 'x'): void {}
+function only_optional(int $first = 1, string ...$rest): void {}
+function nothing(): void {}
+function by_reference(array &$items, $flag): void {}
+
+class Service
+{
+    public function __construct(private int $id, private string $label = '') {}
+    public function run(int $times, callable ...$hooks): void {}
+    public static function make(string $name, int $retries = 3): static { return new static(1); }
+    public function reset(): void {}
+}
+class Bare {}
+abstract class Base { public function __construct(string $a) {} }
+"#,
+        )],
+        &[(
+            "standard.php",
+            "<?php\nfunction sort(array &$array, int $flags = 0): bool {}\nfunction printf(string $format, mixed ...$values): int {}\nfunction time(): int {}\n",
+        )],
+    )
+}
+
+fn run_calls(code: &str, call_snippets: bool) -> CompletionList {
+    let fixture = calls().with_current(code);
+    let (offset, text) = lsc_text::testing::cursor(code);
+    complete(
+        &fixture.index,
+        &text,
+        offset,
+        CompletionOptions {
+            call_snippets,
+            ..CompletionOptions::default()
+        },
+    )
+}
+
+fn call_text(code: &str, label: &str) -> (String, CallInsert) {
+    let list = run_calls(code, true);
+    let found = item(&list, label);
+    (found.edit.new_text.clone(), found.call)
+}
+
+#[test]
+fn a_function_call_writes_its_required_arguments_as_placeholders() {
+    let prefix = "<?php\nnamespace App;\nfunction f() {\n    ";
+    let suffix = "$0\n}\n";
+    let at = |label: &str| call_text(&format!("{prefix}{label}{suffix}"), label);
+    assert_eq!(
+        at("plain"),
+        (
+            "plain(${1:\\$first}, ${2:\\$second})$0".into(),
+            CallInsert::SnippetWithParameters
+        )
+    );
+    assert_eq!(
+        at("with_default"),
+        (
+            "with_default(${1:\\$first})$0".into(),
+            CallInsert::SnippetWithParameters
+        )
+    );
+    assert_eq!(
+        at("only_optional"),
+        ("only_optional($1)$0".into(), CallInsert::SnippetWithParameters)
+    );
+    assert_eq!(at("nothing"), ("nothing()$0".into(), CallInsert::Snippet));
+    assert_eq!(
+        at("by_reference"),
+        (
+            "by_reference(${1:\\$items}, ${2:\\$flag})$0".into(),
+            CallInsert::SnippetWithParameters
+        )
+    );
+    assert_eq!(
+        at("printf"),
+        ("printf(${1:\\$format})$0".into(), CallInsert::SnippetWithParameters)
+    );
+    assert_eq!(
+        at("sort"),
+        ("sort(${1:\\$array})$0".into(), CallInsert::SnippetWithParameters)
+    );
+    assert_eq!(at("time"), ("time()$0".into(), CallInsert::Snippet));
+}
+
+#[test]
+fn a_function_that_needs_an_import_keeps_the_import_and_gets_arguments() {
+    let list = run_calls("<?php\nfunction f() {\n    plai$0\n}\n", true);
+    let found = item(&list, "plain");
+    assert_eq!(found.edit.new_text, "plain(${1:\\$first}, ${2:\\$second})$0");
+    assert!(!found.additional_edits.is_empty());
+}
+
+#[test]
+fn snippet_text_escapes_what_the_grammar_reserves() {
+    assert_eq!(escape_snippet("a$b}c\\d"), "a\\$b\\}c\\\\d");
+}
+
+#[test]
+fn methods_get_arguments_after_arrows_and_scope_operators() {
+    let instance = "<?php\nnamespace App;\nfunction f(Service $service) {\n    $service->";
+    assert_eq!(
+        call_text(&format!("{instance}ru$0\n}}\n"), "run").0,
+        "run(${1:\\$times})$0"
+    );
+    assert_eq!(
+        call_text(&format!("{instance}res$0\n}}\n"), "reset"),
+        ("reset()$0".into(), CallInsert::Snippet)
+    );
+    let nullsafe = "<?php\nnamespace App;\nfunction f(?Service $service) {\n    $service?->ru$0\n}\n";
+    assert_eq!(call_text(nullsafe, "run").0, "run(${1:\\$times})$0");
+    let scoped = "<?php\nnamespace App;\nfunction f() {\n    Service::ma$0\n}\n";
+    assert_eq!(call_text(scoped, "make").0, "make(${1:\\$name})$0");
+}
+
+#[test]
+fn a_constructor_gets_its_arguments_after_new() {
+    let new = |name: &str| {
+        call_text(
+            &format!("<?php\nnamespace App;\nfunction f() {{\n    new {name}$0\n}}\n"),
+            name,
+        )
+    };
+    assert_eq!(
+        new("Service"),
+        ("Service(${1:\\$id})$0".into(), CallInsert::SnippetWithParameters)
+    );
+    assert_eq!(new("Bare"), ("Bare()$0".into(), CallInsert::Snippet));
+    let qualified = call_text("<?php\nfunction f() {\n    new \\App\\Serv$0\n}\n", "Service");
+    assert_eq!(qualified.0, "\\\\App\\\\Service(${1:\\$id})$0");
+    let list = run_calls("<?php\nnamespace App;\nfunction f() {\n    new Ba$0\n}\n", true);
+    assert!(
+        !labels(&list).contains(&"Base"),
+        "abstract classes are not offered after new"
+    );
+}
+
+#[test]
+fn nothing_is_added_when_parentheses_follow_the_cursor() {
+    for after in ["(", "  (", "\n    ("] {
+        let code =
+            format!("<?php\nnamespace App;\nfunction f(Service $service) {{\n    $service->ru$0{after}1);\n}}\n");
+        let list = run_calls(&code, true);
+        assert_eq!(item(&list, "run").edit.new_text, "run");
+        assert_eq!(item(&list, "run").call, CallInsert::None);
+    }
+    let function = run_calls("<?php\nnamespace App;\nfunction f() {\n    plai$0(...);\n}\n", true);
+    assert_eq!(item(&function, "plain").edit.new_text, "plain");
+}
+
+#[test]
+fn names_that_are_not_calls_stay_bare() {
+    let cases = [
+        ("<?php\nuse function App\\plai$0\n", "plain"),
+        ("<?php\nnamespace App;\n#[Servi$0]\nclass X {}\n", "Service"),
+        (
+            "<?php\nnamespace App;\nfunction f() {\n    $x = Servi$0::class;\n}\n",
+            "Service",
+        ),
+        ("<?php\nnamespace App;\nfunction f(Servi$0 $x) {}\n", "Service"),
+        ("<?php\nnamespace App;\nclass X extends Servi$0 {}\n", "Service"),
+    ];
+    for (code, _) in cases {
+        let list = run_calls(code, true);
+        for found in &list.items {
+            assert_eq!(found.call, CallInsert::None, "{code}: {}", found.label);
+            assert!(!found.edit.new_text.contains('('), "{code}: {}", found.edit.new_text);
+        }
+    }
+    let string = run_calls(
+        "<?php\nnamespace App;\nfunction f() {\n    function_exists('plai$0');\n}\n",
+        true,
+    );
+    assert!(string.items.is_empty(), "{:?}", labels(&string));
+}
+
+#[test]
+fn nothing_changes_without_the_option() {
+    let list = run_calls("<?php\nnamespace App;\nfunction f() {\n    plai$0\n}\n", false);
+    let found = item(&list, "plain");
+    assert_eq!(found.edit.new_text, "plain");
+    assert_eq!(found.call, CallInsert::None);
+    let method = run_calls(
+        "<?php\nnamespace App;\nfunction f(Service $s) {\n    $s->ru$0\n}\n",
+        false,
+    );
+    assert_eq!(item(&method, "run").edit.new_text, "run");
+}
+
+#[test]
+fn label_filter_and_sort_text_stay_the_same() {
+    let code = "<?php\nnamespace App;\nfunction f() {\n    plai$0\n}\n";
+    let on = run_calls(code, true);
+    let off = run_calls(code, false);
+    let (on, off) = (item(&on, "plain"), item(&off, "plain"));
+    assert_eq!(
+        (&on.label, &on.filter_text, &on.sort_text),
+        (&off.label, &off.filter_text, &off.sort_text)
+    );
 }

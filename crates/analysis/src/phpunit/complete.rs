@@ -44,6 +44,7 @@ pub fn complete_string(
                     sort_text: format!("{}{}", candidate.rank, candidate.name.to_ascii_lowercase()),
                     filter_text: Some(candidate.name),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))

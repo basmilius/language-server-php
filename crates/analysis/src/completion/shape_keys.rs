@@ -112,6 +112,7 @@ fn key_item(key: String, written: String, field: &ShapeField, position: usize, m
         sort_text: format!("!{position:03}"),
         filter_text: Some(key),
         deprecated: false,
+        call: crate::completion::CallInsert::None,
         data: None,
     }
 }

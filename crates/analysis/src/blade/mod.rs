@@ -280,6 +280,7 @@ fn wire_items(
                     sort_text: name.to_ascii_lowercase(),
                     filter_text: Some(name),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))

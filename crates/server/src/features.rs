@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 
 use lsc_server::paths::{path_to_uri, uri_to_path};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionItemTag, CompletionParams,
+    Command, CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionItemTag, CompletionParams,
     CompletionResponse, Documentation, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    Location, MarkupContent, MarkupKind, SymbolInformation, SymbolKind, SymbolTag, TextEdit, Uri,
+    InsertTextFormat, Location, MarkupContent, MarkupKind, SymbolInformation, SymbolKind, SymbolTag, TextEdit, Uri,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
-use php_analysis::completion::{CompletionOptions, ItemKind, complete, resolve_documentation};
+use php_analysis::completion::{CallInsert, CompletionOptions, ItemKind, complete, resolve_documentation};
 use php_analysis::nav::Place;
 use php_analysis::target::Target;
 use php_analysis::workspace_symbols::workspace_symbols;
@@ -408,6 +408,16 @@ impl Server {
         let path = uri_to_path(&uri);
         let given = self.template_given(&uri);
         let encoding = self.encoding;
+        let options = CompletionOptions {
+            call_snippets: self.snippet_support
+                && self
+                    .documents
+                    .get(&uri)
+                    .and_then(|document| document.state.completion_call_arguments)
+                    .or(self.settings.completion_call_arguments)
+                    .unwrap_or(true),
+            ..CompletionOptions::default()
+        };
         let document = self.documents.get_mut(&uri)?;
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
@@ -447,7 +457,7 @@ impl Server {
             )
             .unwrap_or_default()
         } else {
-            complete(&project.index, &document.text, offset, CompletionOptions::default())
+            complete(&project.index, &document.text, offset, options)
         };
         let root = project.root.to_string_lossy().into_owned();
         let edit = |edit: &php_analysis::completion::TextEdit| TextEdit {
@@ -469,6 +479,12 @@ impl Server {
                 sort_text: Some(item.sort_text.clone()),
                 filter_text: item.filter_text.clone(),
                 text_edit: Some(lsp_types::CompletionTextEdit::Edit(edit(&item.edit))),
+                insert_text_format: (item.call != CallInsert::None).then_some(InsertTextFormat::SNIPPET),
+                command: (item.call == CallInsert::SnippetWithParameters).then(|| Command {
+                    title: String::new(),
+                    command: "editor.action.triggerParameterHints".to_string(),
+                    arguments: None,
+                }),
                 additional_text_edits: (!item.additional_edits.is_empty())
                     .then(|| item.additional_edits.iter().map(edit).collect()),
                 data: item.data.as_ref().map(|key| json!({ "project": root, "key": key })),

@@ -41,6 +41,12 @@ What the server answers for the SQL in strings comes through the same requests a
 - **Code actions** of SQL are `quickfix` and `refactor.rewrite`; `source.fixAll.sql` applies every safe fix of the document's SQL and comes when a client asks for `source.fixAll` (or that kind) in `only`.
 - **Rename** inside SQL changes only names the string declares and answers an error for a table or column.
 
+## Completion
+
+- Announce `textDocument.completion.completionItem.snippetSupport` and a completed function, method or constructor comes as a snippet with its parentheses and one placeholder per required parameter (`name(${1:\$a}, ${2:\$b})$0`), unless the `completion.callArguments` setting is `false`. Without `snippetSupport` the item inserts the name alone.
+- An item with parameters carries `command: { title: "", command: "editor.action.triggerParameterHints" }`. It is a convention, not a command the server registers: a client that knows it opens the parameter hints after the insert, and one that does not may ignore it.
+- Nothing is added when `(` already follows the cursor.
+
 ## Folding
 
 A client that announces `textDocument.foldingRange.lineFoldingOnly: false` gets a run of `use` statements with `startCharacter` after the first `use` and `endCharacter` at the last `;`, so it can draw the folded run as `use …;`. Other folds and other clients fold whole lines.

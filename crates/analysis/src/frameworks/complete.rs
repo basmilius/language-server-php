@@ -179,6 +179,7 @@ fn name_items(
                     sort_text: name.clone(),
                     filter_text: Some(name),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))
@@ -221,6 +222,7 @@ pub(crate) fn key_items(
                     sort_text: candidate.key.to_ascii_lowercase(),
                     filter_text: Some(candidate.key),
                     deprecated: false,
+                    call: crate::completion::CallInsert::None,
                     data: None,
                 },
             ))

@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use php_index::{Class, ClassKind, Index, Origin, Type, UseKind};
+use php_index::{Callable, Class, ClassKind, Index, Origin, Param, Type, UseKind};
 use php_syntax::SyntaxKind::*;
 use php_syntax::{SyntaxNode, SyntaxToken, parse};
 
@@ -36,6 +36,17 @@ pub enum ItemKind {
     Parameter,
 }
 
+/// How a callable's name is inserted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallInsert {
+    /// The name, as typed text.
+    None,
+    /// The name with parentheses as a snippet, for a callable without parameters.
+    Snippet,
+    /// The same for a callable with parameters, so the client may open the parameter hints.
+    SnippetWithParameters,
+}
+
 /// A replacement of a byte range of the text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextEdit {
@@ -59,6 +70,8 @@ pub struct CompletionItem {
     pub deprecated: bool,
     /// What `completionItem/resolve` needs to find the documentation again.
     pub data: Option<String>,
+    /// Whether `edit` is a snippet that writes the call's arguments too.
+    pub call: CallInsert,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -71,11 +84,17 @@ pub struct CompletionList {
 #[derive(Clone, Copy, Debug)]
 pub struct CompletionOptions {
     pub limit: usize,
+    /// Insert a function, method or constructor with its parentheses and required arguments as a
+    /// snippet. Only a client that takes snippets in completion items may ask for it.
+    pub call_snippets: bool,
 }
 
 impl Default for CompletionOptions {
     fn default() -> CompletionOptions {
-        CompletionOptions { limit: 300 }
+        CompletionOptions {
+            limit: 300,
+            call_snippets: false,
+        }
     }
 }
 
@@ -487,6 +506,45 @@ impl Builder<'_> {
         &self.word.text
     }
 
+    /// The text that inserts a callable by name, with its required arguments as snippet
+    /// placeholders when the options ask for it. A name that already has its parentheses after the
+    /// cursor, which is also a first-class callable, keeps the bare name.
+    fn call_text(&self, name: &str, callable: Option<&Callable>) -> (String, CallInsert) {
+        let opens_call = self
+            .text
+            .get(self.offset as usize..)
+            .is_some_and(|rest| rest.trim_start().starts_with('('));
+        if !self.options.call_snippets || opens_call {
+            return (name.to_string(), CallInsert::None);
+        }
+        let params: Vec<&Param> = callable
+            .map(|callable| callable.params_at(self.index.level).collect())
+            .unwrap_or_default();
+        let required: Vec<&&Param> = params.iter().filter(|param| !param.is_optional()).collect();
+        let mut text = escape_snippet(name);
+        text.push('(');
+        if required.is_empty() && !params.is_empty() {
+            text.push_str("$1");
+        }
+        for (position, param) in required.iter().enumerate() {
+            if position > 0 {
+                text.push_str(", ");
+            }
+            text.push_str(&format!(
+                "${{{}:{}}}",
+                position + 1,
+                escape_snippet(&format!("${}", param.name))
+            ));
+        }
+        text.push_str(")$0");
+        let call = if params.is_empty() {
+            CallInsert::Snippet
+        } else {
+            CallInsert::SnippetWithParameters
+        };
+        (text, call)
+    }
+
     fn push(&mut self, score: u8, item: CompletionItem) {
         self.items.push((score, item));
     }
@@ -594,12 +652,13 @@ impl Builder<'_> {
                     continue;
                 };
                 let rank = depth_of(&depth, &found.class.decl.name);
+                let (insert, call) = self.call_text(name, Some(&found.member.callable));
                 let item = CompletionItem {
                     label: name.clone(),
                     kind: ItemKind::Method,
                     detail: Some(render::callable_text(&found.member.callable, level)),
                     description: Some(crate::short(&found.class.decl.name).to_string()),
-                    edit: self.range_edit(name.clone()),
+                    edit: self.range_edit(insert),
                     additional_edits: Vec::new(),
                     sort_text: format!(
                         "{}{}{:02}{:02}{}",
@@ -615,6 +674,7 @@ impl Builder<'_> {
                     ),
                     filter_text: Some(name.clone()),
                     deprecated: found.member.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                    call,
                     data: Some(format!("method:{}::{}", found.class.decl.name, name)),
                 };
                 self.push(score, item);
@@ -644,6 +704,7 @@ impl Builder<'_> {
                     sort_text: format!("0{:02}{:02}{}", member_index, rank, property.name.to_ascii_lowercase()),
                     filter_text: Some(property.name.clone()),
                     deprecated: property.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                    call: CallInsert::None,
                     data: Some(format!("property:{}::{}", found.class.decl.name, property.name)),
                 };
                 self.push(score, item);
@@ -673,6 +734,7 @@ impl Builder<'_> {
                 sort_text: format!("0{:02}{:02}{}", 0, 0, name.to_ascii_lowercase()),
                 filter_text: Some(name.clone()),
                 deprecated: false,
+                call: CallInsert::None,
                 data: None,
             };
             self.push(score, item);
@@ -710,6 +772,7 @@ impl Builder<'_> {
                 sort_text: format!("0{:02}{:02}{}", 0, 0, name.to_ascii_lowercase()),
                 filter_text: Some(name.clone()),
                 deprecated: false,
+                call: CallInsert::None,
                 data: None,
             };
             self.push(score, item);
@@ -762,12 +825,13 @@ impl Builder<'_> {
                     let Some(score) = match_score(&method.name, &typed) else {
                         continue;
                     };
+                    let (insert, call) = self.call_text(&method.name, Some(&method.callable));
                     let item = CompletionItem {
                         label: method.name.clone(),
                         kind: ItemKind::Method,
                         detail: Some(render::callable_text(&method.callable, level)),
                         description: Some(crate::short(&found.class.decl.name).to_string()),
-                        edit: self.range_edit(method.name.clone()),
+                        edit: self.range_edit(insert),
                         additional_edits: Vec::new(),
                         sort_text: format!(
                             "{}{:02}{}",
@@ -777,6 +841,7 @@ impl Builder<'_> {
                         ),
                         filter_text: Some(method.name.clone()),
                         deprecated: method.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                        call,
                         data: Some(format!("method:{}::{}", found.class.decl.name, method.name)),
                     };
                     self.push(score, item);
@@ -817,6 +882,7 @@ impl Builder<'_> {
                         ),
                         filter_text: Some(constant.name.clone()),
                         deprecated: constant.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                        call: CallInsert::None,
                         data: Some(format!("const:{}::{}", found.class.decl.name, constant.name)),
                     };
                     self.push(score, item);
@@ -834,6 +900,7 @@ impl Builder<'_> {
                             sort_text: "9class".to_string(),
                             filter_text: None,
                             deprecated: false,
+                            call: CallInsert::None,
                             data: None,
                         },
                     );
@@ -867,6 +934,7 @@ impl Builder<'_> {
                     ),
                     filter_text: Some(label),
                     deprecated: property.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                    call: CallInsert::None,
                     data: Some(format!("property:{}::{}", found.class.decl.name, property.name)),
                 };
                 self.push(score, item);
@@ -922,6 +990,7 @@ impl Builder<'_> {
                     sort_text: format!("{}{}", u8::from(is_superglobal), name.to_ascii_lowercase()),
                     filter_text: Some(label),
                     deprecated: false,
+                    call: CallInsert::None,
                     data: None,
                 },
             );
@@ -933,10 +1002,10 @@ impl Builder<'_> {
     fn classes(&mut self, filter: ClassFilter, with_constructor: bool) {
         let typed = self.typed().to_string();
         if let Some(rest) = typed.strip_prefix('\\') {
-            return self.qualified_classes(filter, rest, true);
+            return self.qualified_classes(filter, rest, true, with_constructor);
         }
         if typed.contains('\\') {
-            return self.qualified_classes(filter, &typed, false);
+            return self.qualified_classes(filter, &typed, false, with_constructor);
         }
         let mut candidates: Vec<(u8, Class<'_>)> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
@@ -961,12 +1030,16 @@ impl Builder<'_> {
             let short = crate::short(fqn);
             let (insert, additional) = self.class_reference(fqn);
             let namespace = php_index::types::namespace_of(fqn);
-            let detail = if with_constructor {
-                self.index
-                    .find_method(&Type::class(fqn.clone()), "__construct")
-                    .map(|found| render::callable_text(&found.member.callable, self.index.level))
+            let constructor = with_constructor
+                .then(|| self.index.find_method(&Type::class(fqn.clone()), "__construct"))
+                .flatten();
+            let detail = constructor
+                .as_ref()
+                .map(|found| render::callable_text(&found.member.callable, self.index.level));
+            let (insert, call) = if with_constructor {
+                self.call_text(&insert, constructor.as_ref().map(|found| &found.member.callable))
             } else {
-                None
+                (insert, CallInsert::None)
             };
             self.push(
                 score,
@@ -980,6 +1053,7 @@ impl Builder<'_> {
                     sort_text: format!("{}{}", origin_rank(class.file.origin), short.to_ascii_lowercase()),
                     filter_text: Some(short.to_string()),
                     deprecated: class.decl.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                    call,
                     data: Some(format!("class:{fqn}")),
                 },
             );
@@ -1005,7 +1079,7 @@ impl Builder<'_> {
     }
 
     /// Classes for a typed name with a backslash in it.
-    fn qualified_classes(&mut self, filter: ClassFilter, typed: &str, absolute: bool) {
+    fn qualified_classes(&mut self, filter: ClassFilter, typed: &str, absolute: bool, with_constructor: bool) {
         let expected = if absolute {
             typed.to_string()
         } else {
@@ -1034,6 +1108,12 @@ impl Builder<'_> {
         for (class, insert) in found {
             let fqn = &class.decl.name;
             let namespace = php_index::types::namespace_of(fqn);
+            let (edit_text, call) = if with_constructor {
+                let constructor = self.index.find_method(&Type::class(fqn.clone()), "__construct");
+                self.call_text(&insert, constructor.as_ref().map(|found| &found.member.callable))
+            } else {
+                (insert.clone(), CallInsert::None)
+            };
             self.push(
                 0,
                 CompletionItem {
@@ -1041,11 +1121,12 @@ impl Builder<'_> {
                     kind: class_item_kind(class.decl.kind),
                     detail: None,
                     description: (!namespace.is_empty()).then(|| namespace.to_string()),
-                    edit: self.range_edit(insert.clone()),
+                    edit: self.range_edit(edit_text),
                     additional_edits: Vec::new(),
                     sort_text: format!("{}{}", origin_rank(class.file.origin), fqn.to_ascii_lowercase()),
                     filter_text: Some(insert),
                     deprecated: false,
+                    call,
                     data: Some(format!("class:{fqn}")),
                 },
             );
@@ -1117,6 +1198,7 @@ impl Builder<'_> {
                     sort_text: format!("0{}", segment.to_ascii_lowercase()),
                     filter_text: Some(insert),
                     deprecated: false,
+                    call: CallInsert::None,
                     data: None,
                 },
             );
@@ -1135,6 +1217,7 @@ impl Builder<'_> {
                     sort_text: format!("1{rank}{}", name.to_ascii_lowercase()),
                     filter_text: Some(name),
                     deprecated: false,
+                    call: CallInsert::None,
                     data: Some(data),
                 },
             );
@@ -1174,6 +1257,7 @@ impl Builder<'_> {
                 }
             };
             let namespace = php_index::types::namespace_of(fqn);
+            let (insert, call) = self.call_text(&insert, Some(&function.decl.callable));
             self.push(
                 score,
                 CompletionItem {
@@ -1186,6 +1270,7 @@ impl Builder<'_> {
                     sort_text: format!("2{}{}", origin_rank(function.file.origin), short.to_ascii_lowercase()),
                     filter_text: Some(short.to_string()),
                     deprecated: function.decl.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
+                    call,
                     data: Some(format!("function:{fqn}")),
                 },
             );
@@ -1236,6 +1321,7 @@ impl Builder<'_> {
                     sort_text: format!("3{}{}", origin_rank(constant.file.origin), short.to_ascii_lowercase()),
                     filter_text: Some(short.to_string()),
                     deprecated: false,
+                    call: CallInsert::None,
                     data: Some(format!("constant:{fqn}")),
                 },
             );
@@ -1301,6 +1387,7 @@ impl Builder<'_> {
                     sort_text: format!("0{index:02}"),
                     filter_text: Some(param.name.clone()),
                     deprecated: false,
+                    call: CallInsert::None,
                     data: None,
                 },
             );
@@ -1327,6 +1414,7 @@ impl Builder<'_> {
             },
             filter_text: None,
             deprecated: false,
+            call: CallInsert::None,
             data: None,
         };
         self.push(score, item);
@@ -1427,6 +1515,18 @@ impl Builder<'_> {
             self.keyword_item(word, 0);
         }
     }
+}
+
+/// `$`, `}` and `\` carry meaning in the snippet grammar and are escaped with a backslash.
+pub(crate) fn escape_snippet(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        if matches!(character, '$' | '}' | '\\') {
+            out.push('\\');
+        }
+        out.push(character);
+    }
+    out
 }
 
 fn depth_of(depths: &[String], class_name: &str) -> usize {

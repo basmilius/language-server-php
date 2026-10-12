@@ -32,6 +32,8 @@ pub struct Settings {
     pub format: Option<FormatSettings>,
     /// `usages.packages`: find usages and incoming calls also read the installed packages.
     pub usages_packages: Option<bool>,
+    /// `completion.callArguments`: insert a call's parentheses and required arguments as a snippet.
+    pub completion_call_arguments: Option<bool>,
     /// `sql`: how SQL is found in strings and read, as given; `sql::config` reads it per document.
     pub sql: Option<Value>,
 }
@@ -109,6 +111,10 @@ impl Settings {
             usages_packages: object
                 .get("usages")
                 .and_then(|usages| usages.get("packages"))
+                .and_then(Value::as_bool),
+            completion_call_arguments: object
+                .get("completion")
+                .and_then(|completion| completion.get("callArguments"))
                 .and_then(Value::as_bool),
             sql: object.get("sql").filter(|sql| sql.is_object()).cloned(),
         }
@@ -228,6 +234,13 @@ mod tests {
         assert_eq!(severity("missing-strict-types"), Some(DiagnosticSeverity::Hint));
         assert_eq!(severity("undefined-function"), Some(DiagnosticSeverity::Error));
         assert!(Settings::from_value(&json!({})).inspections.is_none());
+    }
+
+    #[test]
+    fn reads_the_call_arguments_switch() {
+        let settings = Settings::from_value(&json!({ "completion": { "callArguments": false } }));
+        assert_eq!(settings.completion_call_arguments, Some(false));
+        assert_eq!(Settings::from_value(&json!({})).completion_call_arguments, None);
     }
 
     #[test]

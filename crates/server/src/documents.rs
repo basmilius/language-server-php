@@ -19,6 +19,8 @@ pub struct DocumentState {
     pub format: Option<FormatSettings>,
     /// Whether a search from this document reads the installed packages, when the client said.
     pub usages_packages: Option<bool>,
+    /// Whether completion of this document writes a call's arguments, when the client said.
+    pub completion_call_arguments: Option<bool>,
     /// The version whose declarations the index holds.
     pub indexed_version: Option<i32>,
     /// A Blade template: only the names it holds and the PHP in it are read.

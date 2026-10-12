@@ -24,6 +24,7 @@ The server reads its settings from `initializationOptions`, from `workspace/conf
 | `inlayHints.propertyTypes`  | `true`  | The type arguments a framework gives a property, such as the model of a relation         |
 | `inspections`               |         | Per inspection code: `false` or `'off'`, a severity, or `{ enabled, severity }`          |
 | `format`                    |         | The [formatter](#formatter)                                                              |
+| `completion.callArguments`  | `true`  | Completing a function, method or constructor writes its parentheses and required arguments as a snippet, for a client that takes snippets |
 | `usages.packages`           | `false` | Find usages and incoming calls also read the installed packages                          |
 | `sql`                       |         | [SQL in strings](#sql-in-strings)                                                        |
 

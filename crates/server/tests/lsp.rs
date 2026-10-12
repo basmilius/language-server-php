@@ -1833,3 +1833,62 @@ fn usages_in_the_installed_packages_are_found_when_asked_for() {
     assert_eq!(files(&ask(&mut client)), ["Factory.php", "Page.php"]);
     client.shutdown();
 }
+
+fn call_completion(capabilities: Value, extra_options: Value) -> Value {
+    let disk = Disk::new();
+    disk.write(
+        "project/src/Calls.php",
+        "<?php\nnamespace App;\n\nclass Calls\n{\n    public function run(int $times, string $label = ''): void {}\n    public function reset(): void {}\n}\n",
+    );
+    let mut options = disk.options();
+    for (key, value) in extra_options.as_object().into_iter().flatten() {
+        options[key] = value.clone();
+    }
+    let (mut client, _) = Client::start_in(capabilities, options, json!(disk.uri("project")));
+    client.wait_for_indexing();
+    let uri = disk.uri("project/src/Page.php");
+    client.open(
+        &uri,
+        "<?php\nnamespace App;\n\nfunction f(Calls $calls)\n{\n    $calls->ru\n}\n",
+    );
+    let result = client.at("textDocument/completion", &uri, 5, 14);
+    client.shutdown();
+    result["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["label"] == "run")
+        .expect("run")
+        .clone()
+}
+
+fn snippet_capabilities() -> Value {
+    json!({
+        "window": { "workDoneProgress": true },
+        "textDocument": { "completion": { "completionItem": { "snippetSupport": true } } }
+    })
+}
+
+#[test]
+fn a_method_completes_with_its_required_arguments_for_a_client_that_takes_snippets() {
+    let item = call_completion(snippet_capabilities(), json!({}));
+    assert_eq!(item["textEdit"]["newText"], "run(${1:\\$times})$0");
+    assert_eq!(item["insertTextFormat"], 2);
+    assert_eq!(item["filterText"], "run");
+    assert_eq!(item["command"]["command"], "editor.action.triggerParameterHints");
+}
+
+#[test]
+fn a_method_completes_by_name_without_snippet_support_or_with_the_setting_off() {
+    for item in [
+        call_completion(json!({ "window": { "workDoneProgress": true } }), json!({})),
+        call_completion(
+            snippet_capabilities(),
+            json!({ "completion": { "callArguments": false } }),
+        ),
+    ] {
+        assert_eq!(item["textEdit"]["newText"], "run");
+        assert!(item.get("insertTextFormat").is_none_or(Value::is_null), "{item}");
+        assert!(item.get("command").is_none_or(Value::is_null), "{item}");
+    }
+}
