@@ -44,7 +44,7 @@ What the server answers for the SQL in strings comes through the same requests a
 ## Completion
 
 - Announce `textDocument.completion.completionItem.snippetSupport` and a completed function, method or constructor comes as a snippet with its parentheses and one placeholder per required parameter (`name(${1:\$a}, ${2:\$b})$0`), unless the `completion.callArguments` setting is `false`. Without `snippetSupport` the item inserts the name alone.
-- An item with parameters carries `command: { title: "", command: "editor.action.triggerParameterHints" }`. It is a convention, not a command the server registers: a client that knows it opens the parameter hints after the insert, and one that does not may ignore it.
+- An item with parameters carries `command: { title: "", command: "editor.action.triggerParameterHints" }`. It is a convention, not a command the server registers: a client that knows it opens the parameter hints after the insert, and one that does not may ignore it. The server does not list it in `executeCommandProvider` and answers no `workspace/executeCommand` for it, so a client that forwards unknown commands to the server should drop this one.
 - Nothing is added when `(` already follows the cursor.
 
 ## Folding

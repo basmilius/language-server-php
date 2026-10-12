@@ -856,3 +856,27 @@ fn label_filter_and_sort_text_stay_the_same() {
         (&off.label, &off.filter_text, &off.sort_text)
     );
 }
+
+#[test]
+fn no_call_is_added_when_an_identifier_character_follows_the_cursor() {
+    for after in ["tFoo($a);", "_x;", "9;"] {
+        let code = format!("<?php\nnamespace App;\nfunction f(Service $service) {{\n    $service->ru$0{after}\n}}\n");
+        let list = run_calls(&code, true);
+        assert_eq!(item(&list, "run").edit.new_text, "run", "{after}");
+        assert_eq!(item(&list, "run").call, CallInsert::None, "{after}");
+    }
+}
+
+#[test]
+fn simple_interpolation_gets_no_call_but_braced_interpolation_does() {
+    let simple = "<?php\nnamespace App;\nfunction f(Service $service) {\n    echo \"$service->ru$0\";\n}\n";
+    assert_eq!(item(&run_calls(simple, true), "run").call, CallInsert::None);
+    assert_eq!(item(&run_calls(simple, true), "run").edit.new_text, "run");
+    let heredoc = "<?php\nnamespace App;\nfunction f(Service $service) {\n    echo <<<TXT\n$service->ru$0\nTXT;\n}\n";
+    assert_eq!(item(&run_calls(heredoc, true), "run").call, CallInsert::None);
+    let braced = "<?php\nnamespace App;\nfunction f(Service $service) {\n    echo \"{$service->ru$0}\";\n}\n";
+    assert_eq!(
+        item(&run_calls(braced, true), "run").edit.new_text,
+        "run(${1:\\$times})$0"
+    );
+}

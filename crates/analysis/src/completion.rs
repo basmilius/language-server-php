@@ -221,6 +221,10 @@ pub fn complete(index: &Index, text: &str, offset: u32, options: CompletionOptio
     let Some(token) = placeholder_token(&root, word_start, is_variable) else {
         return CompletionList::default();
     };
+    let options = CompletionOptions {
+        call_snippets: options.call_snippets && !in_simple_interpolation(&token),
+        ..options
+    };
     let analyzer = Analyzer::new(index, &root, word_start);
     let context = classify(&token, is_variable);
     let env = analyzer.env_at(word_start);
@@ -285,6 +289,20 @@ fn placeholder_token(root: &SyntaxNode, start: u32, is_variable: bool) -> Option
         }
     };
     token.text().contains(PLACEHOLDER).then_some(token)
+}
+
+/// Whether the token sits in a string's simple interpolation (`"$a->b"`), where a method call is
+/// not valid syntax. Inside `{$...}` or `${...}` a call is.
+fn in_simple_interpolation(token: &SyntaxToken) -> bool {
+    token
+        .parent_ancestors()
+        .find(|node| {
+            matches!(
+                node.kind(),
+                BRACED_INTERPOLATION | DOLLAR_BRACE_INTERPOLATION | INTERPOLATED_STRING | HEREDOC | SHELL_EXEC_EXPR
+            )
+        })
+        .is_some_and(|node| !matches!(node.kind(), BRACED_INTERPOLATION | DOLLAR_BRACE_INTERPOLATION))
 }
 
 fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
@@ -507,14 +525,13 @@ impl Builder<'_> {
     }
 
     /// The text that inserts a callable by name, with its required arguments as snippet
-    /// placeholders when the options ask for it. A name that already has its parentheses after the
-    /// cursor, which is also a first-class callable, keeps the bare name.
+    /// placeholders when the options ask for it. A name followed by parentheses, which is also a
+    /// first-class callable, or by the rest of a word, keeps the bare name because the edit ends
+    /// at the cursor.
     fn call_text(&self, name: &str, callable: Option<&Callable>) -> (String, CallInsert) {
-        let opens_call = self
-            .text
-            .get(self.offset as usize..)
-            .is_some_and(|rest| rest.trim_start().starts_with('('));
-        if !self.options.call_snippets || opens_call {
+        let rest = self.text.get(self.offset as usize..).unwrap_or_default();
+        let continues_word = rest.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+        if !self.options.call_snippets || continues_word || rest.trim_start().starts_with('(') {
             return (name.to_string(), CallInsert::None);
         }
         let params: Vec<&Param> = callable
