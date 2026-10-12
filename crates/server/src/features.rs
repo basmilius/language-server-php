@@ -10,7 +10,9 @@ use lsp_types::{
     InsertTextFormat, Location, MarkupContent, MarkupKind, SymbolInformation, SymbolKind, SymbolTag, TextEdit, Uri,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
-use php_analysis::completion::{CallInsert, CompletionOptions, ItemKind, complete, resolve_documentation};
+use php_analysis::completion::{
+    CallInsert, CompletionOptions, ItemKind, complete, demote_test_declarations, resolve_documentation,
+};
 use php_analysis::nav::Place;
 use php_analysis::target::Target;
 use php_analysis::workspace_symbols::workspace_symbols;
@@ -248,7 +250,8 @@ impl Server {
             php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
         };
         let mut sources = TextCache::new(self, Some(uri));
-        let locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
+        let mut locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
+        self.demote_tests(&mut locations, |location| uri_to_path(&location.uri));
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
     }
 
@@ -285,6 +288,14 @@ impl Server {
         )?
     }
 
+    /// Puts what lies in a test file of its project after the rest, keeping the order otherwise.
+    pub(crate) fn demote_tests<T>(&self, items: &mut [T], path_of: impl Fn(&T) -> Option<PathBuf>) {
+        php_index::test_paths::demote_test_files(items, |item| {
+            path_of(item)
+                .is_some_and(|path| php_index::test_paths::is_test_file(&path, &self.workspace.project_for(&path).root))
+        });
+    }
+
     fn navigate(
         &mut self,
         params: GotoDefinitionParams,
@@ -296,7 +307,8 @@ impl Server {
             query(analyzer, offset)
         })?;
         let mut sources = TextCache::new(self, Some(&uri));
-        let locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
+        let mut locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
+        self.demote_tests(&mut locations, |location| uri_to_path(&location.uri));
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
     }
 
@@ -350,6 +362,7 @@ impl Server {
             symbol.origin == Origin::Project
                 || shared.insert((symbol.kind, symbol.container.clone(), symbol.name.clone()))
         });
+        self.demote_tests(&mut found, |symbol| Some(symbol.path.clone()));
         found.truncate(LIMIT);
         let encoding = self.encoding;
         let mut read: HashMap<PathBuf, Option<(String, LineIndex)>> = HashMap::new();
@@ -428,7 +441,7 @@ impl Server {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
-        let list = if document.state.yaml {
+        let mut list = if document.state.yaml {
             match path.as_deref() {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => php_analysis::yaml::complete_at(
                     &project.index,
@@ -463,6 +476,7 @@ impl Server {
             complete(&project.index, &document.text, offset, options)
         };
         let root = project.root.to_string_lossy().into_owned();
+        demote_test_declarations(&project.index, &project.root, &mut list);
         let edit = |edit: &php_analysis::completion::TextEdit| TextEdit {
             range: mapper.range(range_of(edit.start, edit.end)),
             new_text: edit.new_text.clone(),

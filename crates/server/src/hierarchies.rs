@@ -174,6 +174,7 @@ impl Server {
                 .collect();
             out.push(CallHierarchyIncomingCall { from, from_ranges });
         }
+        self.demote_tests(&mut out, |call| uri_to_path(&call.from.uri));
         Some(out)
     }
 
@@ -210,6 +211,7 @@ impl Server {
                 .collect();
             out.push(CallHierarchyOutgoingCall { to, from_ranges });
         }
+        self.demote_tests(&mut out, |call| uri_to_path(&call.to.uri));
         Some(out)
     }
 
@@ -264,12 +266,12 @@ impl Server {
         let project = self.workspace.project_for(&path);
         let found = find(&project.index, &name);
         let mut texts = TextCache::new(self, None);
-        Some(
-            found
-                .iter()
-                .filter_map(|related| Self::type_hierarchy_item(&mut texts, related))
-                .collect(),
-        )
+        let mut items: Vec<TypeHierarchyItem> = found
+            .iter()
+            .filter_map(|related| Self::type_hierarchy_item(&mut texts, related))
+            .collect();
+        self.demote_tests(&mut items, |item| uri_to_path(&item.uri));
+        Some(items)
     }
 
     pub(crate) fn type_hierarchy_supertypes(

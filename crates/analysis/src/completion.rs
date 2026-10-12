@@ -1587,6 +1587,32 @@ impl ClassFilter {
     }
 }
 
+/// Makes the items declared in a test file sort after equal items from production code.
+pub fn demote_test_declarations(index: &Index, root: &std::path::Path, list: &mut CompletionList) {
+    for item in &mut list.items {
+        let declared_in_test = item
+            .data
+            .as_deref()
+            .and_then(|data| declaring_path(index, data))
+            .is_some_and(|path| php_index::test_paths::is_test_file(&path, root));
+        if declared_in_test {
+            item.sort_text.push('~');
+        }
+    }
+}
+
+/// The file a completion item's `data` points at.
+fn declaring_path(index: &Index, data: &str) -> Option<std::path::PathBuf> {
+    let (kind, rest) = data.split_once(':')?;
+    match kind {
+        "class" => Some(index.class(rest)?.file.path.clone()),
+        "function" => Some(index.function(rest)?.file.path.clone()),
+        "constant" => Some(index.constant(rest)?.file.path.clone()),
+        "method" | "property" | "const" => Some(index.class(rest.split_once("::")?.0)?.file.path.clone()),
+        _ => None,
+    }
+}
+
 /// The documentation for an item, from the `data` its completion carried.
 pub fn resolve_documentation(index: &Index, data: &str) -> Option<String> {
     use crate::target::Target;

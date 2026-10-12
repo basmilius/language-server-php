@@ -16,6 +16,7 @@ pub mod store;
 pub mod stub_overlay;
 pub mod stubs;
 pub mod test_facts;
+pub mod test_paths;
 pub mod types;
 pub mod words;
 

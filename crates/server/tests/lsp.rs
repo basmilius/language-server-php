@@ -1954,3 +1954,108 @@ fn a_method_completes_by_name_without_snippet_support_or_with_the_setting_off() 
         assert!(item.get("command").is_none_or(Value::is_null), "{item}");
     }
 }
+
+fn uris_of(locations: &Value, key: &str) -> Vec<String> {
+    locations
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|entry| {
+            entry[key]["uri"]
+                .as_str()
+                .or(entry["uri"].as_str())
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect()
+}
+
+fn last_is_test(uris: &[String]) -> bool {
+    uris.last()
+        .is_some_and(|uri| uri.contains("/tests/") || uri.ends_with("Test.php"))
+}
+
+#[test]
+fn results_from_test_files_come_after_production_results() {
+    let disk = Disk::new();
+    // Names chosen so that path order would put the test files first.
+    disk.write(
+        "project/src/Shape.php",
+        "<?php\nnamespace App;\ninterface Shape { public function area(): float; }\n",
+    );
+    disk.write(
+        "project/src/AaaShapeTest.php",
+        "<?php\nnamespace App;\nclass AaaShapeTest implements Shape { public function area(): float { return 1.0; } }\n",
+    );
+    disk.write(
+        "project/src/Zzz.php",
+        "<?php\nnamespace App;\nclass Zzz implements Shape { public function area(): float { return 2.0; } }\n",
+    );
+    disk.write(
+        "project/src/Widgets.php",
+        "<?php\nnamespace App;\nfunction helper(): int { return 1; }\nfunction caller(): int { return helper(); }\n",
+    );
+    disk.write(
+        "project/tests/Aaa.php",
+        "<?php\nnamespace App\\Tests;\nclass Aaa extends \\App\\Models\\User {}\nfunction first(): int { return \\App\\helper() + \\App\\helper(); }\n",
+    );
+    disk.write(
+        "project/src/Zed.php",
+        "<?php\nnamespace App;\nclass Zed extends Models\\User {}\nfunction second(): int { return helper(); }\n",
+    );
+    disk.write("project/src/Dup.php", "<?php\nnamespace App;\nclass Dup {}\n");
+    disk.write("project/tests/Dup.php", "<?php\nnamespace App\\Tests;\nclass Dup {}\n");
+    let mut client = indexed_server(&disk);
+    let shape = disk.uri("project/src/Shape.php");
+    let widgets = disk.uri("project/src/Widgets.php");
+    let user = disk.uri("project/src/Models/User.php");
+    for (uri, path) in [
+        (&shape, "project/src/Shape.php"),
+        (&widgets, "project/src/Widgets.php"),
+        (&user, "project/src/Models/User.php"),
+    ] {
+        client.open(uri, &std::fs::read_to_string(disk.path(path)).expect("read"));
+    }
+
+    let implementations = client.at("textDocument/implementation", &shape, 2, 12);
+    let found = uris_of(&implementations, "location");
+    assert_eq!(found.len(), 2, "{implementations}");
+    assert!(last_is_test(&found), "{found:?}");
+
+    let references = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": widgets },
+            "position": { "line": 2, "character": 10 },
+            "context": { "includeDeclaration": true }
+        }),
+    );
+    let found = uris_of(&references, "location");
+    assert!(found.len() >= 3, "{references}");
+    let first_test = found
+        .iter()
+        .position(|uri| uri.contains("/tests/"))
+        .expect("a test hit");
+    assert!(
+        found[first_test..].iter().all(|uri| uri.contains("/tests/")),
+        "{found:?}"
+    );
+
+    let symbols = client.request("workspace/symbol", json!({ "query": "Dup" }));
+    let found = uris_of(&symbols, "location");
+    assert_eq!(found.len(), 2, "{symbols}");
+    assert!(last_is_test(&found), "{found:?}");
+
+    let types = client.at("textDocument/prepareTypeHierarchy", &user, 4, 8);
+    let subtypes = client.request("typeHierarchy/subtypes", json!({ "item": types[0] }));
+    let found = uris_of(&subtypes, "item");
+    assert!(found.len() >= 2, "{subtypes}");
+    assert!(last_is_test(&found), "{found:?}");
+
+    let prepared = client.at("textDocument/prepareCallHierarchy", &widgets, 2, 12);
+    let incoming = client.request("callHierarchy/incomingCalls", json!({ "item": prepared[0] }));
+    let found = uris_of(&incoming, "from");
+    assert!(found.len() >= 3, "{incoming}");
+    assert!(last_is_test(&found), "{found:?}");
+    client.shutdown();
+}

@@ -880,3 +880,71 @@ fn simple_interpolation_gets_no_call_but_braced_interpolation_does() {
         "run(${1:\\$times})$0"
     );
 }
+
+fn sort_text_of(list: &CompletionList, detail_namespace: &str, label: &str) -> String {
+    list.items
+        .iter()
+        .find(|item| item.label == label && item.description.as_deref() == Some(detail_namespace))
+        .unwrap_or_else(|| panic!("no {label} in {detail_namespace}"))
+        .sort_text
+        .clone()
+}
+
+fn with_test_declarations() -> Fixture {
+    Fixture::new(&[
+        (
+            "src/Thing.php",
+            "<?php\nnamespace App;\nclass Thing { public function run(): void {} }\nfunction make_thing(): void {}\nconst THING_MAX = 1;\n",
+        ),
+        (
+            "tests/Thing.php",
+            "<?php\nnamespace App\\Tests;\nclass Thing { public function run(): void {} }\nfunction make_thing(): void {}\nconst THING_MAX = 1;\n",
+        ),
+    ])
+}
+
+fn demoted(code: &str) -> CompletionList {
+    let fixture = with_test_declarations().with_current(code);
+    let (offset, text) = lsc_text::testing::cursor(code);
+    let mut list = complete(&fixture.index, &text, offset, CompletionOptions::default());
+    crate::completion::demote_test_declarations(&fixture.index, std::path::Path::new("/project"), &mut list);
+    list
+}
+
+#[test]
+fn classes_declared_in_test_files_sort_after_equal_production_classes() {
+    let list = demoted("<?php\nnew Thi$0");
+    let production = sort_text_of(&list, "App", "Thing");
+    let tests = sort_text_of(&list, "App\\Tests", "Thing");
+    assert!(production < tests, "{production} {tests}");
+}
+
+#[test]
+fn functions_and_constants_declared_in_test_files_sort_after_production_ones() {
+    let list = demoted("<?php\nmake_th$0");
+    assert!(sort_text_of(&list, "App", "make_thing") < sort_text_of(&list, "App\\Tests", "make_thing"));
+    let list = demoted("<?php\nTHING_M$0");
+    assert!(sort_text_of(&list, "App", "THING_MAX") < sort_text_of(&list, "App\\Tests", "THING_MAX"));
+}
+
+#[test]
+fn members_declared_in_a_test_class_get_a_later_sort_text() {
+    let code = "<?php\nnamespace App;\nfunction f(\\App\\Tests\\Thing $thing) { $thing->ru$0 }\n";
+    let fixture = with_test_declarations().with_current(code);
+    let (offset, text) = lsc_text::testing::cursor(code);
+    let mut list = complete(&fixture.index, &text, offset, CompletionOptions::default());
+    let before = item(&list, "run").sort_text.clone();
+    crate::completion::demote_test_declarations(&fixture.index, std::path::Path::new("/project"), &mut list);
+    assert!(item(&list, "run").sort_text > before);
+}
+
+#[test]
+fn demoting_never_drops_an_item() {
+    let code = "<?php\nnew Thi$0";
+    let fixture = with_test_declarations().with_current(code);
+    let (offset, text) = lsc_text::testing::cursor(code);
+    let mut list = complete(&fixture.index, &text, offset, CompletionOptions::default());
+    let count = list.items.len();
+    crate::completion::demote_test_declarations(&fixture.index, std::path::Path::new("/project"), &mut list);
+    assert_eq!(list.items.len(), count);
+}

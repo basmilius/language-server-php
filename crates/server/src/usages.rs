@@ -222,6 +222,7 @@ impl Server {
                 }
             }
         }
+        self.demote_tests(&mut locations, |location| uri_to_path(&location.uri));
         Some(locations)
     }
 
