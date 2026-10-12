@@ -539,11 +539,11 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lsc-server"
-version = "0.1.1"
-source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.1#b40e26db078eddaa148e6f27f9616ce3e56dac09"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
 dependencies = [
  "crossbeam-channel",
- "lsc-text",
+ "lsc-text 0.1.2",
  "lsp-server",
  "lsp-types",
  "serde",
@@ -559,9 +559,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lsc-syntax"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
+dependencies = [
+ "rowan",
+]
+
+[[package]]
 name = "lsc-text"
 version = "0.1.1"
 source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.1#b40e26db078eddaa148e6f27f9616ce3e56dac09"
+dependencies = [
+ "text-size",
+]
+
+[[package]]
+name = "lsc-text"
+version = "0.1.2"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
 dependencies = [
  "text-size",
 ]
@@ -650,7 +666,7 @@ version = "0.6.1"
 dependencies = [
  "criterion",
  "expect-test",
- "lsc-text",
+ "lsc-text 0.1.2",
  "php-format",
  "php-index",
  "php-syntax",
@@ -712,7 +728,7 @@ version = "0.6.1"
 dependencies = [
  "criterion",
  "expect-test",
- "lsc-syntax",
+ "lsc-syntax 0.1.2",
  "rowan",
 ]
 
@@ -1039,7 +1055,7 @@ name = "sql-analysis"
 version = "0.2.0"
 source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
 dependencies = [
- "lsc-text",
+ "lsc-text 0.1.1",
  "sql-catalog",
  "sql-syntax",
 ]
@@ -1070,7 +1086,7 @@ name = "sql-syntax"
 version = "0.2.0"
 source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
 dependencies = [
- "lsc-syntax",
+ "lsc-syntax 0.1.1",
  "rowan",
 ]
 
