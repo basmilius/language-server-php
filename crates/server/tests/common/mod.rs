@@ -70,7 +70,7 @@ impl Disk {
         );
         disk.write(
             "stubs/standard/basic.php",
-            "<?php\nfunction strlen(string $string): int {}\n\n/** @since 8.4 */\nfunction array_find(array $array, callable $callback): mixed {}\n",
+            "<?php\nfunction strlen(string $string): int {}\n\n/** @since 8.4 */\nfunction array_find(array $array, callable $callback): mixed {}\n\n/**\n * @param array|string $search <p>\n * The value being searched for, otherwise known as the needle.\n * </p>\n * @param array|string $replace\n * @param array|string $subject\n * @return array|string\n */\nfunction str_replace(array|string $search, array|string $replace, array|string $subject, &$count = null): array|string {}\n",
         );
         disk.write(
             "stubs/redis/redis.php",

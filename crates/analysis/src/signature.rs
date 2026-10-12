@@ -94,7 +94,7 @@ pub fn signature_help(index: &Index, root: &SyntaxNode, offset: u32) -> Option<S
                 .zip(labels)
                 .map(|(param, label)| ParameterItem {
                     label,
-                    documentation: (!param.description.is_empty()).then(|| param.description.clone()),
+                    documentation: (!param.description.is_empty()).then(|| render::inline_tags(&param.description)),
                 })
                 .collect(),
             active_parameter: active,
@@ -107,12 +107,12 @@ pub fn signature_help(index: &Index, root: &SyntaxNode, offset: u32) -> Option<S
 }
 
 fn summary(doc: &Doc) -> Option<String> {
-    let mut out = doc.summary.clone();
+    let mut out = render::inline_tags(&doc.summary);
     if !doc.description.is_empty() {
         if !out.is_empty() {
             out.push_str("\n\n");
         }
-        out.push_str(&doc.description);
+        out.push_str(&render::inline_tags(&doc.description));
     }
     (!out.is_empty()).then_some(out)
 }

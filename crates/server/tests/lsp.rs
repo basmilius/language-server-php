@@ -985,7 +985,7 @@ fn offers_signature_help_for_the_call_under_the_cursor() {
     let uri = disk.uri("project/src/Page.php");
     client.open(
         &uri,
-        "<?php\nuse App\\Models\\User;\nfunction f() {\n    User::find(1);\n    strlen('');\n}\n",
+        "<?php\nuse App\\Models\\User;\nfunction f() {\n    User::find(1);\n    strlen('');\n    str_replace('a', 'b', '');\n}\n",
     );
     let help = client.at("textDocument/signatureHelp", &uri, 3, 15);
     assert_eq!(help["signatures"][0]["label"], "find(int $id): ?static");
@@ -996,6 +996,12 @@ fn offers_signature_help_for_the_call_under_the_cursor() {
     assert!(outside.is_null());
     let builtin = client.at("textDocument/signatureHelp", &uri, 4, 11);
     assert_eq!(builtin["signatures"][0]["label"], "strlen(string $string): int");
+    let replace = client.at("textDocument/signatureHelp", &uri, 5, 16);
+    let documentation = replace["signatures"][0]["parameters"][0]["documentation"]["value"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(documentation.contains("needle"), "{documentation}");
+    assert!(!documentation.contains("<p>"), "{documentation}");
     client.shutdown();
 }
 

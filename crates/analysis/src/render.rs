@@ -303,6 +303,9 @@ fn tag_line(name: &str, code: Option<&str>, text: &str) -> String {
 /// since `array<int>` is a type and not a tag. A `<pre>` or `<code>` over several lines becomes a
 /// `php` block with its indentation kept, and a fenced block the author wrote stays as written.
 fn html_to_markdown(text: &str) -> String {
+    if !text.contains(['<', '&']) {
+        return text.to_string();
+    }
     let mut parts: Vec<String> = Vec::new();
     for segment in code_segments(text) {
         let part = match segment {
@@ -413,58 +416,208 @@ fn dedent(code: &str) -> String {
         .join("\n")
 }
 
+/// Decodes the named entities the stubs use and numeric ones (`&#39;`, `&#x27;`). Unknown names stay.
 fn decode_entities(text: &str) -> String {
-    text.replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
+    decode_entities_with(text, false)
 }
 
-fn prose_to_markdown(text: &str) -> String {
+/// Decodes entities in prose. A `<` from `&lt;` that would read as an HTML tag is escaped, so
+/// `&lt;b&gt;` shows as text instead of turning bold in the client.
+fn decode_prose_entities(text: &str) -> String {
+    decode_entities_with(text, true)
+}
+
+fn decode_entities_with(text: &str, escape_tags: bool) -> String {
+    if !text.contains('&') {
+        return text.to_string();
+    }
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(open) = rest.find('<') {
-        out.push_str(&rest[..open]);
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('>').filter(|close| *close <= 80) else {
-            out.push('<');
-            rest = after;
-            continue;
-        };
-        let tag = after[..close].trim().trim_end_matches('/').trim().to_ascii_lowercase();
-        let name = tag.split_whitespace().next().unwrap_or("");
-        let replacement = match name {
-            "p" | "/p" | "/ul" | "/ol" | "/pre" | "pre" | "/h1" | "/h2" | "/h3" | "/h4" | "/table" | "table" => {
-                Some("\n\n")
-            }
-            "br" | "/li" | "/tr" | "/div" | "div" | "tr" => Some("\n"),
-            "ul" | "ol" => Some("\n"),
-            "li" => Some("\n- "),
-            "b" | "/b" | "strong" | "/strong" => Some("**"),
-            "i" | "/i" | "em" | "/em" => Some("_"),
-            "code" | "/code" | "tt" | "/tt" | "kbd" | "/kbd" => Some("`"),
-            "a" | "/a" | "span" | "/span" | "h1" | "h2" | "h3" | "h4" | "td" | "/td" | "th" | "/th" | "thead"
-            | "/thead" | "tbody" | "/tbody" | "font" | "/font" | "sup" | "/sup" | "sub" | "/sub" | "u" | "/u" => {
-                Some("")
-            }
-            _ => None,
-        };
-        match replacement {
-            Some(text) => {
-                out.push_str(text);
-                rest = &after[close + 1..];
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let decoded = after
+            .find(';')
+            .filter(|end| *end <= 10)
+            .and_then(|end| entity_char(&after[..end]).map(|ch| (ch, end)));
+        match decoded {
+            Some((ch, end)) => {
+                rest = &after[end + 1..];
+                let starts_tag = rest.starts_with(|next: char| next.is_ascii_alphabetic() || matches!(next, '/' | '!'));
+                if escape_tags && ch == '<' && starts_tag {
+                    out.push('\\');
+                }
+                out.push(ch);
             }
             None => {
-                out.push('<');
+                out.push('&');
                 rest = after;
             }
         }
     }
     out.push_str(rest);
-    let decoded = decode_entities(&out);
+    out
+}
+
+fn entity_char(name: &str) -> Option<char> {
+    match name {
+        "nbsp" => Some(' '),
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        "quot" => Some('"'),
+        "apos" => Some('\''),
+        "amp" => Some('&'),
+        _ => {
+            let digits = name.strip_prefix('#')?;
+            let code = match digits.strip_prefix(['x', 'X']) {
+                Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                None => digits.parse().ok()?,
+            };
+            char::from_u32(code).filter(|ch| *ch != '\0')
+        }
+    }
+}
+
+/// The `href` of an opening `<a>` tag, with the case of the original.
+fn href_of(tag: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let at = lower.find("href")?;
+    let value = tag[at + 4..].trim_start().strip_prefix('=')?.trim_start();
+    let (start, end) = match value.chars().next()? {
+        quote @ ('"' | '\'') => (1, value[1..].find(quote).map(|end| end + 1)?),
+        _ => (0, value.find(char::is_whitespace).unwrap_or(value.len())),
+    };
+    let url = value[start..end].trim();
+    (!url.is_empty()).then(|| url.to_string())
+}
+
+/// One list being written: its next number, or `None` for bullets.
+struct ListState {
+    next: Option<u32>,
+}
+
+fn prose_to_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut lists: Vec<ListState> = Vec::new();
+    let mut links: Vec<Option<String>> = Vec::new();
+    let mut cells = 0;
+    let mut header_done = false;
+    while let Some(open) = rest.find('<') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('>').filter(|close| *close <= 200) else {
+            out.push('<');
+            rest = after;
+            continue;
+        };
+        let raw = after[..close].trim().trim_end_matches('/').trim();
+        let tag = raw.to_ascii_lowercase();
+        let name = tag.split_whitespace().next().unwrap_or("");
+        let known = match name {
+            "p" | "/p" | "/pre" | "pre" | "/h1" | "/h2" | "/h3" | "/h4" | "h1" | "h2" | "h3" | "h4" | "div"
+            | "/div" | "/table" => {
+                out.push_str("\n\n");
+                true
+            }
+            "br" => {
+                out.push('\n');
+                true
+            }
+            "ul" | "ol" => {
+                if lists.is_empty() {
+                    out.push_str("\n\n");
+                }
+                lists.push(ListState {
+                    next: (name == "ol").then_some(1),
+                });
+                true
+            }
+            "/ul" | "/ol" => {
+                lists.pop();
+                if lists.is_empty() {
+                    out.push_str("\n\n");
+                }
+                true
+            }
+            "li" => {
+                out.push('\n');
+                out.push_str(&"  ".repeat(lists.len().saturating_sub(1)));
+                match lists.last_mut() {
+                    Some(ListState { next: Some(number) }) => {
+                        out.push_str(&format!("{number}. "));
+                        *number += 1;
+                    }
+                    _ => out.push_str("- "),
+                }
+                true
+            }
+            "b" | "/b" | "strong" | "/strong" => {
+                out.push_str("**");
+                true
+            }
+            "i" | "/i" | "em" | "/em" => {
+                out.push('_');
+                true
+            }
+            "code" | "/code" | "tt" | "/tt" | "kbd" | "/kbd" => {
+                out.push('`');
+                true
+            }
+            "a" => {
+                let href = href_of(raw);
+                if href.is_some() {
+                    out.push('[');
+                }
+                links.push(href);
+                true
+            }
+            "/a" => {
+                if let Some(Some(href)) = links.pop() {
+                    out.push_str(&format!("]({href})"));
+                }
+                true
+            }
+            "table" => {
+                header_done = false;
+                out.push_str("\n\n");
+                true
+            }
+            "tr" => {
+                cells = 0;
+                out.push_str("\n|");
+                true
+            }
+            "/tr" => {
+                if !header_done {
+                    header_done = true;
+                    out.push_str("\n|");
+                    out.push_str(&"---|".repeat(cells));
+                }
+                true
+            }
+            "td" | "th" => {
+                out.push(' ');
+                true
+            }
+            "/td" | "/th" => {
+                cells += 1;
+                out.push_str(" |");
+                true
+            }
+            "/li" | "span" | "/span" | "thead" | "/thead" | "tbody" | "/tbody" | "font" | "/font" | "sup" | "/sup"
+            | "sub" | "/sub" | "u" | "/u" => true,
+            _ => false,
+        };
+        if known {
+            rest = &after[close + 1..];
+        } else {
+            out.push('<');
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    let decoded = decode_prose_entities(&out);
     let mut collapsed = String::with_capacity(decoded.len());
     let mut blank_run = 0;
     for line in decoded.lines() {
@@ -477,14 +630,39 @@ fn prose_to_markdown(text: &str) -> String {
         } else {
             blank_run = 0;
         }
-        collapsed.push_str(line.trim_start_matches(' '));
+        let trimmed = line.trim_start_matches(' ');
+        if is_list_item(trimmed) {
+            collapsed.push_str(&line[..line.len() - trimmed.len()]);
+        }
+        collapsed.push_str(&squeeze_spaces(trimmed));
         collapsed.push('\n');
     }
     collapsed.trim().to_string()
 }
 
-/// `{@see Foo}` and `{@link url}` as inline code or a link, which is how a client shows a reference.
-fn inline_tags(text: &str) -> String {
+fn is_list_item(line: &str) -> bool {
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    line.starts_with("- ") || (digits > 0 && line[digits..].starts_with(". "))
+}
+
+/// Runs of spaces left by source wrapping and removed tags become one.
+fn squeeze_spaces(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut previous_space = false;
+    for ch in line.chars() {
+        if ch == ' ' && previous_space {
+            continue;
+        }
+        previous_space = ch == ' ';
+        out.push(ch);
+    }
+    out
+}
+
+/// `{@see Foo}` and `{@link url}` as inline code or a link, which is how a client shows a reference,
+/// and the HTML of the stubs as markdown. Text without tags or entities passes through unchanged, so
+/// documentation a person wrote in markdown is not rewritten.
+pub fn inline_tags(text: &str) -> String {
     html_to_markdown(&inline_tags_raw(text))
 }
 
@@ -583,6 +761,80 @@ function &helper(string $x): void {}
             inline_tags("Formats like {@link https://php.net/date date()} does"),
             "Formats like [date()](https://php.net/date) does"
         );
+    }
+
+    #[test]
+    fn converts_the_str_replace_parameter_doc() {
+        assert_eq!(
+            inline_tags(
+                "<p>\n The value being searched for, otherwise known as the needle. An array may be used to designate multiple needles.\n </p>"
+            ),
+            "The value being searched for, otherwise known as the needle. An array may be used to designate multiple needles."
+        );
+    }
+
+    #[test]
+    fn converts_each_tag() {
+        assert_eq!(
+            html_to_markdown("a<b>bold</b> <strong>s</strong> <i>i</i> <em>e</em>"),
+            "a**bold** **s** _i_ _e_"
+        );
+        assert_eq!(html_to_markdown("use <code>foo()</code> now"), "use `foo()` now");
+        assert_eq!(
+            html_to_markdown(
+                r#"see <a href="https://php.net/x?a=1&amp;b=2">the manual</a> and <a name="x">anchor</a>"#
+            ),
+            "see [the manual](https://php.net/x?a=1&b=2) and anchor"
+        );
+        assert_eq!(html_to_markdown("one<br>two<br />three"), "one\ntwo\nthree");
+        assert_eq!(html_to_markdown("<p>one</p><p>two</p>"), "one\n\ntwo");
+        assert_eq!(
+            html_to_markdown(r#"<span class="x">kept</span> <blink>text</blink>"#),
+            "kept <blink>text</blink>"
+        );
+    }
+
+    #[test]
+    fn converts_entities() {
+        assert_eq!(
+            html_to_markdown("a &lt; b &amp;&amp; c &gt; d &quot;q&quot; &#39;s&#39; &#x41;&#66;&nbsp;x"),
+            "a < b && c > d \"q\" 's' AB x"
+        );
+        assert_eq!(html_to_markdown("&lt;b&gt; &unknown; &#xZZ;"), "\\<b> &unknown; &#xZZ;");
+    }
+
+    #[test]
+    fn converts_nested_lists() {
+        expect![[r#"
+            Options:
+
+            - one
+              1. first
+              2. second
+            - two
+
+            Done."#]]
+        .assert_eq(&html_to_markdown(
+            "Options:<ul><li>one<ol><li>first</li><li>second</li></ol></li><li>two</li></ul>Done.",
+        ));
+    }
+
+    #[test]
+    fn converts_tables() {
+        expect![[r#"
+            | Name | Value |
+            |---|---|
+            | a | 1 |"#]]
+        .assert_eq(&html_to_markdown(
+            "<table><tr><th>Name</th><th>Value</th></tr><tr><td>a</td><td>1</td></tr></table>",
+        ));
+    }
+
+    #[test]
+    fn leaves_markdown_without_html_alone() {
+        let text = "Uses **bold** and `code`.  \nSecond   line\n\n- item\n  - nested";
+        assert_eq!(html_to_markdown(text), text);
+        assert_eq!(html_to_markdown("An array<int> of 3 < 4"), "An array<int> of 3 < 4");
     }
 
     #[test]
