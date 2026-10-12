@@ -2059,3 +2059,22 @@ fn results_from_test_files_come_after_production_results() {
     assert!(last_is_test(&found), "{found:?}");
     client.shutdown();
 }
+
+#[test]
+fn an_exact_match_in_a_test_file_stays_above_many_production_matches() {
+    let disk = Disk::new();
+    disk.write(
+        "project/tests/UserServiceTest.php",
+        "<?php\nnamespace App\\Tests;\nclass UserServiceTest {}\n",
+    );
+    for number in 0..220 {
+        disk.write(
+            &format!("project/src/UserServiceTest{number}.php"),
+            &format!("<?php\nnamespace App;\nclass UserServiceTest{number} {{}}\n"),
+        );
+    }
+    let mut client = indexed_server(&disk);
+    let symbols = client.request("workspace/symbol", json!({ "query": "UserServiceTest" }));
+    assert_eq!(symbols[0]["name"], "UserServiceTest", "{}", symbols[0]);
+    client.shutdown();
+}

@@ -1,6 +1,6 @@
 //! `workspace/symbol`: declarations by name across the project, its packages and the standard library.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use php_index::{ClassKind, Index, Origin, Span};
 
@@ -27,12 +27,14 @@ fn origin_rank(origin: Origin) -> u8 {
     }
 }
 
-/// The declarations that match a query, best first. Members are only listed for the project's own classes.
-pub fn workspace_symbols(index: &Index, query: &str, limit: usize) -> Vec<WorkspaceSymbol> {
-    let mut found: Vec<((u8, u8, usize), WorkspaceSymbol)> = Vec::new();
+/// The declarations that match a query, best first. Among equal matches those in test files of the
+/// project at `root` come last. Members are only listed for the project's own classes.
+pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) -> Vec<WorkspaceSymbol> {
+    let mut found: Vec<((u8, u8, usize, bool), WorkspaceSymbol)> = Vec::new();
     let mut consider = |name: &str, rank: u8, symbol: WorkspaceSymbol| {
         if let Some(score) = match_score(name, query) {
-            found.push(((score.max(1), rank, name.len()), symbol));
+            let from_test = php_index::test_paths::is_test_file(&symbol.path, root);
+            found.push(((score.max(1), rank, name.len(), from_test), symbol));
         }
     };
     for name in index.class_names() {
@@ -186,14 +188,59 @@ mod tests {
             )],
             &[("s.php", "<?php\nclass UserStub {}\n")],
         );
-        let symbols = workspace_symbols(&fixture.index, "user", 10);
+        let symbols = workspace_symbols(&fixture.index, Path::new("/project"), "user", 10);
         let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
         assert_eq!(names, vec!["User", "UserController", "user_helper", "UserStub"]);
         assert_eq!(symbols[0].container.as_deref(), Some("App"));
-        let members = workspace_symbols(&fixture.index, "index", 10);
+        let members = workspace_symbols(&fixture.index, Path::new("/project"), "index", 10);
         assert_eq!(members[0].kind, SymbolKind::Method);
         assert_eq!(members[0].container.as_deref(), Some("App\\UserController"));
-        assert_eq!(workspace_symbols(&fixture.index, "uc", 10)[0].name, "UserController");
-        assert_eq!(workspace_symbols(&fixture.index, "user", 2).len(), 2);
+        assert_eq!(
+            workspace_symbols(&fixture.index, Path::new("/project"), "uc", 10)[0].name,
+            "UserController"
+        );
+        assert_eq!(
+            workspace_symbols(&fixture.index, Path::new("/project"), "user", 2).len(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_files_only_break_ties_and_never_outrank_a_better_match() {
+        let mut files = vec![
+            (
+                "tests/UserServiceTest.php".to_string(),
+                "<?php\nclass UserServiceTest {}\n".to_string(),
+            ),
+            (
+                "src/UserServiceTestHelper.php".to_string(),
+                "<?php\nclass UserServiceTestHelper {}\n".to_string(),
+            ),
+            (
+                "src/Dup.php".to_string(),
+                "<?php\nnamespace A;\nclass Dup {}\n".to_string(),
+            ),
+            (
+                "tests/Dup.php".to_string(),
+                "<?php\nnamespace B;\nclass Dup {}\n".to_string(),
+            ),
+        ];
+        for number in 0..30 {
+            files.push((
+                format!("src/U{number}ser.php"),
+                format!("<?php\nclass UxServxceTxst{number} {{}}\n"),
+            ));
+        }
+        let borrowed: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+        let fixture = Fixture::new(&borrowed);
+        let root = Path::new("/project");
+        let exact = workspace_symbols(&fixture.index, root, "UserServiceTest", 3);
+        assert_eq!(exact[0].name, "UserServiceTest");
+        let dups = workspace_symbols(&fixture.index, root, "Dup", 10);
+        assert_eq!(dups.len(), 2);
+        assert!(dups[0].path.ends_with("src/Dup.php"), "{dups:?}");
     }
 }

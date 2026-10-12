@@ -11,7 +11,7 @@ use lsp_types::{
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use php_analysis::completion::{
-    CallInsert, CompletionOptions, ItemKind, complete, demote_test_declarations, resolve_documentation,
+    CallInsert, CompletionOptions, ItemKind, complete_in, demote_test_declarations, resolve_documentation,
 };
 use php_analysis::nav::Place;
 use php_analysis::target::Target;
@@ -351,7 +351,7 @@ impl Server {
             if project.index.file_count() == 0 {
                 continue;
             }
-            found.extend(workspace_symbols(&project.index, &params.query, LIMIT));
+            found.extend(workspace_symbols(&project.index, &project.root, &params.query, LIMIT));
             if self.workspace.projects.len() == 1 {
                 break;
             }
@@ -362,7 +362,6 @@ impl Server {
             symbol.origin == Origin::Project
                 || shared.insert((symbol.kind, symbol.container.clone(), symbol.name.clone()))
         });
-        self.demote_tests(&mut found, |symbol| Some(symbol.path.clone()));
         found.truncate(LIMIT);
         let encoding = self.encoding;
         let mut read: HashMap<PathBuf, Option<(String, LineIndex)>> = HashMap::new();
@@ -441,6 +440,7 @@ impl Server {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+        let in_template = document.state.yaml || document.state.twig || document.state.blade;
         let mut list = if document.state.yaml {
             match path.as_deref() {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => php_analysis::yaml::complete_at(
@@ -473,10 +473,12 @@ impl Server {
             )
             .unwrap_or_default()
         } else {
-            complete(&project.index, &document.text, offset, options)
+            complete_in(&project.index, Some(&project.root), &document.text, offset, options)
         };
         let root = project.root.to_string_lossy().into_owned();
-        demote_test_declarations(&project.index, &project.root, &mut list);
+        if in_template {
+            demote_test_declarations(&project.index, &project.root, &mut list);
+        }
         let edit = |edit: &php_analysis::completion::TextEdit| TextEdit {
             range: mapper.range(range_of(edit.start, edit.end)),
             new_text: edit.new_text.clone(),

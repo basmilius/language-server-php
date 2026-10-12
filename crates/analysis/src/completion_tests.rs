@@ -890,11 +890,13 @@ fn sort_text_of(list: &CompletionList, detail_namespace: &str, label: &str) -> S
         .clone()
 }
 
+const PROJECT_ROOT: &str = "/project";
+
 fn with_test_declarations() -> Fixture {
     Fixture::new(&[
         (
             "src/Thing.php",
-            "<?php\nnamespace App;\nclass Thing { public function run(): void {} }\nfunction make_thing(): void {}\nconst THING_MAX = 1;\n",
+            "<?php\nnamespace App;\nclass Thing { public function run(): void {} }\nclass ThingBar {}\nfunction make_thing(): void {}\nconst THING_MAX = 1;\n",
         ),
         (
             "tests/Thing.php",
@@ -903,48 +905,59 @@ fn with_test_declarations() -> Fixture {
     ])
 }
 
-fn demoted(code: &str) -> CompletionList {
+fn ranked_in(root: &str, code: &str, limit: usize) -> CompletionList {
     let fixture = with_test_declarations().with_current(code);
     let (offset, text) = lsc_text::testing::cursor(code);
-    let mut list = complete(&fixture.index, &text, offset, CompletionOptions::default());
-    crate::completion::demote_test_declarations(&fixture.index, std::path::Path::new("/project"), &mut list);
-    list
+    let options = CompletionOptions {
+        limit,
+        ..CompletionOptions::default()
+    };
+    crate::completion::complete_in(&fixture.index, Some(std::path::Path::new(root)), &text, offset, options)
+}
+
+fn ranked(code: &str) -> CompletionList {
+    ranked_in(PROJECT_ROOT, code, 300)
 }
 
 #[test]
-fn classes_declared_in_test_files_sort_after_equal_production_classes() {
-    let list = demoted("<?php\nnew Thi$0");
+fn a_class_in_a_test_file_sorts_after_every_production_class_of_its_group() {
+    let list = ranked("<?php\nnew Thi$0");
     let production = sort_text_of(&list, "App", "Thing");
+    let longer = sort_text_of(&list, "App", "ThingBar");
     let tests = sort_text_of(&list, "App\\Tests", "Thing");
-    assert!(production < tests, "{production} {tests}");
+    assert!(production < longer && longer < tests, "{production} {longer} {tests}");
 }
 
 #[test]
-fn functions_and_constants_declared_in_test_files_sort_after_production_ones() {
-    let list = demoted("<?php\nmake_th$0");
+fn production_items_keep_their_place_when_the_limit_cuts() {
+    let list = ranked_in(PROJECT_ROOT, "<?php\nnew Thing$0", 1);
+    assert_eq!(list.items.len(), 1);
+    assert_eq!(list.items[0].description.as_deref(), Some("App"));
+    assert!(list.incomplete);
+}
+
+#[test]
+fn functions_and_constants_in_test_files_sort_after_production_ones() {
+    let list = ranked("<?php\nmake_th$0");
     assert!(sort_text_of(&list, "App", "make_thing") < sort_text_of(&list, "App\\Tests", "make_thing"));
-    let list = demoted("<?php\nTHING_M$0");
+    let list = ranked("<?php\nTHING_M$0");
     assert!(sort_text_of(&list, "App", "THING_MAX") < sort_text_of(&list, "App\\Tests", "THING_MAX"));
 }
 
 #[test]
-fn members_declared_in_a_test_class_get_a_later_sort_text() {
+fn members_declared_in_a_test_class_sort_after_the_same_member_of_production() {
     let code = "<?php\nnamespace App;\nfunction f(\\App\\Tests\\Thing $thing) { $thing->ru$0 }\n";
-    let fixture = with_test_declarations().with_current(code);
-    let (offset, text) = lsc_text::testing::cursor(code);
-    let mut list = complete(&fixture.index, &text, offset, CompletionOptions::default());
-    let before = item(&list, "run").sort_text.clone();
-    crate::completion::demote_test_declarations(&fixture.index, std::path::Path::new("/project"), &mut list);
-    assert!(item(&list, "run").sort_text > before);
+    let as_test = item(&ranked(code), "run").sort_text.clone();
+    let as_production = item(&ranked_in("/project/tests", code, 300), "run").sort_text.clone();
+    assert!(as_production < as_test, "{as_production} {as_test}");
 }
 
 #[test]
-fn demoting_never_drops_an_item() {
+fn ranking_without_a_root_changes_nothing() {
     let code = "<?php\nnew Thi$0";
     let fixture = with_test_declarations().with_current(code);
     let (offset, text) = lsc_text::testing::cursor(code);
-    let mut list = complete(&fixture.index, &text, offset, CompletionOptions::default());
-    let count = list.items.len();
-    crate::completion::demote_test_declarations(&fixture.index, std::path::Path::new("/project"), &mut list);
-    assert_eq!(list.items.len(), count);
+    let plain = complete(&fixture.index, &text, offset, CompletionOptions::default());
+    let rootless = crate::completion::complete_in(&fixture.index, None, &text, offset, CompletionOptions::default());
+    assert_eq!(plain, rootless);
 }

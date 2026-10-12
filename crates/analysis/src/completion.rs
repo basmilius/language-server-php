@@ -188,19 +188,36 @@ fn in_dead_zone(root: &SyntaxNode, offset: u32) -> bool {
 
 /// What can be typed at an offset of a text.
 pub fn complete(index: &Index, text: &str, offset: u32, options: CompletionOptions) -> CompletionList {
+    complete_in(index, None, text, offset, options)
+}
+
+/// Like `complete`, ranking what is declared in a test file of the project at `root` below the rest.
+pub fn complete_in(
+    index: &Index,
+    test_root: Option<&std::path::Path>,
+    text: &str,
+    offset: u32,
+    options: CompletionOptions,
+) -> CompletionList {
     let offset = (offset as usize).min(text.len());
     let real = parse(text).syntax();
+    let flagged = |mut list: CompletionList| {
+        if let Some(root) = test_root {
+            demote_test_declarations(index, root, &mut list);
+        }
+        list
+    };
     if let Some(list) = crate::phpunit::complete::complete_string(index, &real, text, offset as u32, options) {
-        return list;
+        return flagged(list);
     }
     if let Some(list) = crate::frameworks::complete_key(index, &real, text, offset as u32, options) {
-        return list;
+        return flagged(list);
     }
     if let Some(list) = crate::class_strings::complete(index, &real, offset as u32, options) {
-        return list;
+        return flagged(list);
     }
     if let Some(list) = shape_keys::complete_quoted(index, &real, text, offset as u32, options) {
-        return list;
+        return flagged(list);
     }
     if in_dead_zone(&real, offset as u32) {
         return CompletionList::default();
@@ -239,6 +256,7 @@ pub fn complete(index: &Index, text: &str, offset: u32, options: CompletionOptio
         items: Vec::new(),
         preferred_keywords: Vec::new(),
         options,
+        test_root,
     };
     builder.run(&context, &token);
     let mut list = builder.finish();
@@ -452,6 +470,7 @@ struct Builder<'a> {
     /// The keywords the position expects, which come before the other keywords.
     preferred_keywords: Vec<&'static str>,
     options: CompletionOptions,
+    test_root: Option<&'a std::path::Path>,
 }
 
 /// How well a candidate matches what was typed: lower is better, `None` is no match.
@@ -567,6 +586,11 @@ impl Builder<'_> {
     }
 
     fn finish(mut self) -> CompletionList {
+        if let Some(root) = self.test_root {
+            for (_, item) in &mut self.items {
+                flag_sort_text(self.index, root, item);
+            }
+        }
         self.items
             .sort_by(|a, b| (a.0, &a.1.sort_text, &a.1.label).cmp(&(b.0, &b.1.sort_text, &b.1.label)));
         let incomplete = self.items.len() > self.options.limit;
@@ -1587,30 +1611,35 @@ impl ClassFilter {
     }
 }
 
-/// Makes the items declared in a test file sort after equal items from production code.
+/// Ranks the items declared in a test file of the project at `root` below production code: a flag
+/// goes into every `sort_text` right after its leading digits, so it decides before the name does.
 pub fn demote_test_declarations(index: &Index, root: &std::path::Path, list: &mut CompletionList) {
     for item in &mut list.items {
-        let declared_in_test = item
-            .data
-            .as_deref()
-            .and_then(|data| declaring_path(index, data))
-            .is_some_and(|path| php_index::test_paths::is_test_file(&path, root));
-        if declared_in_test {
-            item.sort_text.push('~');
-        }
+        flag_sort_text(index, root, item);
     }
 }
 
+fn flag_sort_text(index: &Index, root: &std::path::Path, item: &mut CompletionItem) {
+    let from_test = item
+        .data
+        .as_deref()
+        .and_then(|data| declaring_path(index, data))
+        .is_some_and(|path| php_index::test_paths::is_test_file(path, root));
+    let digits = item.sort_text.bytes().take_while(u8::is_ascii_digit).count();
+    item.sort_text.insert(digits, if from_test { '1' } else { '0' });
+}
+
 /// The file a completion item's `data` points at.
-fn declaring_path(index: &Index, data: &str) -> Option<std::path::PathBuf> {
+fn declaring_path<'a>(index: &'a Index, data: &str) -> Option<&'a std::path::Path> {
     let (kind, rest) = data.split_once(':')?;
-    match kind {
-        "class" => Some(index.class(rest)?.file.path.clone()),
-        "function" => Some(index.function(rest)?.file.path.clone()),
-        "constant" => Some(index.constant(rest)?.file.path.clone()),
-        "method" | "property" | "const" => Some(index.class(rest.split_once("::")?.0)?.file.path.clone()),
-        _ => None,
-    }
+    let file = match kind {
+        "class" => index.class(rest)?.file,
+        "function" => index.function(rest)?.file,
+        "constant" => index.constant(rest)?.file,
+        "method" | "property" | "const" => index.class(rest.split_once("::")?.0)?.file,
+        _ => return None,
+    };
+    Some(&file.path)
 }
 
 /// The documentation for an item, from the `data` its completion carried.

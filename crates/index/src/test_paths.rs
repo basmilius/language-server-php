@@ -3,7 +3,7 @@
 use std::path::{Component, Path};
 
 /// Whether a file is a test file: a folder named `tests` or `test` on the way from the workspace
-/// root, in any case, or a file name ending in `Test.php`. A path outside the root only has its
+/// root, in any case, or a file name ending in `Test.php`. A path outside the root, or any path when the root is empty (a loose file), only has its
 /// file name judged, since its folders say nothing about this project.
 pub fn is_test_file(path: &Path, root: &Path) -> bool {
     let named_test = path
@@ -12,6 +12,9 @@ pub fn is_test_file(path: &Path, root: &Path) -> bool {
         .is_some_and(|name| name.ends_with("Test.php"));
     if named_test {
         return true;
+    }
+    if root.as_os_str().is_empty() {
+        return false;
     }
     let Some(folders) = path.strip_prefix(root).ok().and_then(Path::parent) else {
         return false;
@@ -69,6 +72,12 @@ mod tests {
             Path::new("/tests/app/src/Foo.php"),
             Path::new("/tests/app")
         ));
+    }
+
+    #[test]
+    fn an_empty_root_judges_the_file_name_only() {
+        assert!(!is_test_file(Path::new("/home/me/test/a.php"), Path::new("")));
+        assert!(is_test_file(Path::new("/home/me/test/aTest.php"), Path::new("")));
     }
 
     #[test]
