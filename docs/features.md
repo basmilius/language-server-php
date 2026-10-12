@@ -12,6 +12,8 @@
 | Tests         | Code lenses and the request `php/runnables`                                                                 |
 | SQL           | Every request above for the [SQL in strings](./sql.md), in the positions of the PHP file                   |
 
+Declarations and usages in test files come after those in production code in completion, definition, implementation, references, workspace symbols and the hierarchies. A file counts as a test file when a folder on its way from the project root is named `tests` or `test` (any case), or its name ends in `Test.php`. Nothing is hidden, and a better match still comes first.
+
 Positions are UTF-8 when the client offers it and UTF-16 otherwise. A document is parsed whole on every change; a burst of changes is parsed once.
 
 ## Completion
