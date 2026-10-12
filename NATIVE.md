@@ -205,7 +205,7 @@ A new name is checked: an identifier (a namespace may have backslashes), not a r
 
 ### Call and type hierarchy
 
-Incoming calls are the usages of a function or method grouped by the function they sit in, code outside any function being one item for the file. Outgoing calls walk the body, resolve every call and `new`, and group them by callee. A closure's calls belong to the function around it. The type hierarchy gives a class's parent, interfaces and traits as supertypes and the classes that extend, implement or use it as subtypes. `lsp-types` has no field for the capability, so `typeHierarchyProvider` is added to the `initialize` answer by hand.
+Incoming calls are the usages of a function or method grouped by the function they sit in, code in a closure outside any function (a Pest test) being one item for that closure, labeled by the call it is an argument of such as `it('does a thing')`, and the rest of the file's top-level code one item for the file. Outgoing calls walk the body, resolve every call and `new`, and group them by callee. A closure's calls belong to the function around it. The type hierarchy gives a class's parent, interfaces and traits as supertypes and the classes that extend, implement or use it as subtypes. `lsp-types` has no field for the capability, so `typeHierarchyProvider` is added to the `initialize` answer by hand.
 
 ### Semantic tokens
 

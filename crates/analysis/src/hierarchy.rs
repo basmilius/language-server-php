@@ -97,6 +97,13 @@ pub enum CallSymbol {
         class: Name,
         name: String,
     },
+    /// A closure or arrow function that sits outside every named function, such as the body of a
+    /// Pest test. The label is what the callers list shows for it.
+    Closure {
+        path: PathBuf,
+        start: u32,
+        label: String,
+    },
     /// The code of a file that belongs to no function.
     File(PathBuf),
 }
@@ -156,6 +163,19 @@ pub fn call_item(index: &Index, symbol: &CallSymbol) -> Option<CallItem> {
                 deprecated: method.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
             })
         }
+        CallSymbol::Closure { path, start, .. } => Some(CallItem {
+            symbol: symbol.clone(),
+            path: path.clone(),
+            span: Span {
+                start: *start,
+                end: *start,
+            },
+            name_span: Span {
+                start: *start,
+                end: *start,
+            },
+            deprecated: false,
+        }),
         CallSymbol::File(path) => Some(CallItem {
             symbol: symbol.clone(),
             path: path.clone(),
@@ -185,7 +205,7 @@ pub fn incoming_calls(index: &Index, sources: &dyn Sources, symbol: &CallSymbol)
                 name: name.clone(),
             },
         ),
-        CallSymbol::File(_) => return Vec::new(),
+        CallSymbol::Closure { .. } | CallSymbol::File(_) => return Vec::new(),
     };
     let mut grouped: BTreeMap<(PathBuf, u32), IncomingCall> = BTreeMap::new();
     for file in find_hits(index, sources, None, &query) {
@@ -214,22 +234,28 @@ pub fn incoming_calls(index: &Index, sources: &dyn Sources, symbol: &CallSymbol)
     grouped.into_values().collect()
 }
 
-/// The named function or method a position is in, or the file when it is in none.
+/// The named function or method a position is in, else the closure around it, else the file.
 fn enclosing_callable(ctx: &FileContext, path: &Path, offset: u32) -> Option<CallItem> {
     let node = ast::node_at(&ctx.root, offset + 1);
     let function = node
         .ancestors()
         .find(|ancestor| matches!(ancestor.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION));
     let Some(function) = function else {
-        return Some(CallItem {
-            symbol: CallSymbol::File(path.to_path_buf()),
-            path: path.to_path_buf(),
-            span: Span {
-                start: 0,
-                end: ast::end(&ctx.root),
+        let closure = node
+            .ancestors()
+            .find(|ancestor| matches!(ancestor.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR));
+        return Some(match closure {
+            Some(closure) => closure_item(&closure, path),
+            None => CallItem {
+                symbol: CallSymbol::File(path.to_path_buf()),
+                path: path.to_path_buf(),
+                span: Span {
+                    start: 0,
+                    end: ast::end(&ctx.root),
+                },
+                name_span: Span::default(),
+                deprecated: false,
             },
-            name_span: Span::default(),
-            deprecated: false,
         });
     };
     let name = ast::child_of(&function, NAME)?;
@@ -256,6 +282,46 @@ fn enclosing_callable(ctx: &FileContext, path: &Path, offset: u32) -> Option<Cal
     })
 }
 
+/// A closure as an item, labeled by the call it is an argument of: `it('does a thing')` for a test.
+fn closure_item(closure: &SyntaxNode, path: &Path) -> CallItem {
+    let start = ast::start(closure);
+    let keyword_end = closure
+        .first_token()
+        .map_or(start, |token| u32::from(token.text_range().end()));
+    CallItem {
+        symbol: CallSymbol::Closure {
+            path: path.to_path_buf(),
+            start,
+            label: closure_label(closure),
+        },
+        path: path.to_path_buf(),
+        span: Span {
+            start,
+            end: ast::end(closure),
+        },
+        name_span: Span {
+            start,
+            end: keyword_end,
+        },
+        deprecated: false,
+    }
+}
+
+fn closure_label(closure: &SyntaxNode) -> String {
+    let call = closure
+        .ancestors()
+        .skip(1)
+        .find(|ancestor| ancestor.kind() == CALL_EXPR);
+    let described = call.and_then(|call| {
+        let callee = ast::child_of(&call, NAME)?;
+        let first = ast::child_of(&call, ARGUMENT_LIST)?.children().next()?;
+        let text = ast::text_of(&first);
+        let quoted = text.len() >= 2 && (text.starts_with('\'') || text.starts_with('"')) && text.ends_with(&text[..1]);
+        quoted.then(|| format!("{}({})", ast::text_of(&callee), text))
+    });
+    described.unwrap_or_else(|| "{closure}".to_string())
+}
+
 /// A callee with the places in the caller that call it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutgoingCall {
@@ -269,18 +335,30 @@ pub fn outgoing_calls(index: &Index, text: &str, item: &CallItem) -> Vec<Outgoin
         return Vec::new();
     }
     let root = parse(text).syntax();
-    let range = range_of(item.span.start, item.span.end);
-    let function = match root.covering_element(range) {
-        php_syntax::SyntaxElement::Node(node) => node,
-        php_syntax::SyntaxElement::Token(token) => match token.parent() {
-            Some(parent) => parent,
-            None => return Vec::new(),
-        },
+    let function = if matches!(item.symbol, CallSymbol::Closure { .. }) {
+        let Some(token) = root
+            .token_at_offset(php_syntax::TextSize::from(item.span.start))
+            .right_biased()
+        else {
+            return Vec::new();
+        };
+        token.parent_ancestors().find(|node| {
+            matches!(node.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR) && ast::start(node) == item.span.start
+        })
+    } else {
+        let range = range_of(item.span.start, item.span.end);
+        let covering = match root.covering_element(range) {
+            php_syntax::SyntaxElement::Node(node) => node,
+            php_syntax::SyntaxElement::Token(token) => match token.parent() {
+                Some(parent) => parent,
+                None => return Vec::new(),
+            },
+        };
+        covering
+            .ancestors()
+            .find(|node| matches!(node.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION))
     };
-    let Some(function) = function
-        .ancestors()
-        .find(|node| matches!(node.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION))
-    else {
+    let Some(function) = function else {
         return Vec::new();
     };
     let ctx = FileContext::new(index, &root);

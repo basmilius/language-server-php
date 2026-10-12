@@ -25,6 +25,9 @@ fn symbol_data(symbol: &CallSymbol) -> Value {
     match symbol {
         CallSymbol::Function(name) => json!({ "kind": "function", "name": name }),
         CallSymbol::Method { class, name } => json!({ "kind": "method", "class": class, "name": name }),
+        CallSymbol::Closure { path, start, label } => {
+            json!({ "kind": "closure", "path": path, "start": start, "label": label })
+        }
         CallSymbol::File(path) => json!({ "kind": "file", "path": path }),
     }
 }
@@ -36,6 +39,11 @@ fn symbol_from_data(data: &Value) -> Option<CallSymbol> {
         "method" => Some(CallSymbol::Method {
             class: text("class")?,
             name: text("name")?,
+        }),
+        "closure" => Some(CallSymbol::Closure {
+            path: PathBuf::from(text("path")?),
+            start: u32::try_from(data.get("start")?.as_u64()?).ok()?,
+            label: text("label")?,
         }),
         "file" => Some(CallSymbol::File(PathBuf::from(text("path")?))),
         _ => None,
@@ -82,6 +90,11 @@ impl Server {
                     SymbolKind::METHOD
                 },
                 Some(class.clone()),
+            ),
+            CallSymbol::Closure { path, label, .. } => (
+                label.clone(),
+                SymbolKind::FUNCTION,
+                path.file_name().map(|name| name.to_string_lossy().into_owned()),
             ),
             CallSymbol::File(path) => (
                 path.file_name()

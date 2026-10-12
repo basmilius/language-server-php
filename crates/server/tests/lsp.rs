@@ -1049,6 +1049,62 @@ fn walks_call_and_type_hierarchies() {
 }
 
 #[test]
+fn prepares_a_call_hierarchy_with_the_caret_at_the_end_of_a_name() {
+    let disk = Disk::new();
+    disk.write(
+        "project/src/Auth.php",
+        "<?php\nnamespace App;\n\nclass Auth\n{\n    /**\n     * @since 1.0\n     */\n    public static function createSession(User $user, ?int $ttl = null): string\n    {\n        return '';\n    }\n}\n",
+    );
+    let mut client = indexed_server(&disk);
+    let auth = disk.uri("project/src/Auth.php");
+    client.open(
+        &auth,
+        &std::fs::read_to_string(disk.path("project/src/Auth.php")).expect("read"),
+    );
+    let inside = client.at("textDocument/prepareCallHierarchy", &auth, 8, 30);
+    assert_eq!(inside[0]["name"], "createSession");
+    let after = client.at("textDocument/prepareCallHierarchy", &auth, 8, 40);
+    assert_eq!(
+        after[0]["name"], "createSession",
+        "caret between the name and the parenthesis"
+    );
+    client.shutdown();
+}
+
+#[test]
+fn lists_the_closure_around_a_call_as_the_caller() {
+    let disk = Disk::new();
+    disk.write(
+        "project/src/Auth.php",
+        "<?php\nnamespace App;\n\nclass Auth\n{\n    public static function createSession(): string\n    {\n        return '';\n    }\n}\n",
+    );
+    disk.write(
+        "project/tests/AuthTest.php",
+        "<?php\nnamespace App;\n\nit('opens a session.', function (): void {\n    Auth::createSession();\n    Auth::createSession();\n});\n",
+    );
+    let mut client = indexed_server(&disk);
+    let auth = disk.uri("project/src/Auth.php");
+    client.open(
+        &auth,
+        &std::fs::read_to_string(disk.path("project/src/Auth.php")).expect("read"),
+    );
+    let prepared = client.at("textDocument/prepareCallHierarchy", &auth, 5, 40);
+    let incoming = client.request("callHierarchy/incomingCalls", json!({ "item": prepared[0] }));
+    assert_eq!(incoming.as_array().map(Vec::len), Some(1));
+    let from = &incoming[0]["from"];
+    assert_eq!(from["name"], "it('opens a session.')");
+    assert_eq!(from["detail"], "AuthTest.php");
+    assert_eq!(from["kind"], 12);
+    assert_eq!(from["range"]["start"], json!({ "line": 3, "character": 23 }));
+    assert_eq!(from["selectionRange"]["end"], json!({ "line": 3, "character": 31 }));
+    assert_eq!(incoming[0]["fromRanges"].as_array().map(Vec::len), Some(2));
+
+    let outgoing = client.request("callHierarchy/outgoingCalls", json!({ "item": from }));
+    assert_eq!(outgoing[0]["to"]["name"], "createSession");
+    client.shutdown();
+}
+
+#[test]
 fn serves_semantic_tokens_in_the_delta_encoding_of_its_legend() {
     let disk = Disk::new();
     let (mut client, result) = Client::start_in(PROGRESS_CAPABILITIES(), disk.options(), json!(disk.uri("project")));
