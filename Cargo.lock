@@ -543,7 +543,7 @@ version = "0.1.2"
 source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
 dependencies = [
  "crossbeam-channel",
- "lsc-text 0.1.2",
+ "lsc-text",
  "lsp-server",
  "lsp-types",
  "serde",
@@ -552,26 +552,10 @@ dependencies = [
 
 [[package]]
 name = "lsc-syntax"
-version = "0.1.1"
-source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.1#b40e26db078eddaa148e6f27f9616ce3e56dac09"
-dependencies = [
- "rowan",
-]
-
-[[package]]
-name = "lsc-syntax"
 version = "0.1.2"
 source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
 dependencies = [
  "rowan",
-]
-
-[[package]]
-name = "lsc-text"
-version = "0.1.1"
-source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.1#b40e26db078eddaa148e6f27f9616ce3e56dac09"
-dependencies = [
- "text-size",
 ]
 
 [[package]]
@@ -666,7 +650,7 @@ version = "0.7.0"
 dependencies = [
  "criterion",
  "expect-test",
- "lsc-text 0.1.2",
+ "lsc-text",
  "php-format",
  "php-index",
  "php-syntax",
@@ -728,7 +712,7 @@ version = "0.7.0"
 dependencies = [
  "criterion",
  "expect-test",
- "lsc-syntax 0.1.2",
+ "lsc-syntax",
  "rowan",
 ]
 
@@ -1052,18 +1036,18 @@ dependencies = [
 
 [[package]]
 name = "sql-analysis"
-version = "0.2.0"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
+version = "0.3.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.3.0#26d37c692d7bd5cbd87225f5f0d3dd2846637d3d"
 dependencies = [
- "lsc-text 0.1.1",
+ "lsc-text",
  "sql-catalog",
  "sql-syntax",
 ]
 
 [[package]]
 name = "sql-catalog"
-version = "0.2.0"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
+version = "0.3.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.3.0#26d37c692d7bd5cbd87225f5f0d3dd2846637d3d"
 dependencies = [
  "serde",
  "serde_json",
@@ -1072,8 +1056,8 @@ dependencies = [
 
 [[package]]
 name = "sql-embed"
-version = "0.2.0"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
+version = "0.3.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.3.0#26d37c692d7bd5cbd87225f5f0d3dd2846637d3d"
 dependencies = [
  "serde_json",
  "sql-analysis",
@@ -1083,10 +1067,10 @@ dependencies = [
 
 [[package]]
 name = "sql-syntax"
-version = "0.2.0"
-source = "git+https://github.com/basmilius/language-server-sql?tag=v0.2.0#c0e7e05b0104c22a1afd9d1d1e790607a521246c"
+version = "0.3.0"
+source = "git+https://github.com/basmilius/language-server-sql?tag=v0.3.0#26d37c692d7bd5cbd87225f5f0d3dd2846637d3d"
 dependencies = [
- "lsc-syntax 0.1.1",
+ "lsc-syntax",
  "rowan",
 ]
 
