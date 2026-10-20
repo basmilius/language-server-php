@@ -4,7 +4,7 @@ A language server for PHP 8.1 through 8.6, written in Rust, that speaks LSP over
 
 ## Install
 
-Every [release](https://github.com/basmilius/language-server-php/releases) attaches an archive for macOS on Apple silicon, Linux arm64 and x64, and Windows x64, with a checksum each and a descriptor an installer pins. Or build it yourself with Rust 1.85 or newer:
+Every [release](https://github.com/basmilius/language-server-php/releases) attaches an archive for macOS on Apple silicon, Linux arm64 and x64, and Windows arm64 and x64, with a checksum each and a descriptor an installer pins. Or build it yourself with Rust 1.85 or newer:
 
 ```sh
 cargo build --release --locked
