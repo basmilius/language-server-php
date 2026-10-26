@@ -15,6 +15,7 @@ const SERVICE_PROVIDER: &str = "Illuminate\\Support\\ServiceProvider";
 pub struct ViewFile {
     /// With dots: `mail.welcome`.
     pub name: String,
+
     pub path: PathBuf,
 }
 
@@ -22,7 +23,9 @@ pub struct ViewFile {
 pub struct Component {
     /// What follows `x-`, with dots for folders: `forms.input`.
     pub tag: String,
+
     pub path: PathBuf,
+
     /// The component is a class, and `path` is its file.
     pub class: Option<String>,
 }
@@ -32,6 +35,7 @@ pub struct Views {
     pub views: Vec<ViewFile>,
     by_name: HashMap<String, usize>,
     pub components: Vec<Component>,
+
     /// A provider adds view locations or namespaces the project does not show.
     pub incomplete: bool,
 }
@@ -61,45 +65,58 @@ impl Section for Views {
         let mut views = Views::default();
         let root = index.framework_root();
         let dir = root.join("resources").join("views");
+
         for path in index.files_below(&dir) {
             let Ok(relative) = path.strip_prefix(&dir) else {
                 continue;
             };
+
             let text = relative.to_string_lossy().replace('\\', "/");
+
             let Some(stem) = EXTENSIONS.iter().find_map(|extension| text.strip_suffix(extension)) else {
                 continue;
             };
+
             let name = stem.replace('/', ".");
+
             if let Some(component) = name.strip_prefix("components.") {
                 let tag = component.strip_suffix(".index").unwrap_or(component);
+
                 views.components.push(Component {
                     tag: tag.to_string(),
                     path: path.clone(),
                     class: None,
                 });
             }
+
             views.by_name.entry(name.clone()).or_insert(views.views.len());
             views.views.push(ViewFile { name, path });
         }
+
         for class in index.class_names() {
             if class.file.origin != Origin::Project {
                 continue;
             }
+
             let Some(rest) = class.summary.name.strip_prefix("App\\View\\Components\\") else {
                 continue;
             };
+
             let tag = rest
                 .split('\\')
                 .map(|segment| snake(segment).replace('_', "-"))
                 .collect::<Vec<_>>()
                 .join(".");
+
             views.components.push(Component {
                 tag,
                 path: class.file.path.clone(),
                 class: Some(class.summary.name.clone()),
             });
         }
+
         views.incomplete = adds_locations(index);
+
         views
     }
 
@@ -136,12 +153,14 @@ mod tests {
                 "<?php namespace App\\View\\Components\\Forms; class TextInput {}",
             ),
         ]);
+
         let views = index.section::<Views>();
         assert!(views.find("welcome").is_some());
         assert!(views.find("mail.welcome").is_some());
         assert!(views.find("mail/welcome").is_some());
         assert!(views.component("alert").is_some());
         assert!(views.component("card").is_some());
+
         assert_eq!(
             views
                 .component("forms.text-input")
@@ -149,6 +168,7 @@ mod tests {
                 .as_deref(),
             Some("App\\View\\Components\\Forms\\TextInput")
         );
+
         assert!(views.is_missing("nope"));
         assert!(!views.is_missing("welcome"));
         assert!(!views.is_missing("pkg::nope"), "a package view is not ours to judge");

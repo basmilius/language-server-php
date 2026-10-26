@@ -6,16 +6,20 @@ fn tokens(text: &str) -> String {
     let mut out = String::new();
     let mut offset = 0usize;
     let mut total = 0usize;
+
     for token in &lexed.tokens {
         let slice = &text[offset..offset + token.len as usize];
         out.push_str(&format!("{} {:?}\n", token.kind.name(), slice));
         offset += token.len as usize;
         total += token.len as usize;
     }
+
     assert_eq!(total, text.len(), "tokens must cover every byte");
+
     for error in &lexed.errors {
         out.push_str(&format!("error {}..{} {}\n", error.start, error.end, error.message));
     }
+
     out
 }
 
@@ -224,6 +228,7 @@ fn comments_and_attributes() {
         INLINE_HTML " b\n"
     "#]],
     );
+
     check(
         "<?php # c\n/* d */ /** e */ /**/ #[A] ?>",
         expect![[r##"
@@ -301,6 +306,7 @@ fn unterminated() {
         error 6..10 Unterminated string
     "#]],
     );
+
     check(
         "<?php /* x",
         expect![[r#"
@@ -309,6 +315,7 @@ fn unterminated() {
         error 6..10 Unterminated comment
     "#]],
     );
+
     check(
         "<?php \"a $b",
         expect![[r#"
@@ -319,6 +326,7 @@ fn unterminated() {
         error 11..11 Unterminated string
     "#]],
     );
+
     check(
         "<?php <<<EOT\nabc",
         expect![[r#"
@@ -335,14 +343,17 @@ fn checkpoints_resume_to_the_same_tokens() {
     let text = "<?php\n$a = <<<EOT\nx {$b}\nEOT;\n$c = \"a\n$d\";\nfoo();\n?>\nhtml\n<?php\n$e;\n";
     let full = lex_with_checkpoints(text);
     assert!(full.checkpoints.len() > 4);
+
     for checkpoint in &full.checkpoints {
         let resumed = lex_from(text, checkpoint.offset, checkpoint.state.clone());
         let mut offset = 0u32;
         let mut index = 0;
+
         while offset < checkpoint.offset {
             offset += full.tokens[index].len;
             index += 1;
         }
+
         assert_eq!(offset, checkpoint.offset);
         assert_eq!(resumed.tokens, full.tokens[index..], "resume at {}", checkpoint.offset);
     }

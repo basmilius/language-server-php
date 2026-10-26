@@ -12,18 +12,25 @@ use crate::wrap::{Forced, Wrap, broken_before};
 pub(crate) enum Rule {
     /// One space, or the break the code has.
     Space,
+
     /// Nothing, or the break the code has.
     NoSpace,
+
     /// What the code has.
     Keep,
+
     /// A break, with the blank lines the code has.
     Break,
+
     /// A break and no blank line.
     BreakTight,
+
     /// A break and exactly this many blank lines.
     BreakBlank(usize),
+
     /// One space and no break.
     Join,
+
     /// Nothing and no break.
     JoinTight,
 }
@@ -39,12 +46,14 @@ pub(crate) enum Braces {
     Standalone,
     Switch,
     Other,
+
     /// A brace with nothing inside it set off: a group of names, a dynamic member name.
     Tight,
 }
 
 pub(crate) fn braces(m: &Model, position: usize) -> Braces {
     let (parent, grand) = (m.parent(position), m.grandparent(position));
+
     match parent {
         CLASS_BODY if grand == ANONYMOUS_CLASS => Braces::AnonymousClass,
         CLASS_BODY => Braces::Class,
@@ -177,10 +186,13 @@ fn list_broken_before(m: &Model, forced: &Forced, n: usize) -> bool {
     if forced.is_empty() {
         return false;
     }
+
     let list_start = |node: &php_syntax::SyntaxNode| usize::from(node.text_range().start());
+
     if m.kind(n) == RPAREN && matches!(m.parent(n), ARGUMENT_LIST | PARAMETER_LIST) {
         return forced.contains(&(Wrap::List, list_start(&m.leaf(n).parent)));
     }
+
     m.starts[n].iter().any(|node| {
         matches!(node.kind(), ARGUMENT | PARAMETER)
             && node
@@ -203,6 +215,7 @@ fn multiline_parameters(m: &Model, forced: &Forced, n: usize) -> bool {
     let Some(function) = m.leaf(n).parent.parent() else {
         return false;
     };
+
     function
         .children()
         .find(|child| child.kind() == PARAMETER_LIST)
@@ -214,26 +227,32 @@ fn multiline_parameters(m: &Model, forced: &Forced, n: usize) -> bool {
 
 pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize, n: usize) -> Rule {
     let (pl, nl) = (m.leaf(p), m.leaf(n));
+
     if let (Some(left), Some(right)) = (pl.opaque, nl.opaque) {
         if left == right {
             return Rule::Keep;
         }
     }
+
     let (pk, nk) = (m.kind(p), m.kind(n));
     let (pp, np) = (m.parent(p), m.parent(n));
 
     if pk == HALT_DATA || nk == HALT_DATA {
         return Rule::Keep;
     }
+
     if pk == OPEN_TAG {
         return Rule::Keep;
     }
+
     if nk == CLOSE_TAG {
         return Rule::Break;
     }
+
     if list_broken_before(m, forced, n) || broken_before(m, forced, n) {
         return Rule::BreakTight;
     }
+
     if let Some(boundary) = m.boundaries[n] {
         return boundary_rule(options, boundary.kind, boundary.previous);
     }
@@ -241,9 +260,11 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     if nk == COMMA {
         return Rule::NoSpace;
     }
+
     if nk == SEMICOLON {
         return Rule::NoSpace;
     }
+
     if pk == SEMICOLON && pp == FOR_STATEMENT {
         return if matches!(nk, RPAREN | SEMICOLON) {
             Rule::NoSpace
@@ -251,6 +272,7 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
             Rule::Space
         };
     }
+
     if pk == COMMA {
         return if matches!(nk, RPAREN | RBRACKET) {
             Rule::NoSpace
@@ -262,16 +284,20 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     if matches!(nk, LBRACE) {
         return brace_before(m, options, forced, p, n);
     }
+
     if matches!(pk, LBRACE) {
         return brace_after(m, n, p);
     }
+
     if matches!(nk, RBRACE) {
         return brace_before_close(m, n, p);
     }
+
     if matches!(pk, RBRACE) {
         if matches!(nk, ELSE_KW | ELSEIF_KW | CATCH_KW | FINALLY_KW) || nk == WHILE_KW && np == DO_WHILE_STATEMENT {
             return Rule::Join;
         }
+
         if matches!(nk, ARROW | NULLSAFE_ARROW | DOUBLE_COLON) {
             return Rule::NoSpace;
         }
@@ -280,12 +306,15 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     if matches!(pk, LPAREN | LBRACKET | HASH_BRACKET) || matches!(nk, RPAREN | RBRACKET) {
         return Rule::NoSpace;
     }
+
     if pk == CAST {
         return Rule::Keep;
     }
+
     if nk == LPAREN {
         return paren_before(m, p, n);
     }
+
     if nk == LBRACKET {
         return if np == INDEX_EXPR || ends_value(pk) && !pk.is_keyword() {
             Rule::NoSpace
@@ -293,6 +322,7 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
             Rule::Space
         };
     }
+
     if nk == HASH_BRACKET {
         return Rule::Space;
     }
@@ -310,12 +340,15 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
             _ => Rule::NoSpace,
         };
     }
+
     if pk == COLON {
         return Rule::Space;
     }
+
     if nk == QUESTION && np == TERNARY_EXPR {
         return Rule::Space;
     }
+
     if pk == QUESTION {
         return if pp == TERNARY_EXPR && nk != COLON {
             Rule::Space
@@ -327,6 +360,7 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     if nk == FAT_ARROW || pk == FAT_ARROW {
         return Rule::Space;
     }
+
     if is_assignment(nk) || is_assignment(pk) {
         return if np == DECLARE_DIRECTIVE || pp == DECLARE_DIRECTIVE {
             Rule::NoSpace
@@ -338,27 +372,35 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     if (nk == INC || nk == DEC) && np == POSTFIX_EXPR {
         return Rule::NoSpace;
     }
+
     if pp == PREFIX_EXPR {
         return Rule::NoSpace;
     }
+
     if matches!(pk, ELLIPSIS | DOLLAR) {
         return Rule::NoSpace;
     }
+
     if nk == ELLIPSIS {
         return Rule::Space;
     }
+
     if pk == RBRACKET && pp == ATTRIBUTE_LIST {
         return Rule::Space;
     }
+
     if nk == QUESTION && np == NULLABLE_TYPE && is_word(pk) {
         return Rule::Space;
     }
+
     if pk == CAST {
         return Rule::Keep;
     }
+
     if pk == AMP && pp != BINARY_EXPR {
         return Rule::NoSpace;
     }
+
     if matches!(pk, QUESTION) && pp == NULLABLE_TYPE {
         return Rule::NoSpace;
     }
@@ -368,12 +410,15 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     {
         return Rule::NoSpace;
     }
+
     if nk == AMP && np != BINARY_EXPR {
         return Rule::Space;
     }
+
     if is_binary_operator(nk) && np == BINARY_EXPR || is_binary_operator(pk) && pp == BINARY_EXPR {
         return Rule::Space;
     }
+
     if matches!(nk, AS_KW | INSTANCEOF_KW | INSTEADOF_KW | EXTENDS_KW | IMPLEMENTS_KW)
         || matches!(pk, AS_KW | INSTEADOF_KW)
     {
@@ -387,9 +432,11 @@ pub(crate) fn rule(m: &Model, options: &FormatOptions, forced: &Forced, p: usize
     {
         return Rule::Space;
     }
+
     if is_word(nk) && matches!(pk, RPAREN | RBRACKET | RBRACE) {
         return Rule::Space;
     }
+
     Rule::Keep
 }
 
@@ -397,22 +444,28 @@ fn boundary_rule(options: &FormatOptions, kind: SyntaxKind, previous: SyntaxKind
     if kind == METHOD_DECLARATION || previous == METHOD_DECLARATION {
         return Rule::BreakBlank(options.blank_lines_between_members);
     }
+
     let declaration = |kind| {
         matches!(
             kind,
             FUNCTION_DECLARATION | CLASS_DECLARATION | INTERFACE_DECLARATION | TRAIT_DECLARATION | ENUM_DECLARATION
         )
     };
+
     if declaration(kind) || declaration(previous) {
         return Rule::BreakBlank(1);
     }
+
     let header = |kind| matches!(kind, NAMESPACE_DECLARATION | DECLARE_STATEMENT);
+
     if header(previous) || kind == NAMESPACE_DECLARATION {
         return Rule::BreakBlank(1);
     }
+
     if (kind == USE_STATEMENT) != (previous == USE_STATEMENT) {
         return Rule::BreakBlank(1);
     }
+
     Rule::Break
 }
 
@@ -421,6 +474,7 @@ fn brace_before(m: &Model, options: &FormatOptions, forced: &Forced, p: usize, n
         BraceStyle::NextLine => Rule::BreakTight,
         BraceStyle::SameLine => Rule::Join,
     };
+
     match braces(m, n) {
         Braces::Class | Braces::Function if is_empty_body(m, n) => Rule::Join,
         Braces::Class => own_line(options.class_brace),
@@ -444,6 +498,7 @@ fn brace_after(m: &Model, n: usize, p: usize) -> Rule {
     if m.kind(n) == RBRACE {
         return Rule::JoinTight;
     }
+
     match braces(m, p) {
         Braces::Class | Braces::AnonymousClass => Rule::Break,
         Braces::Function | Braces::Control | Braces::Standalone | Braces::Switch => Rule::BreakTight,
@@ -456,6 +511,7 @@ fn brace_before_close(m: &Model, n: usize, p: usize) -> Rule {
     if m.kind(p) == LBRACE {
         return Rule::JoinTight;
     }
+
     match braces(m, n) {
         Braces::Class | Braces::AnonymousClass => Rule::Break,
         Braces::Function | Braces::Control | Braces::Standalone | Braces::Switch => Rule::BreakTight,
@@ -466,6 +522,7 @@ fn brace_before_close(m: &Model, n: usize, p: usize) -> Rule {
 
 fn paren_before(m: &Model, p: usize, n: usize) -> Rule {
     let (pk, np) = (m.kind(p), m.parent(n));
+
     match np {
         ARGUMENT_LIST | MODIFIER_LIST => Rule::NoSpace,
         PARAMETER_LIST => {
@@ -488,6 +545,7 @@ fn paren_before(m: &Model, p: usize, n: usize) -> Rule {
         | ARRAY_EXPR | PAREN_TYPE => Rule::NoSpace,
         PAREN_EXPR => {
             let binary = m.parent(p) == BINARY_EXPR && is_binary_operator(pk);
+
             if !binary
                 && matches!(
                     pk,

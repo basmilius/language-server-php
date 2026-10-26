@@ -50,16 +50,22 @@ pub mod testing;
 pub struct Frameworks {
     /// `laravel/framework`: the conventions of an application (config, routes, views, translations).
     pub laravel: bool,
+
     /// `illuminate/support` or the framework: the facades.
     pub facades: bool,
+
     /// `illuminate/database` or the framework: Eloquent models.
     pub eloquent: bool,
+
     /// `symfony/framework-bundle` or `symfony/symfony`.
     pub symfony: bool,
+
     /// `doctrine/orm`.
     pub doctrine: bool,
+
     /// `twig/twig`.
     pub twig: bool,
+
     /// `raxos/database` or `raxos/router`: the models of the ORM and the controllers of the router.
     pub raxos: bool,
 }
@@ -67,6 +73,7 @@ pub struct Frameworks {
 impl Frameworks {
     pub fn detect(composer: &Composer) -> Frameworks {
         let laravel = composer.has_package("laravel/framework");
+
         Frameworks {
             laravel,
             facades: laravel || composer.has_package("illuminate/support"),
@@ -116,8 +123,10 @@ struct Slot {
 pub struct FrameworkState {
     pub frameworks: Frameworks,
     pub root: PathBuf,
+
     /// The text of the documents a person has open, which win over the disk.
     open: HashMap<PathBuf, Arc<str>>,
+
     sections: Mutex<Vec<Slot>>,
 }
 
@@ -137,6 +146,7 @@ impl FrameworkState {
                 self.open.remove(path);
             }
         }
+
         self.forget(path);
     }
 
@@ -145,7 +155,9 @@ impl FrameworkState {
         if let Some(text) = self.open.get(path) {
             return Some(text.clone());
         }
+
         let bytes = std::fs::read(path).ok()?;
+
         Some(Arc::from(String::from_utf8_lossy(&bytes).as_ref()))
     }
 
@@ -157,9 +169,11 @@ impl FrameworkState {
             .filter(|entry| entry.file_type().is_file())
             .map(|entry| entry.into_path())
             .collect();
+
         files.extend(self.open.keys().filter(|path| path.starts_with(dir)).cloned());
         files.sort();
         files.dedup();
+
         files
     }
 
@@ -172,9 +186,11 @@ impl FrameworkState {
             .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
             .map(|entry| entry.path())
             .collect();
+
         files.extend(self.open.keys().filter(|path| path.parent() == Some(dir)).cloned());
         files.sort();
         files.dedup();
+
         files
     }
 
@@ -188,7 +204,9 @@ impl FrameworkState {
         if !self.frameworks.any() {
             return;
         }
+
         let root = self.root.clone();
+
         if let Ok(slots) = self.sections.get_mut() {
             slots.retain(|slot| !(slot.depends_on)(&root, path));
         }
@@ -203,6 +221,7 @@ impl FrameworkState {
     pub(crate) fn find<S: Section>(&self) -> Option<Arc<S>> {
         let slots = self.sections.lock().ok()?;
         let slot = slots.iter().find(|slot| slot.id == TypeId::of::<S>())?;
+
         slot.value.clone().downcast::<S>().ok()
     }
 
@@ -266,8 +285,10 @@ impl crate::index::Index {
         if let Some(found) = self.framework.find::<S>() {
             return found;
         }
+
         let built = Arc::new(S::build(self));
         self.framework.store(built.clone());
+
         self.framework.find::<S>().unwrap_or(built)
     }
 }
@@ -297,15 +318,19 @@ pub(crate) fn extend_methods<'a>(
     if index.framework.frameworks.facades {
         facade::extend(index, ancestors, only, out, names);
     }
+
     if index.framework.frameworks.eloquent {
         eloquent::extend_methods(index, ancestors, only, out, names);
     }
+
     if index.framework.frameworks.laravel || index.framework.frameworks.facades {
         forward_calls(index, ancestors, only, out, names);
     }
+
     if index.framework.frameworks.doctrine {
         symfony::doctrine::extend_methods(index, ancestors, only, out, names);
     }
+
     if index.framework.frameworks.raxos {
         raxos::orm::extend_methods(index, ancestors, only, out, names);
     }
@@ -322,9 +347,11 @@ pub(crate) fn extend_properties<'a>(
     if index.framework.frameworks.eloquent {
         eloquent::extend_properties(index, ancestors, only, out, names);
     }
+
     if index.framework.frameworks.doctrine {
         symfony::doctrine::extend_properties(index, ancestors, only, out);
     }
+
     if index.framework.frameworks.raxos {
         raxos::orm::extend_properties(index, only, out);
     }
@@ -343,10 +370,12 @@ fn forward_calls<'a>(
         .flat_map(|ancestor| overlay::forwards_of(index, &ancestor.class.decl.name))
     {
         let target_type = crate::types::Type::class(target);
+
         let forwarded = match only {
             Some(name) => index.find_method(&target_type, name).into_iter().collect(),
             None => index.methods(&target_type),
         };
+
         for found in forwarded {
             if found.member.visibility != crate::model::Visibility::Public
                 || found.member.name.starts_with("__")
@@ -354,6 +383,7 @@ fn forward_calls<'a>(
             {
                 continue;
             }
+
             out.push(crate::hierarchy::Found {
                 mixin: true,
                 static_as: found.static_as.clone().or_else(|| Some(target_type.clone())),
@@ -404,6 +434,7 @@ mod tests {
                 "<?php namespace App; class Real { public function run() {} }",
             ),
         ]);
+
         let ty = crate::types::Type::class("App\\Facades\\F");
         assert!(index.find_method(&ty, "run").is_some());
         index.set_frameworks(Path::new(testing::ROOT), Frameworks::default());

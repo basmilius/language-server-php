@@ -13,6 +13,7 @@ pub struct Declaration {
     pub path: PathBuf,
     pub origin: Origin,
     pub name_span: Span,
+
     /// The whole declaration, with its doc comment.
     pub span: Span,
 }
@@ -20,6 +21,7 @@ pub struct Declaration {
 /// The declarations of a symbol and of the members that are one thing with it.
 pub fn declarations(index: &Index, query: &Query) -> Vec<Declaration> {
     let mut out = Vec::new();
+
     match &query.symbol {
         Symbol::Class(name) => {
             if let Some(class) = index.class(name) {
@@ -112,12 +114,14 @@ pub fn declarations(index: &Index, query: &Query) -> Vec<Declaration> {
             }
         }
     }
+
     out
 }
 
 fn family_classes<'a>(index: &'a Index, query: &Query) -> Vec<php_index::Class<'a>> {
     let mut classes: Vec<php_index::Class<'a>> = query.family().iter().filter_map(|name| index.class(name)).collect();
     classes.sort_by(|left, right| left.decl.name.cmp(&right.decl.name));
+
     classes
 }
 
@@ -125,6 +129,7 @@ fn callable_of(index: &Index, callee: &Callee) -> Option<(PathBuf, Origin, Calla
     match callee {
         Callee::Function(name) => {
             let function = index.function(name)?;
+
             Some((
                 function.file.path.clone(),
                 function.file.origin,
@@ -134,6 +139,7 @@ fn callable_of(index: &Index, callee: &Callee) -> Option<(PathBuf, Origin, Calla
         Callee::Method { class, name } => {
             let class = index.class(class)?;
             let method = class.decl.method(name)?;
+
             Some((class.file.path.clone(), class.file.origin, method.callable.clone()))
         }
     }

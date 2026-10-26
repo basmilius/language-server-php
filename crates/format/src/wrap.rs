@@ -48,12 +48,16 @@ pub(crate) struct Operands {
 
 pub(crate) fn operands_of(binary: &SyntaxNode) -> Option<Operands> {
     let (kind, _) = operator_of(binary)?;
+
     if !is_wrappable_operator(kind) {
         return None;
     }
+
     let same =
         |node: &SyntaxNode| node.kind() == BINARY_EXPR && operator_of(node).is_some_and(|(other, _)| other == kind);
+
     let mut top = binary.clone();
+
     while let Some(parent) = top.parent() {
         if same(&parent) && parent.children().next().as_ref() == Some(&top) {
             top = parent;
@@ -61,12 +65,14 @@ pub(crate) fn operands_of(binary: &SyntaxNode) -> Option<Operands> {
             break;
         }
     }
+
     Some(Operands { top })
 }
 
 /// A method chain: the links are the `->` of the calls and fetches along it.
 pub(crate) struct Chain {
     pub top: SyntaxNode,
+
     /// The offsets of the arrows, in the order of the text, that may start a line.
     pub breaks: Vec<usize>,
 }
@@ -81,8 +87,10 @@ fn arrow_offset(fetch: &SyntaxNode) -> Option<usize> {
 
 pub(crate) fn chain_of(fetch: &SyntaxNode) -> Option<Chain> {
     let mut top = fetch.clone();
+
     loop {
         let mut changed = false;
+
         if let Some(call) = top
             .parent()
             .filter(|parent| parent.kind() == CALL_EXPR && parent.children().next().as_ref() == Some(&top))
@@ -90,6 +98,7 @@ pub(crate) fn chain_of(fetch: &SyntaxNode) -> Option<Chain> {
             top = call;
             changed = true;
         }
+
         if let Some(outer) = top
             .parent()
             .filter(|parent| parent.kind() == PROPERTY_FETCH_EXPR && parent.children().next().as_ref() == Some(&top))
@@ -97,14 +106,17 @@ pub(crate) fn chain_of(fetch: &SyntaxNode) -> Option<Chain> {
             top = outer;
             changed = true;
         }
+
         if !changed {
             break;
         }
     }
+
     let mut links: Vec<SyntaxNode> = Vec::new();
     let mut calls = 0;
     let mut current = Some(top.clone());
     let mut base: Option<SyntaxNode> = None;
+
     while let Some(node) = current {
         match node.kind() {
             CALL_EXPR => {
@@ -115,6 +127,7 @@ pub(crate) fn chain_of(fetch: &SyntaxNode) -> Option<Chain> {
                 {
                     calls += 1;
                 }
+
                 current = node.children().next();
             }
             PROPERTY_FETCH_EXPR => {
@@ -128,15 +141,20 @@ pub(crate) fn chain_of(fetch: &SyntaxNode) -> Option<Chain> {
             }
         }
     }
+
     links.reverse();
+
     if links.len() < 2 || calls == 0 || calls < 2 && links.len() < 3 {
         return None;
     }
+
     let simple_base = base
         .as_ref()
         .is_some_and(|base| matches!(base.kind(), VARIABLE_EXPR | NAME));
+
     let skip = usize::from(simple_base);
     let breaks: Vec<usize> = links.iter().skip(skip).filter_map(arrow_offset).collect();
+
     (!breaks.is_empty()).then_some(Chain { top, breaks })
 }
 
@@ -145,15 +163,18 @@ pub(crate) fn broken_before(m: &Model, forced: &Forced, n: usize) -> bool {
     if forced.is_empty() {
         return false;
     }
+
     let leaf = m.leaf(n);
     let kind = m.kind(n);
     let parent = &leaf.parent;
+
     match (kind, parent.kind()) {
         (ARROW | NULLSAFE_ARROW, PROPERTY_FETCH_EXPR) => chain_of(parent).is_some_and(|chain| {
             forced.contains(&(Wrap::Chain, offset_of(&chain.top))) && chain.breaks.contains(&leaf.start)
         }),
         (QUESTION | COLON, TERNARY_EXPR) => {
             let key = (Wrap::Ternary, offset_of(parent));
+
             forced.contains(&key) && (kind == QUESTION || parent.children().count() >= 3)
         }
         (RPAREN | RBRACKET, ARRAY_EXPR) => forced.contains(&(Wrap::Array, offset_of(parent))),
@@ -173,6 +194,7 @@ pub(crate) fn broken_before(m: &Model, forced: &Forced, n: usize) -> bool {
                     }
                 }
             }
+
             first_of_forced_condition(m, forced, n)
                 || m.starts[n].iter().any(|node| {
                     node.kind() == ARRAY_ITEM
@@ -189,10 +211,13 @@ fn first_of_forced_condition(m: &Model, forced: &Forced, n: usize) -> bool {
     if n == 0 || m.kind(n - 1) != LPAREN {
         return false;
     }
+
     let opener = &m.leaf(n - 1).parent;
+
     if !matches!(opener.kind(), IF_STATEMENT | ELSEIF_CLAUSE | WHILE_STATEMENT) {
         return false;
     }
+
     opener
         .children()
         .next()
@@ -212,31 +237,41 @@ pub(crate) fn choose(
 ) -> Option<(Wrap, usize)> {
     let mut seen: HashSet<(SyntaxKind, usize, usize)> = HashSet::new();
     let mut best: Option<(usize, u8, (Wrap, usize))> = None;
+
     for position in first..=last {
         for node in m.leaf(position).parent.ancestors() {
             if !seen.insert((node.kind(), offset_of(&node), usize::from(node.text_range().end()))) {
                 continue;
             }
+
             let Some((wrap, key)) = construct(&node) else {
                 continue;
             };
+
             if forced.contains(&(wrap, key)) {
                 continue;
             }
+
             let from = m.sig.partition_point(|&leaf| m.leaves[leaf].start < offset_of(&node));
+
             let to = m
                 .sig
                 .partition_point(|&leaf| m.leaves[leaf].end <= usize::from(node.text_range().end()));
+
             let Some(to) = to.checked_sub(1) else {
                 continue;
             };
+
             if from < first || to > last || from > to {
                 continue;
             }
+
             let column = layout.column[from];
+
             if column >= limit || layout.end_column[to] <= limit {
                 continue;
             }
+
             let priority = match wrap {
                 Wrap::Binary => 0,
                 Wrap::Ternary => 1,
@@ -244,11 +279,13 @@ pub(crate) fn choose(
                 Wrap::Array => 3,
                 Wrap::List => 4,
             };
+
             if best.is_none_or(|(held, held_priority, _)| (column, priority) < (held, held_priority)) {
                 best = Some((column, priority, (wrap, key)));
             }
         }
     }
+
     best.map(|(_, _, found)| found)
 }
 
@@ -259,6 +296,7 @@ fn construct(node: &SyntaxNode) -> Option<(Wrap, usize)> {
             let has_items = node
                 .children()
                 .any(|child| matches!(child.kind(), ARGUMENT | PARAMETER));
+
             has_items.then(|| (Wrap::List, offset_of(node)))
         }
         ARRAY_EXPR => node
@@ -267,6 +305,7 @@ fn construct(node: &SyntaxNode) -> Option<(Wrap, usize)> {
             .then(|| (Wrap::Array, offset_of(node))),
         BINARY_EXPR => {
             let operands = operands_of(node)?;
+
             (operands.top == *node).then(|| (Wrap::Binary, offset_of(&operands.top)))
         }
         TERNARY_EXPR => Some((Wrap::Ternary, offset_of(node))),
@@ -276,10 +315,13 @@ fn construct(node: &SyntaxNode) -> Option<(Wrap, usize)> {
             } else {
                 node.clone()
             };
+
             if fetch.kind() != PROPERTY_FETCH_EXPR {
                 return None;
             }
+
             let chain = chain_of(&fetch)?;
+
             (chain.top == *node).then(|| (Wrap::Chain, offset_of(&chain.top)))
         }
         _ => None,

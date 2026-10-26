@@ -45,13 +45,17 @@ impl ActionKind {
 pub struct Action<'a> {
     /// Stable for the same text and range, so a client can ask for the edits of one later.
     pub id: String,
+
     pub title: String,
     pub kind: ActionKind,
     pub preferred: bool,
+
     /// The index in the findings this repairs.
     pub finding: Option<usize>,
+
     /// Working out the edits costs enough that they are best left until the client asks.
     pub expensive: bool,
+
     edits: Box<dyn Fn() -> Vec<TextEdit> + 'a>,
 }
 
@@ -64,8 +68,10 @@ impl Action<'_> {
 /// What the actions at a place read.
 pub struct ActionInput<'a> {
     pub env: &'a InspectionEnv<'a>,
+
     /// The selection, empty for a cursor.
     pub range: TextRange,
+
     /// What the inspections found in the whole file.
     pub findings: &'a [Finding],
 }
@@ -79,6 +85,7 @@ pub fn with_actions<R>(input: &ActionInput<'_>, run: impl FnOnce(Vec<Action<'_>>
     members::intentions(input, &cx, &mut actions);
     docs::intentions(input, &cx, &mut actions);
     organize_imports_action(&cx, &mut actions);
+
     run(actions)
 }
 
@@ -87,9 +94,11 @@ fn organize_imports_action<'a>(cx: &'a Cx<'a>, out: &mut Vec<Action<'a>>) {
         .nodes
         .iter()
         .any(|node| node.kind() == php_syntax::SyntaxKind::USE_STATEMENT);
+
     if !has_imports {
         return;
     }
+
     out.push(Action {
         id: "source.organizeImports".to_string(),
         title: "Organize imports".to_string(),

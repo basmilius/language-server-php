@@ -38,14 +38,18 @@ fn top_level_statements(p: &mut Parser, in_namespace: bool) {
         if in_namespace && p.at(NAMESPACE_KW) {
             break;
         }
+
         let before = p.position();
+
         if p.at_any(TERMINATORS) {
             p.error_bump();
         } else {
             statement(p);
         }
+
         if p.position() == before {
             p.error_bump();
+
             if p.position() == before {
                 break;
             }
@@ -58,8 +62,10 @@ fn statement_list(p: &mut Parser) {
     while !p.eof() && !p.at_any(TERMINATORS) {
         let before = p.position();
         statement(p);
+
         if p.position() == before {
             p.error_bump();
+
             if p.position() == before {
                 break;
             }
@@ -93,15 +99,18 @@ fn declaration_at(p: &Parser, n: usize) -> Option<Declaration> {
     match p.nth(n) {
         FUNCTION_KW => {
             let name_at = if p.nth(n + 1) == AMP { n + 2 } else { n + 1 };
+
             is_identifier_like(p.nth(name_at)).then_some(Declaration::Function)
         }
         CONST_KW => Some(Declaration::Const),
         CLASS_KW | INTERFACE_KW | TRAIT_KW => Some(Declaration::ClassLike),
         ABSTRACT_KW | FINAL_KW | READONLY_KW => {
             let mut at = n;
+
             while matches!(p.nth(at), ABSTRACT_KW | FINAL_KW | READONLY_KW) {
                 at += 1;
             }
+
             matches!(p.nth(at), CLASS_KW).then_some(Declaration::ClassLike)
         }
         IDENT
@@ -119,32 +128,40 @@ fn declaration_at(p: &Parser, n: usize) -> Option<Declaration> {
 /// How many tokens the attribute lists at the cursor take.
 fn attributes_len(p: &Parser) -> usize {
     let mut n = 0;
+
     while p.nth(n) == HASH_BRACKET {
         let mut depth = 0u32;
+
         loop {
             match p.nth(n) {
                 EOF => return n,
                 HASH_BRACKET | LBRACKET => depth += 1,
                 RBRACKET => {
                     depth = depth.saturating_sub(1);
+
                     if depth == 0 {
                         n += 1;
+
                         break;
                     }
                 }
                 _ => {}
             }
+
             n += 1;
         }
     }
+
     n
 }
 
 pub(crate) fn statement(p: &mut Parser) {
     if !p.enter() {
         p.error_bump();
+
         return;
     }
+
     statement_inner(p);
     p.leave();
 }
@@ -180,6 +197,7 @@ fn statement_inner(p: &mut Parser) {
         HALT_COMPILER_KW => halt_compiler_statement(p),
         HASH_BRACKET => {
             let n = attributes_len(p);
+
             if let Some(declaration) = declaration_at(p, n) {
                 let checkpoint = p.declaration_checkpoint();
                 item::attribute_lists(p);
@@ -218,8 +236,10 @@ fn const_statement(p: &mut Parser, checkpoint: Checkpoint) {
 fn expression_statement(p: &mut Parser) {
     if !can_start_expr(p.current()) {
         p.error_bump();
+
         return;
     }
+
     p.start(EXPR_STATEMENT);
     p.void_cast_allowed = p.at(CAST);
     expr::expr(p);
@@ -240,8 +260,10 @@ fn echo_statement(p: &mut Parser) {
 fn body(p: &mut Parser) {
     if p.eof() || p.at_any(TERMINATORS) {
         p.error_expected("Statement");
+
         return;
     }
+
     statement(p);
 }
 
@@ -260,9 +282,11 @@ fn body_or_alternative(p: &mut Parser) -> bool {
         p.start_before_declaration(STATEMENT_LIST);
         statement_list(p);
         p.finish_node();
+
         true
     } else {
         body(p);
+
         false
     }
 }
@@ -277,19 +301,24 @@ fn if_statement(p: &mut Parser) {
     p.bump();
     condition(p);
     let alternative = body_or_alternative(p);
+
     while p.at_any(&[ELSEIF_KW, ELSE_KW]) {
         let is_else = p.at(ELSE_KW);
         p.start(if is_else { ELSE_CLAUSE } else { ELSEIF_CLAUSE });
         p.bump();
+
         if !is_else {
             condition(p);
         }
+
         body_or_alternative(p);
         p.finish_node();
     }
+
     if alternative {
         end_keyword(p, ENDIF_KW, "'endif'");
     }
+
     p.finish_node();
 }
 
@@ -297,9 +326,11 @@ fn while_statement(p: &mut Parser) {
     p.start(WHILE_STATEMENT);
     p.bump();
     condition(p);
+
     if body_or_alternative(p) {
         end_keyword(p, ENDWHILE_KW, "'endwhile'");
     }
+
     p.finish_node();
 }
 
@@ -307,9 +338,11 @@ fn do_while_statement(p: &mut Parser) {
     p.start(DO_WHILE_STATEMENT);
     p.bump();
     body(p);
+
     if p.expect(WHILE_KW, "'while'") {
         condition(p);
     }
+
     semicolon(p);
     p.finish_node();
 }
@@ -317,6 +350,7 @@ fn do_while_statement(p: &mut Parser) {
 fn for_statement(p: &mut Parser) {
     p.start(FOR_STATEMENT);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         for (index, close) in [SEMICOLON, SEMICOLON, RPAREN].into_iter().enumerate() {
             comma_list(
@@ -326,13 +360,16 @@ fn for_statement(p: &mut Parser) {
                     p.void_cast_allowed = p.at(CAST);
                     let parsed = expr::expr(p).is_some();
                     p.void_cast_allowed = false;
+
                     parsed
                 },
                 can_start_expr,
             );
+
             if index < 2 {
                 if !p.eat(SEMICOLON) {
                     p.error_expected("';'");
+
                     break;
                 }
             } else {
@@ -340,30 +377,38 @@ fn for_statement(p: &mut Parser) {
             }
         }
     }
+
     if body_or_alternative(p) {
         end_keyword(p, ENDFOR_KW, "'endfor'");
     }
+
     p.finish_node();
 }
 
 fn foreach_statement(p: &mut Parser) {
     p.start(FOREACH_STATEMENT);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         expr_required(p);
+
         if p.expect(AS_KW, "'as'") {
             p.eat(AMP);
             expr_required(p);
+
             if p.eat(FAT_ARROW) {
                 p.eat(AMP);
                 expr_required(p);
             }
         }
+
         p.expect(RPAREN, "')'");
     }
+
     if body_or_alternative(p) {
         end_keyword(p, ENDFOREACH_KW, "'endforeach'");
     }
+
     p.finish_node();
 }
 
@@ -372,19 +417,24 @@ fn switch_statement(p: &mut Parser) {
     p.bump();
     condition(p);
     let alternative = p.at(COLON);
+
     if p.at_any(&[LBRACE, COLON]) {
         p.bump();
+
         while !p.eof() && !p.at_any(&[RBRACE, ENDSWITCH_KW]) {
             let before = p.position();
+
             match p.current() {
                 CASE_KW => case_clause(p),
                 DEFAULT_KW => default_clause(p),
                 _ => p.error_bump(),
             }
+
             if p.position() == before {
                 break;
             }
         }
+
         if alternative {
             end_keyword(p, ENDSWITCH_KW, "'endswitch'");
         } else {
@@ -393,6 +443,7 @@ fn switch_statement(p: &mut Parser) {
     } else {
         p.error_expected("'{'");
     }
+
     p.finish_node();
 }
 
@@ -400,9 +451,11 @@ fn case_clause(p: &mut Parser) {
     p.start(CASE_CLAUSE);
     p.bump();
     expr_required(p);
+
     if !p.eat(COLON) && !p.eat(SEMICOLON) {
         p.error_expected("':'");
     }
+
     statement_list(p);
     p.finish_node();
 }
@@ -410,9 +463,11 @@ fn case_clause(p: &mut Parser) {
 fn default_clause(p: &mut Parser) {
     p.start(DEFAULT_CLAUSE);
     p.bump();
+
     if !p.eat(COLON) && !p.eat(SEMICOLON) {
         p.error_expected("':'");
     }
+
     statement_list(p);
     p.finish_node();
 }
@@ -420,9 +475,11 @@ fn default_clause(p: &mut Parser) {
 fn jump_statement(p: &mut Parser, kind: SyntaxKind) {
     p.start(kind);
     p.bump();
+
     if can_start_expr(p.current()) {
         expr::expr(p);
     }
+
     semicolon(p);
     p.finish_node();
 }
@@ -434,6 +491,7 @@ fn return_statement(p: &mut Parser) {
 fn global_statement(p: &mut Parser) {
     p.start(GLOBAL_STATEMENT);
     p.bump();
+
     comma_list(
         p,
         SEMICOLON,
@@ -441,11 +499,14 @@ fn global_statement(p: &mut Parser) {
             if !matches!(p.current(), VARIABLE | DOLLAR) {
                 return false;
             }
+
             expr::variable(p);
+
             true
         },
         |kind| matches!(kind, VARIABLE | DOLLAR),
     );
+
     semicolon(p);
     p.finish_node();
 }
@@ -453,6 +514,7 @@ fn global_statement(p: &mut Parser) {
 fn static_variable_statement(p: &mut Parser) {
     p.start(STATIC_VARIABLE_STATEMENT);
     p.bump();
+
     comma_list(
         p,
         SEMICOLON,
@@ -460,16 +522,21 @@ fn static_variable_statement(p: &mut Parser) {
             if !p.at(VARIABLE) {
                 return false;
             }
+
             p.start(STATIC_VARIABLE);
             p.bump();
+
             if p.eat(ASSIGN) {
                 expr_required(p);
             }
+
             p.finish_node();
+
             true
         },
         |kind| kind == VARIABLE,
     );
+
     semicolon(p);
     p.finish_node();
 }
@@ -477,20 +544,24 @@ fn static_variable_statement(p: &mut Parser) {
 fn unset_statement(p: &mut Parser) {
     p.start(UNSET_STATEMENT);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         comma_list(
             p,
             RPAREN,
             |p| {
                 let start = p.current_offset();
+
                 match expr::expr(p) {
                     Some(kind) if expr::is_assignable(kind) => true,
                     Some(_) => {
                         let end = p.current_offset();
+
                         p.error_at(
                             TextRange::new(TextSize::from(start), TextSize::from(end)),
                             "Variable expected",
                         );
+
                         true
                     }
                     None => false,
@@ -498,8 +569,10 @@ fn unset_statement(p: &mut Parser) {
             },
             can_start_expr,
         );
+
         p.expect(RPAREN, "')'");
     }
+
     semicolon(p);
     p.finish_node();
 }
@@ -507,47 +580,58 @@ fn unset_statement(p: &mut Parser) {
 fn try_statement(p: &mut Parser) {
     p.start(TRY_STATEMENT);
     p.bump();
+
     if p.at(LBRACE) {
         block(p);
     } else {
         p.error_expected("'{'");
     }
+
     while p.at(CATCH_KW) {
         p.start(CATCH_CLAUSE);
         p.bump();
+
         if p.expect(LPAREN, "'('") {
             ty::type_(p);
             p.eat(VARIABLE);
             p.expect(RPAREN, "')'");
         }
+
         if p.at(LBRACE) {
             block(p);
         } else {
             p.error_expected("'{'");
         }
+
         p.finish_node();
     }
+
     if p.at(FINALLY_KW) {
         p.start(FINALLY_CLAUSE);
         p.bump();
+
         if p.at(LBRACE) {
             block(p);
         } else {
             p.error_expected("'{'");
         }
+
         p.finish_node();
     }
+
     p.finish_node();
 }
 
 fn goto_statement(p: &mut Parser) {
     p.start(GOTO_STATEMENT);
     p.bump();
+
     if is_identifier_like(p.current()) {
         name(p);
     } else {
         p.error_expected("Label");
     }
+
     semicolon(p);
     p.finish_node();
 }
@@ -562,6 +646,7 @@ fn label_statement(p: &mut Parser) {
 fn declare_statement(p: &mut Parser) {
     p.start(DECLARE_STATEMENT);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         comma_list(
             p,
@@ -570,17 +655,21 @@ fn declare_statement(p: &mut Parser) {
                 if !is_identifier_like(p.current()) {
                     return false;
                 }
+
                 p.start(DECLARE_DIRECTIVE);
                 name(p);
                 p.expect(ASSIGN, "'='");
                 expr_required(p);
                 p.finish_node();
+
                 true
             },
             is_identifier_like,
         );
+
         p.expect(RPAREN, "')'");
     }
+
     match p.current() {
         SEMICOLON | CLOSE_TAG => p.bump(),
         COLON => {
@@ -592,18 +681,22 @@ fn declare_statement(p: &mut Parser) {
         }
         _ => body(p),
     }
+
     p.finish_node();
 }
 
 fn namespace_declaration(p: &mut Parser) {
     p.start(NAMESPACE_DECLARATION);
     p.bump();
+
     if matches!(p.current(), FULLY_QUALIFIED_NAME | RELATIVE_NAME) {
         p.error_here("A namespace name cannot start with a backslash or 'namespace\\'");
     }
+
     if is_name_token(p.current()) || is_identifier_like(p.current()) {
         name(p);
     }
+
     if p.at(LBRACE) {
         block(p);
     } else {
@@ -612,6 +705,7 @@ fn namespace_declaration(p: &mut Parser) {
         top_level_statements(p, true);
         p.finish_node();
     }
+
     p.finish_node();
 }
 
@@ -620,26 +714,32 @@ fn use_statement(p: &mut Parser) {
     p.bump();
     let typed = matches!(p.current(), FUNCTION_KW | CONST_KW);
     p.eat_use_kind();
+
     if is_name_token(p.current()) && p.nth(1) == BACKSLASH {
         p.start(USE_GROUP);
         name(p);
         p.bump();
+
         if p.expect(LBRACE, "'{'") {
             if p.at(RBRACE) {
                 p.error_expected("Name");
             }
+
             comma_list(
                 p,
                 RBRACE,
                 |p| use_clause(p, true, typed),
                 |kind| is_name_token(kind) || matches!(kind, FUNCTION_KW | CONST_KW),
             );
+
             p.expect(RBRACE, "'}'");
         }
+
         p.finish_node();
     } else {
         comma_list(p, SEMICOLON, |p| use_clause(p, false, false), is_name_token);
     }
+
     semicolon(p);
     p.finish_node();
 }
@@ -648,19 +748,25 @@ fn use_clause(p: &mut Parser, in_group: bool, group_is_typed: bool) -> bool {
     if !is_name_token(p.current()) && !matches!(p.current(), FUNCTION_KW | CONST_KW) {
         return false;
     }
+
     p.start(USE_CLAUSE);
+
     if group_is_typed && matches!(p.current(), FUNCTION_KW | CONST_KW) {
         p.error_here("A group use cannot mix `function` or `const` with its own kind");
     }
+
     p.eat_use_kind();
+
     if in_group && matches!(p.current(), FULLY_QUALIFIED_NAME | RELATIVE_NAME) {
         p.error_here("A name in a group use cannot start with a backslash");
     }
+
     if is_name_token(p.current()) {
         name(p);
     } else {
         p.error_expected("Name");
     }
+
     if p.eat(AS_KW) {
         if is_identifier_like(p.current()) {
             name(p);
@@ -668,7 +774,9 @@ fn use_clause(p: &mut Parser, in_group: bool, group_is_typed: bool) -> bool {
             p.error_expected("Alias");
         }
     }
+
     p.finish_node();
+
     true
 }
 

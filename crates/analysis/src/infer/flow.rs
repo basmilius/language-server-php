@@ -20,14 +20,17 @@ impl Analyzer<'_> {
         let scope = self.scope_at(offset);
         let mut env = Env::default();
         self.guarded((), || self.init_scope(&scope, &mut env, offset));
+
         let body = match scope.kind() {
             SOURCE_FILE => Some(scope.clone()),
             ARROW_FUNCTION_EXPR => None,
             _ => child_of(&scope, BLOCK),
         };
+
         if let Some(body) = body {
             self.walk(&body, &mut env, offset);
         }
+
         env
     }
 
@@ -37,35 +40,43 @@ impl Analyzer<'_> {
             FUNCTION_DECLARATION | METHOD_DECLARATION => self.bind_params(scope, env, &[]),
             PROPERTY_HOOK => {
                 self.bind_params(scope, env, &[]);
+
                 if !env.vars.contains_key("value") {
                     env.set("value", self.hook_value_type(scope));
                 }
             }
             CLOSURE_EXPR => {
                 let outer_offset = start(scope).saturating_sub(1);
+
                 let outer = if outer_offset == offset {
                     Env::default()
                 } else {
                     self.env_at(outer_offset)
                 };
+
                 let hints = self.closure_param_hints(scope, &outer);
+
                 if let Some(uses) = child_of(scope, CLOSURE_USE) {
                     for variable in uses.children().filter(|child| child.kind() == CLOSURE_USE_VARIABLE) {
                         let Some(token) = first_token(&variable, VARIABLE) else {
                             continue;
                         };
+
                         let name = token.text().trim_start_matches('$').to_string();
                         let ty = outer.get(&name).cloned().unwrap_or(Type::Unknown);
                         env.set(name, ty);
                     }
                 }
+
                 self.bind_params(scope, env, &hints);
             }
             ARROW_FUNCTION_EXPR => {
                 let outer_offset = start(scope).saturating_sub(1);
+
                 if outer_offset != offset {
                     *env = self.env_at(outer_offset);
                 }
+
                 let hints = self.closure_param_hints(scope, env);
                 self.bind_params(scope, env, &hints);
             }
@@ -76,9 +87,11 @@ impl Analyzer<'_> {
     /// The type a property hook's `$value` has: the type of the property it belongs to.
     fn hook_value_type(&self, hook: &SyntaxNode) -> Type {
         let declaration = hook.ancestors().find(|node| node.kind() == PROPERTY_DECLARATION);
+
         let Some(declaration) = declaration else {
             return Type::Unknown;
         };
+
         let class_scope = self.class.as_ref().map(|class| php_index::extract::ClassScope {
             name: class.name.clone(),
             parent: class.parent.clone(),
@@ -86,11 +99,14 @@ impl Analyzer<'_> {
             templates: Vec::new(),
             aliases: Vec::new(),
         });
+
         let mut cx = TypeContext::new(&self.resolver);
+
         if let Some(scope) = &class_scope {
             cx.class_name = Some(&scope.name);
             cx.parent_name = scope.parent.as_deref();
         }
+
         declaration
             .children()
             .find(|child| crate::ast::is_type_node(child.kind()))
@@ -107,29 +123,36 @@ impl Analyzer<'_> {
             templates: self.class_template_names(),
             aliases: self.class_type_aliases(),
         });
+
         let (callable, _) = php_index::extract::callable_at(function, &self.resolver, class_scope.as_ref());
         let level = self.level();
         let inherited = self.inherited_param_types(function);
+
         for (position, param) in callable.params.iter().enumerate() {
             // A `@param` that repeats the native type says no more than a parameter without one.
             let documents_more = param.doc_ty.is_some() && param.doc_ty.as_ref() != param.native_type(level);
+
             let declared = param
                 .effective_type(level)
                 .filter(|_| documents_more)
                 .cloned()
                 .or_else(|| {
                     let narrower = inherited.get(&position)?;
+
                     self.narrows(param.native_type(level), narrower)
                         .then(|| narrower.clone())
                 })
                 .or_else(|| param.effective_type(level).cloned())
                 .or_else(|| hints.get(position).filter(|hint| !hint.is_unknown()).cloned());
+
             let mut ty = declared.unwrap_or(Type::Unknown);
+
             if ty.is_unknown() && position == 0 {
                 if let Some(builder) = self.scope_parameter_type(function) {
                     ty = builder;
                 }
             }
+
             if param
                 .default
                 .as_deref()
@@ -139,9 +162,11 @@ impl Analyzer<'_> {
             {
                 ty = ty.nullable();
             }
+
             if param.variadic {
                 ty = Type::List(Box::new(ty));
             }
+
             env.set(param.name.clone(), ty);
         }
     }
@@ -149,13 +174,16 @@ impl Analyzer<'_> {
     /// The builder a scope method of a model is given.
     fn scope_parameter_type(&self, function: &SyntaxNode) -> Option<Type> {
         let class = self.class.as_ref()?;
+
         if function.kind() != METHOD_DECLARATION || !self.index.frameworks().eloquent {
             return None;
         }
+
         let name = function
             .children()
             .find(|child| child.kind() == NAME)
             .map(|name| text_of(&name))?;
+
         php_index::framework::eloquent::scope_builder_type(self.index, &class.name, &name)
     }
 
@@ -164,9 +192,11 @@ impl Analyzer<'_> {
     /// `handle(MessageInterface $message)` the `Message` that `@param T` of the interface stands for.
     fn inherited_param_types(&self, function: &SyntaxNode) -> HashMap<usize, Type> {
         let mut found = HashMap::new();
+
         let (Some(class), METHOD_DECLARATION) = (&self.class, function.kind()) else {
             return found;
         };
+
         let Some(name) = function
             .children()
             .find(|child| child.kind() == NAME)
@@ -174,23 +204,29 @@ impl Analyzer<'_> {
         else {
             return found;
         };
+
         for ancestor in self.index.ancestors(&Type::class(&class.name)) {
             if ancestor.class.decl.name.eq_ignore_ascii_case(&class.name) {
                 continue;
             }
+
             let Some(method) = ancestor.class.decl.method(&name) else {
                 continue;
             };
+
             for (position, param) in method.callable.params.iter().enumerate() {
                 let Some(documented) = &param.doc_ty else {
                     continue;
                 };
+
                 let resolved = documented.substitute(&ancestor.subst, None, Some(&ancestor.self_name));
+
                 if !resolved.has_template() {
                     found.entry(position).or_insert(resolved);
                 }
             }
         }
+
         found
     }
 
@@ -199,10 +235,13 @@ impl Analyzer<'_> {
         let Some(native) = native else {
             return true;
         };
+
         if matches!(native, Type::Mixed) {
             return true;
         }
+
         let is_signature = |member: &Type| matches!(member, Type::Callable(Some(_)));
+
         match native {
             Type::Callable(None) => inherited.members().iter().all(is_signature),
             Type::Class { name: parent, .. } => inherited.members().iter().all(|member| match member {
@@ -225,6 +264,7 @@ impl Analyzer<'_> {
         let Some(class) = &self.class else {
             return Vec::new();
         };
+
         self.index
             .class(&class.name)
             .and_then(|found| {
@@ -244,12 +284,16 @@ impl Analyzer<'_> {
             if start(&child) >= cursor {
                 return true;
             }
+
             if end(&child) > cursor {
                 self.enter(&child, env, cursor);
+
                 return true;
             }
+
             self.apply_with_doc(&child, env);
         }
+
         false
     }
 
@@ -259,6 +303,7 @@ impl Analyzer<'_> {
             IF_STATEMENT => self.enter_if(node, env, cursor),
             FOREACH_STATEMENT => {
                 let (subject, targets, body) = foreach_parts(node);
+
                 if let (Some(subject), Some(body)) = (subject, body) {
                     if start(&body) <= cursor && cursor <= end(&body) {
                         self.apply_expr(&subject, env);
@@ -269,6 +314,7 @@ impl Analyzer<'_> {
             }
             CATCH_CLAUSE => {
                 self.bind_catch(node, env);
+
                 if let Some(block) = child_of(node, BLOCK) {
                     self.enter_or_walk(&block, env, cursor);
                 }
@@ -282,6 +328,7 @@ impl Analyzer<'_> {
                         self.narrow(&condition, true, env);
                     }
                 }
+
                 for body in node
                     .children()
                     .filter(|child| matches!(child.kind(), BLOCK | STATEMENT_LIST))
@@ -320,43 +367,56 @@ impl Analyzer<'_> {
 
     fn enter_if(&self, node: &SyntaxNode, env: &mut Env, cursor: u32) {
         let parts: Vec<SyntaxNode> = node.children().collect();
+
         let Some(condition) = parts.first() else {
             return;
         };
+
         if end(condition) >= cursor {
             return;
         }
+
         self.apply_expr(condition, env);
         let mut negated = env.clone();
         self.narrow(condition, false, &mut negated);
+
         if let Some(body) = parts.get(1) {
             if end(body) >= cursor && start(body) <= cursor {
                 self.narrow(condition, true, env);
                 self.enter_or_walk(body, env, cursor);
+
                 return;
             }
         }
+
         for clause in parts.iter().skip(2) {
             match clause.kind() {
                 ELSEIF_CLAUSE => {
                     let children: Vec<SyntaxNode> = clause.children().collect();
+
                     let (Some(clause_condition), Some(clause_body)) = (children.first(), children.get(1)) else {
                         continue;
                     };
+
                     self.apply_expr(clause_condition, &mut negated);
+
                     if start(clause_body) <= cursor && cursor <= end(clause_body) {
                         *env = negated.clone();
                         self.narrow(clause_condition, true, env);
                         self.enter_or_walk(clause_body, env, cursor);
+
                         return;
                     }
+
                     self.narrow(clause_condition, false, &mut negated);
                 }
                 ELSE_CLAUSE if start(clause) <= cursor && cursor <= end(clause) => {
                     *env = negated.clone();
+
                     if let Some(body) = clause.children().next() {
                         self.enter_or_walk(&body, env, cursor);
                     }
+
                     return;
                 }
                 _ => {}
@@ -367,8 +427,10 @@ impl Analyzer<'_> {
     fn apply_with_doc(&self, node: &SyntaxNode, env: &mut Env) {
         let inline = self.inline_var(node);
         self.apply(node, env);
+
         if let Some((ty, name)) = inline {
             let target = name.or_else(|| assigned_variable(node));
+
             if let Some(target) = target {
                 env.set(target, ty);
             }
@@ -378,6 +440,7 @@ impl Analyzer<'_> {
     /// The `/** @var Type $name */` right above a statement.
     fn inline_var(&self, node: &SyntaxNode) -> Option<(Type, Option<String>)> {
         let mut previous = node.prev_sibling_or_token();
+
         while let Some(element) = previous {
             match element {
                 SyntaxElement::Token(token) if token.kind() == WHITESPACE => previous = token.prev_sibling_or_token(),
@@ -385,11 +448,13 @@ impl Analyzer<'_> {
                     let mut cx = TypeContext::new(&self.resolver);
                     cx.class_name = self.class.as_ref().map(|class| class.name.as_str());
                     cx.aliases = self.class_type_aliases();
+
                     return parse_var_comment(token.text(), &cx);
                 }
                 _ => return None,
             }
         }
+
         None
     }
 
@@ -406,34 +471,41 @@ impl Analyzer<'_> {
             IF_STATEMENT => self.apply_if(node, env),
             FOREACH_STATEMENT => {
                 let (subject, targets, body) = foreach_parts(node);
+
                 if let Some(subject) = subject {
                     self.apply_expr(&subject, env);
                     let mut inner = env.clone();
                     self.bind_foreach(&subject, &targets, has_token(node, FAT_ARROW), &mut inner);
+
                     if let Some(body) = body {
                         self.apply(&body, &mut inner);
                     }
+
                     *env = merge(&[env.clone(), inner]);
                 }
             }
             WHILE_STATEMENT | DO_WHILE_STATEMENT => {
                 let mut inner = env.clone();
+
                 if let Some(condition) = node
                     .children()
                     .find(|child| !matches!(child.kind(), BLOCK | STATEMENT_LIST))
                 {
                     self.narrow(&condition, true, &mut inner);
                 }
+
                 for body in node
                     .children()
                     .filter(|child| matches!(child.kind(), BLOCK | STATEMENT_LIST))
                 {
                     self.apply(&body, &mut inner);
                 }
+
                 *env = merge(&[env.clone(), inner]);
             }
             FOR_STATEMENT => {
                 let mut inner = env.clone();
+
                 for child in node.children() {
                     if matches!(child.kind(), BLOCK | STATEMENT_LIST) {
                         self.apply(&child, &mut inner);
@@ -441,16 +513,19 @@ impl Analyzer<'_> {
                         self.apply_expr(&child, &mut inner);
                     }
                 }
+
                 *env = merge(&[env.clone(), inner]);
             }
             SWITCH_STATEMENT => {
                 let mut inner = env.clone();
+
                 for clause in node
                     .children()
                     .filter(|child| matches!(child.kind(), CASE_CLAUSE | DEFAULT_CLAUSE))
                 {
                     self.apply(&clause, &mut inner);
                 }
+
                 *env = merge(&[env.clone(), inner]);
             }
             TRY_STATEMENT => {
@@ -460,9 +535,11 @@ impl Analyzer<'_> {
                         CATCH_CLAUSE => {
                             let mut inner = env.clone();
                             self.bind_catch(&child, &mut inner);
+
                             if let Some(block) = child_of(&child, BLOCK) {
                                 self.apply(&block, &mut inner);
                             }
+
                             if !ends_with_exit(child_of(&child, BLOCK).as_ref()) {
                                 *env = merge(&[env.clone(), inner]);
                             }
@@ -477,10 +554,12 @@ impl Analyzer<'_> {
                     let Some(token) = first_token(&variable, VARIABLE) else {
                         continue;
                     };
+
                     let ty = variable
                         .children()
                         .next()
                         .map_or(Type::Unknown, |initializer| self.type_of(&initializer, env));
+
                     env.set(token.text().trim_start_matches('$'), ty);
                 }
             }
@@ -506,48 +585,61 @@ impl Analyzer<'_> {
 
     fn apply_if(&self, node: &SyntaxNode, env: &mut Env) {
         let parts: Vec<SyntaxNode> = node.children().collect();
+
         let Some(condition) = parts.first() else {
             return;
         };
+
         self.apply_expr(condition, env);
         let mut negated = env.clone();
         self.narrow(condition, false, &mut negated);
         let before = env.clone();
         let mut branches: Vec<Env> = Vec::new();
         let mut assigned: Vec<String> = Vec::new();
+
         for part in parts.iter().skip(1) {
             collect_assigned(part, &mut assigned);
         }
+
         if let Some(body) = parts.get(1) {
             let mut then_env = env.clone();
             self.narrow(condition, true, &mut then_env);
             self.apply(body, &mut then_env);
+
             if !ends_with_exit(Some(body)) {
                 branches.push(then_env);
             }
         }
+
         let mut has_else = false;
+
         for clause in parts.iter().skip(2) {
             match clause.kind() {
                 ELSEIF_CLAUSE => {
                     let children: Vec<SyntaxNode> = clause.children().collect();
+
                     let (Some(clause_condition), Some(clause_body)) = (children.first(), children.get(1)) else {
                         continue;
                     };
+
                     self.apply_expr(clause_condition, &mut negated);
                     let mut branch = negated.clone();
                     self.narrow(clause_condition, true, &mut branch);
                     self.apply(clause_body, &mut branch);
+
                     if !ends_with_exit(Some(clause_body)) {
                         branches.push(branch);
                     }
+
                     self.narrow(clause_condition, false, &mut negated);
                 }
                 ELSE_CLAUSE => {
                     has_else = true;
                     let mut branch = negated.clone();
+
                     if let Some(body) = clause.children().next() {
                         self.apply(&body, &mut branch);
+
                         if !ends_with_exit(Some(&body)) {
                             branches.push(branch);
                         }
@@ -558,19 +650,23 @@ impl Analyzer<'_> {
                 _ => {}
             }
         }
+
         if !has_else {
             branches.push(negated);
         }
+
         if branches.len() == 1 {
             *env = branches.remove(0);
         } else if !branches.is_empty() {
             let mut merged = merge(&branches);
+
             // A branch that only learned something about a variable does not change it for good.
             for (name, ty) in &before.vars {
                 if !assigned.contains(name) {
                     merged.vars.insert(name.clone(), ty.clone());
                 }
             }
+
             *env = merged;
         }
     }
@@ -578,6 +674,7 @@ impl Analyzer<'_> {
     fn bind_foreach(&self, subject: &SyntaxNode, targets: &[SyntaxNode], keyed: bool, env: &mut Env) {
         let subject_type = self.type_of(subject, env);
         let (key, value) = self.iterable_types(&subject_type);
+
         match (targets, keyed) {
             ([key_target, value_target], true) => {
                 self.bind_target(key_target, &key, env);
@@ -592,6 +689,7 @@ impl Analyzer<'_> {
         let Some(variable) = first_token(clause, VARIABLE) else {
             return;
         };
+
         let names: Vec<Type> = clause
             .children()
             .find(|child| crate::ast::is_type_node(child.kind()))
@@ -602,6 +700,7 @@ impl Analyzer<'_> {
                     .collect()
             })
             .unwrap_or_default();
+
         env.set(variable.text().trim_start_matches('$'), Type::union(names));
     }
 
@@ -614,7 +713,9 @@ impl Analyzer<'_> {
                 for child in expr.children() {
                     self.apply_expr(&child, env);
                 }
+
                 self.bind_out_arguments(expr, env);
+
                 if let Some(callee) = expr.children().next() {
                     if callee.kind() == NAME && text_of(&callee).trim_start_matches('\\').eq_ignore_ascii_case("assert")
                     {
@@ -623,6 +724,7 @@ impl Analyzer<'_> {
                         }
                     }
                 }
+
                 if expr.parent().is_some_and(|parent| parent.kind() == EXPR_STATEMENT) {
                     self.narrow_by_asserts(expr, None, env);
                 }
@@ -640,6 +742,7 @@ impl Analyzer<'_> {
     /// keeps it, since a by-reference parameter such as `sort()`'s takes what it is given.
     fn bind_out_arguments(&self, call: &SyntaxNode, env: &mut Env) {
         let args = arguments(call);
+
         let unset: Vec<bool> = args
             .iter()
             .map(|arg| {
@@ -648,31 +751,39 @@ impl Analyzer<'_> {
                 })
             })
             .collect();
+
         if !unset.contains(&true) {
             return;
         }
+
         let Some(callee) = self.callees(call, env).into_iter().next() else {
             return;
         };
+
         let level = self.level();
         let params: Vec<_> = callee.callable.params_at(level).collect();
+
         for (position, arg) in args.iter().enumerate() {
             if !unset[position] {
                 continue;
             }
+
             let param = match &arg.name {
                 Some(name) => params.iter().find(|param| &param.name == name),
                 None => params.get(position),
             };
+
             let Some(ty) = param
                 .filter(|param| param.by_ref)
                 .and_then(|param| param.effective_type(level))
             else {
                 continue;
             };
+
             let ty = ty
                 .without_null()
                 .substitute(&callee.subst, callee.receiver.as_ref(), callee.self_name.as_deref());
+
             if let Some(expr) = &arg.expr {
                 if !ty.is_unknown() && !ty.has_template() {
                     env.set(text_of(expr).trim_start_matches('$'), ty);
@@ -683,17 +794,23 @@ impl Analyzer<'_> {
 
     fn apply_assign(&self, expr: &SyntaxNode, env: &mut Env) {
         let operands: Vec<SyntaxNode> = expr.children().collect();
+
         let (Some(target), Some(value)) = (operands.first(), operands.last()) else {
             return;
         };
+
         if operands.len() < 2 {
             return;
         }
+
         self.apply_expr(value, env);
+
         let operator = tokens(expr)
             .find(|token| !token.kind().is_trivia() && token.kind() != AMP)
             .map(|token| token.kind());
+
         let destructures = matches!(target.kind(), ARRAY_EXPR | LIST_EXPR);
+
         let value_type = if destructures && value.kind() == ARRAY_EXPR {
             self.positional_shape(value, env)
                 .unwrap_or_else(|| self.type_of(value, env))
@@ -702,6 +819,7 @@ impl Analyzer<'_> {
         } else {
             self.type_of(expr, env)
         };
+
         match target.kind() {
             INDEX_EXPR => self.bind_index_target(target, &value_type, env),
             _ => self.bind_target(target, &value_type, env),
@@ -712,20 +830,25 @@ impl Analyzer<'_> {
     /// is a list, so a later `$a[] = x` still fits it.
     fn positional_shape(&self, array: &SyntaxNode, env: &Env) -> Option<Type> {
         let mut fields = Vec::new();
+
         for item in array.children().filter(|child| child.kind() == ARRAY_ITEM) {
             let children: Vec<SyntaxNode> = item.children().collect();
+
             let [value] = children.as_slice() else {
                 return None;
             };
+
             if has_token(&item, ELLIPSIS) {
                 return None;
             }
+
             fields.push(php_index::types::ShapeField {
                 key: None,
                 optional: false,
                 ty: self.type_of(value, env),
             });
         }
+
         Some(Type::Shape(fields))
     }
 
@@ -733,24 +856,31 @@ impl Analyzer<'_> {
     fn bind_index_target(&self, target: &SyntaxNode, value: &Type, env: &mut Env) {
         let mut keys: Vec<Option<SyntaxNode>> = Vec::new();
         let mut base = target.clone();
+
         while base.kind() == INDEX_EXPR {
             let mut parts = base.children();
+
             let (Some(inner), key) = (parts.next(), parts.next()) else {
                 return;
             };
+
             keys.push(key);
             base = inner;
         }
+
         if base.kind() != VARIABLE_EXPR {
             return;
         }
+
         keys.reverse();
         let name = text_of(&base).trim_start_matches('$').to_string();
         let current = env.get(&name).cloned().unwrap_or(Type::Unknown);
+
         let key_types: Vec<Option<Type>> = keys
             .iter()
             .map(|key| key.as_ref().map(|key| self.type_of(key, env)))
             .collect();
+
         if let Some(updated) = assign_into(&current, &key_types, value) {
             env.set(name, updated);
         }
@@ -761,6 +891,7 @@ impl Analyzer<'_> {
             VARIABLE_EXPR => {
                 let text = text_of(target);
                 let name = text.trim_start_matches('$');
+
                 if name != "this" {
                     env.set(name, ty.clone());
                 }
@@ -768,15 +899,18 @@ impl Analyzer<'_> {
             ARRAY_EXPR | LIST_EXPR => {
                 for (position, item) in target.children().filter(|child| child.kind() == ARRAY_ITEM).enumerate() {
                     let children: Vec<SyntaxNode> = item.children().collect();
+
                     let (key, value) = match children.as_slice() {
                         [key, value] => (Some(key.clone()), value.clone()),
                         [value] => (None, value.clone()),
                         _ => continue,
                     };
+
                     let key_text = match &key {
                         Some(key) => literal_string(key),
                         None => Some(position.to_string()),
                     };
+
                     let element = self.element_of(ty, key_text.as_deref());
                     self.bind_target(&value, &element, env);
                 }
@@ -801,8 +935,10 @@ impl Analyzer<'_> {
             BINARY_EXPR => self.narrow_binary(condition, truth, env),
             VARIABLE_EXPR => {
                 let name = text_of(condition).trim_start_matches('$').to_string();
+
                 if truth {
                     let current = env.get(&name).cloned().unwrap_or(Type::Unknown);
+
                     if !current.is_unknown() {
                         env.set(name, current.filter(|ty| !matches!(ty, Type::Null | Type::False)));
                     }
@@ -812,6 +948,7 @@ impl Analyzer<'_> {
                 if truth {
                     for variable in condition.children().filter(|child| child.kind() == VARIABLE_EXPR) {
                         let name = text_of(&variable).trim_start_matches('$').to_string();
+
                         if let Some(current) = env.get(&name).cloned() {
                             env.set(name, current.without_null());
                         }
@@ -835,12 +972,15 @@ impl Analyzer<'_> {
 
     fn narrow_binary(&self, condition: &SyntaxNode, truth: bool, env: &mut Env) {
         let operands: Vec<SyntaxNode> = condition.children().collect();
+
         let operator = tokens(condition)
             .find(|token| !token.kind().is_trivia())
             .map(|token| token.kind());
+
         let (Some(left), Some(right)) = (operands.first(), operands.last()) else {
             return;
         };
+
         match operator {
             Some(AND_AND | AND_KW) => {
                 if truth {
@@ -858,6 +998,7 @@ impl Analyzer<'_> {
                 let Some(name) = condition_variable(left) else {
                     return;
                 };
+
                 let class = match right.kind() {
                     NAME => self.class_type(&text_of(right)),
                     _ => match self.type_of(right, env) {
@@ -865,22 +1006,27 @@ impl Analyzer<'_> {
                         _ => return,
                     },
                 };
+
                 let class = match class {
                     Type::Static => self.this_type(),
                     other => other,
                 };
+
                 let current = env.get(&name).cloned().unwrap_or(Type::Unknown);
                 let narrowed = self.narrow_instanceof(&current, &class, truth);
                 env.set(name, narrowed);
             }
             Some(IDENTICAL | EQ | NOT_IDENTICAL | NEQ) => {
                 let positive = matches!(operator, Some(IDENTICAL | EQ)) == truth;
+
                 let variable = match (condition_variable(left), condition_variable(right)) {
                     (Some(name), _) if is_null_literal(right) => name,
                     (_, Some(name)) if is_null_literal(left) => name,
                     _ => return,
                 };
+
                 let current = env.get(&variable).cloned().unwrap_or(Type::Unknown);
+
                 if positive {
                     env.set(variable, Type::Null);
                 } else if !current.is_unknown() {
@@ -893,16 +1039,21 @@ impl Analyzer<'_> {
 
     fn narrow_call(&self, call: &SyntaxNode, truth: bool, env: &mut Env) {
         self.narrow_by_asserts(call, Some(truth), env);
+
         let Some(callee) = call.children().next().filter(|callee| callee.kind() == NAME) else {
             return;
         };
+
         let name = text_of(&callee).trim_start_matches('\\').to_ascii_lowercase();
+
         let Some(argument) = arguments(call).first().and_then(|arg| arg.expr.clone()) else {
             return;
         };
+
         let Some(variable) = condition_variable(&argument) else {
             return;
         };
+
         let kind = match name.as_str() {
             "is_null" => Kind::Null,
             "is_string" => Kind::String,
@@ -915,6 +1066,7 @@ impl Analyzer<'_> {
             "is_numeric" => Kind::Numeric,
             _ => return,
         };
+
         let current = env.get(&variable).cloned().unwrap_or(Type::Unknown);
         env.set(variable, narrow_kind(&current, truth, kind));
     }
@@ -925,28 +1077,36 @@ impl Analyzer<'_> {
         if call.kind() != CALL_EXPR || super::calls::is_first_class_callable(call) {
             return;
         }
+
         let callees = self.callees(call, env);
+
         let [callee] = callees.as_slice() else {
             return;
         };
+
         let Some(doc) = &callee.doc else {
             return;
         };
+
         if doc.asserts.is_empty() {
             return;
         }
+
         let args = arguments(call);
         let (map, _) = self.bind_call(callee, &args, env);
         let params: Vec<&php_index::Param> = callee.callable.params_at(self.level()).collect();
+
         for assert in &doc.asserts {
             let holds = match assert.when {
                 AssertWhen::Always => true,
                 AssertWhen::IfTrue => truth == Some(true),
                 AssertWhen::IfFalse => truth == Some(false),
             };
+
             if !holds {
                 continue;
             }
+
             let subject = if assert.subject == "$this" {
                 call.children()
                     .next()
@@ -954,6 +1114,7 @@ impl Analyzer<'_> {
                     .and_then(|callee| callee.children().next())
             } else {
                 let name = assert.subject.trim_start_matches('$');
+
                 params
                     .iter()
                     .position(|param| param.name == name)
@@ -964,15 +1125,19 @@ impl Analyzer<'_> {
                     })
                     .and_then(|arg| arg.expr.clone())
             };
+
             let Some(variable) = subject.as_ref().and_then(condition_variable) else {
                 continue;
             };
+
             let ty = assert
                 .ty
                 .substitute(&map, callee.receiver.as_ref(), callee.self_name.as_deref());
+
             if ty.has_template() {
                 continue;
             }
+
             let current = env.get(&variable).cloned().unwrap_or(Type::Unknown);
             env.set(variable, self.narrow_to_type(&current, &ty, !assert.negated));
         }
@@ -982,22 +1147,28 @@ impl Analyzer<'_> {
     pub fn narrow_to_type(&self, current: &Type, ty: &Type, positive: bool) -> Type {
         if positive {
             let narrowed = ty.members().iter().map(|member| self.narrow_to_member(current, member));
+
             return Type::union(narrowed);
         }
+
         let mut result = current.clone();
+
         for member in ty.members() {
             result = self.remove_member(&result, member);
         }
+
         result
     }
 
     fn narrow_to_member(&self, current: &Type, ty: &Type) -> Type {
         let kind = kind_of(ty);
+
         match (ty, kind) {
             (Type::Class { .. }, _) => self.narrow_instanceof(current, ty, true),
             (_, Some(kind)) => {
                 let narrowed = narrow_kind(current, true, kind);
                 let is_array = matches!(kind, Kind::Array);
+
                 if is_array && narrowed == Type::plain_array() {
                     ty.clone()
                 } else {
@@ -1022,6 +1193,7 @@ impl Analyzer<'_> {
         let Type::Class { name: target, .. } = class else {
             return current.clone();
         };
+
         if positive {
             let narrowed = current.members().iter().map(|member| match member {
                 Type::Class { name, .. } => {
@@ -1038,7 +1210,9 @@ impl Analyzer<'_> {
                 }
                 _ => class.clone(),
             });
+
             let narrowed = Type::union(narrowed);
+
             if matches!(narrowed, Type::Never) {
                 class.clone()
             } else {
@@ -1059,11 +1233,14 @@ fn assign_into(current: &Type, keys: &[Option<Type>], value: &Type) -> Option<Ty
     let Some((first, rest)) = keys.split_first() else {
         return Some(value.clone());
     };
+
     let empty = matches!(current, Type::Array(key, element) if **key == Type::Never && **element == Type::Never)
         || current.is_unknown();
+
     match (current, first) {
         _ if empty => {
             let element = assign_into(&Type::Unknown, rest, value)?;
+
             Some(match first {
                 Some(key_type) => Type::Array(Box::new(key_type.clone()), Box::new(element)),
                 None => Type::List(Box::new(element)),
@@ -1071,10 +1248,12 @@ fn assign_into(current: &Type, keys: &[Option<Type>], value: &Type) -> Option<Ty
         }
         (Type::List(existing), None) => {
             let element = stored_element(existing, rest, value)?;
+
             Some(Type::List(Box::new(element)))
         }
         (Type::Array(existing_key, existing), Some(key_type)) => {
             let element = stored_element(existing, rest, value)?;
+
             Some(Type::Array(
                 Box::new(Type::union([(**existing_key).clone(), key_type.clone()])),
                 Box::new(element),
@@ -1082,6 +1261,7 @@ fn assign_into(current: &Type, keys: &[Option<Type>], value: &Type) -> Option<Ty
         }
         (Type::Array(existing_key, existing), None) => {
             let element = stored_element(existing, rest, value)?;
+
             Some(Type::Array(existing_key.clone(), Box::new(element)))
         }
         _ => None,
@@ -1091,6 +1271,7 @@ fn assign_into(current: &Type, keys: &[Option<Type>], value: &Type) -> Option<Ty
 /// The element type of an array after storing `value` below it by the remaining keys.
 fn stored_element(existing: &Type, rest: &[Option<Type>], value: &Type) -> Option<Type> {
     let added = assign_into(&Type::Unknown, rest, value)?;
+
     Some(Type::union([existing.clone(), added]))
 }
 
@@ -1136,10 +1317,12 @@ fn narrow_kind(current: &Type, positive: bool, kind: Kind) -> Type {
         Kind::Callable => matches!(ty, Type::Callable(_)),
         Kind::Numeric => matches!(ty, Type::Int | Type::IntLiteral(_) | Type::Float | Type::Numeric),
     };
+
     if current.is_unknown() || matches!(current, Type::Mixed) {
         if !positive {
             return current.clone();
         }
+
         return match kind {
             Kind::Null => Type::Null,
             Kind::String => Type::String,
@@ -1152,7 +1335,9 @@ fn narrow_kind(current: &Type, positive: bool, kind: Kind) -> Type {
             Kind::Numeric => Type::Numeric,
         };
     }
+
     let filtered = current.filter(|ty| matches_kind(ty) == positive);
+
     if matches!(filtered, Type::Never) {
         current.clone()
     } else {
@@ -1180,21 +1365,26 @@ fn assigned_variable(statement: &SyntaxNode) -> Option<String> {
         EXPR_STATEMENT => statement.children().next()?,
         _ => return None,
     };
+
     if expr.kind() != ASSIGN_EXPR {
         return None;
     }
+
     condition_variable(&expr.children().next()?)
 }
 
 /// The subject, the targets (value, or key and value) and the body of a `foreach`.
 fn foreach_parts(node: &SyntaxNode) -> (Option<SyntaxNode>, Vec<SyntaxNode>, Option<SyntaxNode>) {
     let children: Vec<SyntaxNode> = node.children().collect();
+
     if children.len() < 3 {
         return (children.first().cloned(), Vec::new(), None);
     }
+
     let subject = children.first().cloned();
     let body = children.last().cloned();
     let targets = children[1..children.len() - 1].to_vec();
+
     (subject, targets, body)
 }
 
@@ -1203,13 +1393,16 @@ fn ends_with_exit(node: Option<&SyntaxNode>) -> bool {
     let Some(node) = node else {
         return false;
     };
+
     let last = match node.kind() {
         BLOCK | STATEMENT_LIST => node.children().last(),
         _ => Some(node.clone()),
     };
+
     let Some(last) = last else {
         return false;
     };
+
     match last.kind() {
         RETURN_STATEMENT | BREAK_STATEMENT | CONTINUE_STATEMENT | GOTO_STATEMENT => true,
         EXPR_STATEMENT => last
@@ -1232,6 +1425,7 @@ fn collect_assigned(node: &SyntaxNode, out: &mut Vec<String>) {
             }
             FOREACH_STATEMENT => {
                 let (_, targets, _) = foreach_parts(&descendant);
+
                 for target in targets {
                     collect_targets(&target, out);
                 }
@@ -1270,9 +1464,11 @@ fn merge(branches: &[Env]) -> Env {
     let mut names: Vec<&String> = branches.iter().flat_map(|branch| branch.vars.keys()).collect();
     names.sort();
     names.dedup();
+
     for name in names {
         let ty = Type::union(branches.iter().filter_map(|branch| branch.vars.get(name)).cloned());
         merged.vars.insert(name.clone(), ty);
     }
+
     merged
 }

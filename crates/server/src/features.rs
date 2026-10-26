@@ -50,11 +50,13 @@ impl<'a> TextCache<'a> {
         let (uri, range) = match &place.path {
             None => {
                 let document = self.server.documents.get(self.current?)?;
+
                 let mapper = Mapper {
                     text: &document.text,
                     index: &document.index,
                     encoding: self.server.encoding,
                 };
+
                 (
                     self.current?.clone(),
                     mapper.range(range_of(place.span.start, place.span.end)),
@@ -63,19 +65,25 @@ impl<'a> TextCache<'a> {
             Some(path) => {
                 let uri = path_to_uri(path)?;
                 let encoding = self.server.encoding;
+
                 if let Some(document) = self.server.documents.get(&uri) {
                     let mapper = document.mapper(encoding);
                     let range = mapper.range(range_of(place.span.start, place.span.end));
+
                     return Some(Location { uri, range });
                 }
+
                 let entry = self.read.entry(path.clone()).or_insert_with(|| {
                     let bytes = std::fs::read(path).ok()?;
                     let text = String::from_utf8_lossy(&bytes).into_owned();
                     let index = LineIndex::new(&text);
+
                     Some((text, index))
                 });
+
                 let (text, index) = entry.as_ref()?;
                 let mapper = Mapper { text, index, encoding };
+
                 (
                     uri,
                     mapper.range(range_of(
@@ -85,6 +93,7 @@ impl<'a> TextCache<'a> {
                 )
             }
         };
+
         Some(Location { uri, range })
     }
 }
@@ -109,6 +118,7 @@ fn item_kind(kind: ItemKind) -> CompletionItemKind {
 
 fn symbol_kind(kind: php_analysis::SymbolKind) -> SymbolKind {
     use php_analysis::SymbolKind as Kind;
+
     match kind {
         Kind::Namespace => SymbolKind::NAMESPACE,
         Kind::Class => SymbolKind::CLASS,
@@ -146,11 +156,14 @@ impl Server {
         let root = document.parse().syntax();
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let analyzer = Analyzer::new(&project.index, &root, offset);
+
         Some(run(&analyzer, offset, project, &mapper))
     }
 
@@ -169,28 +182,35 @@ impl Server {
                     .collect()
             })
             .unwrap_or_default();
+
         let Some(path) = uri_to_path(uri) else {
             return false;
         };
+
         let project = self.workspace.project_for_mut(&path);
         let mut loaded = false;
+
         for name in missing {
             let candidates = project
                 .composer
                 .as_ref()
                 .map(|composer| composer.class_candidates(&name))
                 .unwrap_or_default();
+
             for candidate in candidates {
                 if !candidate.is_file() || project.index.contains_file(&candidate) {
                     continue;
                 }
+
                 let origin = project.origin_of(&candidate);
+
                 if let Some(symbols) = index_file(&candidate, origin) {
                     project.index.set_file(candidate, origin, std::sync::Arc::new(symbols));
                     loaded = true;
                 }
             }
         }
+
         loaded
     }
 
@@ -202,21 +222,26 @@ impl Server {
         let document = self.documents.get(uri)?;
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let hover = if document.state.yaml {
             let path = path.as_deref()?;
+
             if !php_analysis::yaml::is_config(&project.index, path) {
                 return None;
             }
+
             php_analysis::yaml::hover_at(&project.index, path, &document.text, offset)?
         } else if document.state.twig {
             php_analysis::twig::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             php_analysis::blade::hover_at(&project.index, path.as_deref(), &document.text, &given, offset)?
         };
+
         Some(Hover {
             contents: HoverContents::Markup(markdown(hover.markdown)),
             range: Some(mapper.range(hover.range)),
@@ -233,10 +258,12 @@ impl Server {
         let document = self.documents.get(uri)?;
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let places = if document.state.yaml {
             match path.as_deref() {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => {
@@ -249,20 +276,24 @@ impl Server {
         } else {
             php_analysis::blade::definitions_at(&project.index, path.as_deref(), &document.text, &given, offset)
         };
+
         let mut sources = TextCache::new(self, Some(uri));
         let mut locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
         self.demote_tests(&mut locations, |location| uri_to_path(&location.uri));
+
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
     }
 
     /// The byte offset of a position in an open document.
     pub(crate) fn offset_of(&self, uri: &Uri, position: lsp_types::Position) -> Option<u32> {
         let document = self.documents.get(uri)?;
+
         Some(u32::from(document.mapper(self.encoding).offset(position)))
     }
 
     pub(crate) fn hover(&mut self, params: HoverParams) -> Option<Hover> {
         let position = params.text_document_position_params;
+
         if self
             .documents
             .get(&position.text_document.uri)
@@ -270,16 +301,21 @@ impl Server {
         {
             return self.blade_hover(&position.text_document.uri, position.position);
         }
+
         let offset = self.offset_of(&position.text_document.uri, position.position)?;
+
         if let Some(hover) = self.sql_hover(&position.text_document.uri, offset) {
             return Some(hover);
         }
+
         self.load_missing_classes(&position.text_document.uri, position.position);
+
         self.with_analyzer(
             &position.text_document.uri,
             position.position,
             |analyzer, offset, _, mapper| {
                 let hover = analyzer.hover(offset)?;
+
                 Some(Hover {
                     contents: HoverContents::Markup(markdown(hover.markdown)),
                     range: Some(mapper.range(hover.range)),
@@ -303,12 +339,15 @@ impl Server {
     ) -> Option<GotoDefinitionResponse> {
         let position = params.text_document_position_params;
         let uri = position.text_document.uri;
+
         let places = self.with_analyzer(&uri, position.position, |analyzer, offset, _, _| {
             query(analyzer, offset)
         })?;
+
         let mut sources = TextCache::new(self, Some(&uri));
         let mut locations: Vec<Location> = places.iter().filter_map(|place| sources.location(place)).collect();
         self.demote_tests(&mut locations, |location| uri_to_path(&location.uri));
+
         (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
     }
 
@@ -320,14 +359,17 @@ impl Server {
         {
             return self.blade_definition(&params);
         }
+
         let position = &params.text_document_position_params;
         let offset = self.offset_of(&position.text_document.uri, position.position)?;
+
         if let Some(locations) = self
             .sql_definition(&position.text_document.uri, offset)
             .filter(|locations| !locations.is_empty())
         {
             return Some(GotoDefinitionResponse::Array(locations));
         }
+
         self.navigate(params, |analyzer, offset| analyzer.definitions(offset))
     }
 
@@ -341,35 +383,45 @@ impl Server {
 
     pub(crate) fn workspace_symbols(&mut self, params: WorkspaceSymbolParams) -> Option<WorkspaceSymbolResponse> {
         const LIMIT: usize = 200;
+
         let mut found = Vec::new();
+
         let projects = self
             .workspace
             .projects
             .iter()
             .chain(std::iter::once(&self.workspace.loose));
+
         for project in projects {
             if project.index.file_count() == 0 {
                 continue;
             }
+
             found.extend(workspace_symbols(&project.index, &project.root, &params.query, LIMIT));
+
             if self.workspace.projects.len() == 1 {
                 break;
             }
         }
+
         // Projects that hold the same package or the standard library each report their own copy.
         let mut shared = HashSet::new();
+
         found.retain(|symbol| {
             symbol.origin == Origin::Project
                 || shared.insert((symbol.kind, symbol.container.clone(), symbol.name.clone()))
         });
+
         found.truncate(LIMIT);
         let encoding = self.encoding;
         let mut read: HashMap<PathBuf, Option<(String, LineIndex)>> = HashMap::new();
         let mut symbols = Vec::new();
+
         for symbol in found {
             let Some(uri) = path_to_uri(&symbol.path) else {
                 continue;
             };
+
             let range = match self.documents.get(&uri) {
                 Some(document) => document
                     .mapper(encoding)
@@ -378,16 +430,21 @@ impl Server {
                     let entry = read.entry(symbol.path.clone()).or_insert_with(|| {
                         let text = String::from_utf8_lossy(&std::fs::read(&symbol.path).ok()?).into_owned();
                         let index = LineIndex::new(&text);
+
                         Some((text, index))
                     });
+
                     let Some((text, index)) = entry.as_ref() else {
                         continue;
                     };
+
                     let length = text.len() as u32;
+
                     Mapper { text, index, encoding }
                         .range(range_of(symbol.span.start.min(length), symbol.span.end.min(length)))
                 }
             };
+
             #[allow(deprecated)]
             symbols.push(SymbolInformation {
                 name: symbol.name,
@@ -398,6 +455,7 @@ impl Server {
                 container_name: symbol.container,
             });
         }
+
         Some(WorkspaceSymbolResponse::Flat(symbols))
     }
 
@@ -414,33 +472,42 @@ impl Server {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
         let offset = self.offset_of(&uri, position.position)?;
+
         let trigger = params
             .context
             .as_ref()
             .and_then(|context| context.trigger_character.as_deref());
+
         // Inside a string of SQL its items go before whatever PHP would offer there.
         if let Some(list) = self.sql_completion(&uri, offset, trigger.and_then(|text| text.chars().next())) {
             return Some(CompletionResponse::List(list));
         }
+
         if matches!(trigger, Some("." | " " | "`" | "\"")) {
             return None;
         }
+
         self.sync_symbols(&uri);
         let path = uri_to_path(&uri);
         let given = self.template_given(&uri);
         let encoding = self.encoding;
+
         let options = CompletionOptions {
             call_snippets: self.snippet_support && self.call_arguments_enabled(&uri),
             ..CompletionOptions::default()
         };
+
         let document = self.documents.get_mut(&uri)?;
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let in_template = document.state.yaml || document.state.twig || document.state.blade;
+
         let mut list = if document.state.yaml {
             match path.as_deref() {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => php_analysis::yaml::complete_at(
@@ -475,14 +542,18 @@ impl Server {
         } else {
             complete_in(&project.index, Some(&project.root), &document.text, offset, options)
         };
+
         let root = project.root.to_string_lossy().into_owned();
+
         if in_template {
             demote_test_declarations(&project.index, &project.root, &mut list);
         }
+
         let edit = |edit: &php_analysis::completion::TextEdit| TextEdit {
             range: mapper.range(range_of(edit.start, edit.end)),
             new_text: edit.new_text.clone(),
         };
+
         let items = list
             .items
             .iter()
@@ -510,6 +581,7 @@ impl Server {
                 ..CompletionItem::default()
             })
             .collect();
+
         Some(CompletionResponse::List(lsp_types::CompletionList {
             is_incomplete: list.incomplete,
             items,
@@ -520,15 +592,18 @@ impl Server {
         let data = item.data.clone()?;
         let key = data.get("key").and_then(Value::as_str)?;
         let root = data.get("project").and_then(Value::as_str).unwrap_or_default();
+
         let project = self
             .workspace
             .projects
             .iter()
             .find(|project| project.root == Path::new(root))
             .unwrap_or(&self.workspace.loose);
+
         if let Some(text) = resolve_documentation(&project.index, key) {
             item.documentation = Some(Documentation::MarkupContent(markdown(text)));
         }
+
         Some(item)
     }
 }

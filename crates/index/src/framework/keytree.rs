@@ -13,13 +13,18 @@ use crate::model::Span;
 pub struct KeyEntry {
     /// With dots: `app.name`.
     pub key: String,
+
     /// The value is an array, so the key names a group.
     pub group: bool,
+
     /// The value as written, when it is short.
     pub value: Option<String>,
+
     pub path: PathBuf,
+
     /// The key inside its quotes, or nothing for the file itself.
     pub span: Span,
+
     /// The locale of a translation.
     pub locale: Option<String>,
 }
@@ -28,8 +33,10 @@ pub struct KeyEntry {
 pub struct KeyTree {
     pub entries: Vec<KeyEntry>,
     by_key: HashMap<String, Vec<usize>>,
+
     /// Keys whose children are not known: a value that is computed, or a list.
     open: HashSet<String>,
+
     roots: HashSet<String>,
 }
 
@@ -70,32 +77,40 @@ impl KeyTree {
         else {
             return false;
         };
+
         let mut prefix = root.to_string();
+
         for segment in key[root.len()..].split('.').filter(|segment| !segment.is_empty()) {
             if self.open.contains(&prefix) {
                 return false;
             }
+
             prefix.push('.');
             prefix.push_str(segment);
+
             if !self.by_key.contains_key(&prefix) {
                 return true;
             }
         }
+
         false
     }
 
     /// Reads the file a stem names: the array it returns.
     pub fn add_file(&mut self, stem: &str, path: &Path, text: &str, locale: Option<&str>) {
         let tree = parse(text).syntax();
+
         let returned = tree
             .children()
             .filter(|node| node.kind() == RETURN_STATEMENT)
             .filter_map(|node| node.children().next())
             .last();
+
         let locale = locale.map(str::to_string);
         self.roots.insert(stem.to_string());
         let is_array = returned.as_ref().is_some_and(|node| node.kind() == ARRAY_EXPR);
         self.push(stem.to_string(), is_array, None, path, Span::default(), &locale);
+
         match returned {
             Some(array) if array.kind() == ARRAY_EXPR => self.read_array(stem, &array, path, &locale),
             _ => {
@@ -121,10 +136,13 @@ impl KeyTree {
             span,
             locale: locale.clone(),
         };
+
         let found = self.by_key.entry(key).or_default();
+
         if locale.is_none() && !found.is_empty() {
             return;
         }
+
         found.push(self.entries.len());
         self.entries.push(entry);
     }
@@ -132,20 +150,27 @@ impl KeyTree {
     fn read_array(&mut self, prefix: &str, array: &SyntaxNode, path: &Path, locale: &Option<String>) {
         let Some(items) = array_items(array) else {
             self.open.insert(prefix.to_string());
+
             return;
         };
+
         for (key, value) in items {
             let Some(Literal::Text(name, span)) = key.as_ref().and_then(literal_of) else {
                 self.open.insert(prefix.to_string());
+
                 continue;
             };
+
             if name.contains('.') {
                 self.open.insert(prefix.to_string());
+
                 continue;
             }
+
             let full = format!("{prefix}.{name}");
             let is_array = value.kind() == ARRAY_EXPR;
             self.push(full.clone(), is_array, short_text(&value), path, span, locale);
+
             if is_array {
                 self.read_array(&full, &value, path, locale);
             } else if value.kind() != LITERAL {
@@ -159,7 +184,9 @@ fn short_text(node: &SyntaxNode) -> Option<String> {
     if node.kind() == ARRAY_EXPR {
         return None;
     }
+
     let text = node.text().to_string();
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
     (text.len() <= 80).then_some(text)
 }

@@ -14,6 +14,7 @@ use crate::types::Name;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DatasetDecl {
     pub name: String,
+
     /// The name inside its quotes.
     pub span: Span,
 }
@@ -23,6 +24,7 @@ pub struct DatasetDecl {
 pub struct TestBinding {
     /// What the call names to bind: test case classes and traits, which the index tells apart.
     pub uses: Vec<Name>,
+
     /// The folders as written, relative to the file the call is in. Empty binds the file itself.
     pub folders: Vec<String>,
 }
@@ -31,6 +33,7 @@ pub struct TestBinding {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExpectationDecl {
     pub name: String,
+
     /// The name inside its quotes.
     pub span: Span,
 }
@@ -55,7 +58,9 @@ impl TestFacts {
 pub struct ChainLink {
     /// As written: `it`, `pest`, `with`.
     pub name: String,
+
     pub arguments: Vec<SyntaxNode>,
+
     /// The call, or the property fetch for a link without a call.
     pub node: SyntaxNode,
 }
@@ -65,11 +70,13 @@ pub struct ChainLink {
 pub fn flatten_chain(expression: &SyntaxNode) -> Option<Vec<ChainLink>> {
     let mut links = Vec::new();
     let mut current = expression.clone();
+
     loop {
         match current.kind() {
             CALL_EXPR => {
                 let callee = current.children().next()?;
                 let arguments = argument_expressions(&current);
+
                 match callee.kind() {
                     NAME => {
                         links.push(ChainLink {
@@ -77,15 +84,18 @@ pub fn flatten_chain(expression: &SyntaxNode) -> Option<Vec<ChainLink>> {
                             arguments,
                             node: current,
                         });
+
                         break;
                     }
                     PROPERTY_FETCH_EXPR => {
                         let name = callee.children().find(|child| child.kind() == NAME)?;
+
                         links.push(ChainLink {
                             name: name.text().to_string(),
                             arguments,
                             node: current.clone(),
                         });
+
                         current = callee.children().next()?;
                     }
                     _ => return None,
@@ -93,17 +103,21 @@ pub fn flatten_chain(expression: &SyntaxNode) -> Option<Vec<ChainLink>> {
             }
             PROPERTY_FETCH_EXPR => {
                 let name = current.children().find(|child| child.kind() == NAME)?;
+
                 links.push(ChainLink {
                     name: name.text().to_string(),
                     arguments: Vec::new(),
                     node: current.clone(),
                 });
+
                 current = current.children().next()?;
             }
             _ => return None,
         }
     }
+
     links.reverse();
+
     Some(links)
 }
 
@@ -125,13 +139,16 @@ pub fn string_value(node: &SyntaxNode) -> Option<(String, Span)> {
     if node.kind() != LITERAL {
         return None;
     }
+
     let token = node.children_with_tokens().find_map(|element| match element {
         SyntaxElement::Token(token) if token.kind() == STRING_LITERAL => Some(token),
         _ => None,
     })?;
+
     let text = token.text();
     let inner = text.get(1..text.len().checked_sub(1)?)?;
     let start = u32::from(token.text_range().start()) + 1;
+
     Some((
         inner.to_string(),
         Span {
@@ -146,15 +163,20 @@ pub fn class_constant(node: &SyntaxNode, resolver: &NameResolver) -> Option<Name
     if node.kind() != SCOPED_ACCESS_EXPR {
         return None;
     }
+
     let mut names = node.children().filter(|child| child.kind() == NAME);
     let (class, member) = (names.next()?, names.next()?);
+
     if !member.text().to_string().eq_ignore_ascii_case("class") {
         return None;
     }
+
     let raw = class.text().to_string();
+
     if matches!(raw.to_ascii_lowercase().as_str(), "self" | "static" | "parent") {
         return None;
     }
+
     Some(resolver.resolve_class(&raw))
 }
 
@@ -164,12 +186,16 @@ pub fn folder_of(argument: &SyntaxNode) -> Option<String> {
     if let Some((folder, _)) = string_value(argument) {
         return Some(folder);
     }
+
     let text = argument.text().to_string();
+
     if text.trim() == "__DIR__" {
         return Some(".".to_string());
     }
+
     if argument.kind() == BINARY_EXPR {
         let operands: Vec<SyntaxNode> = argument.children().collect();
+
         if let [left, right] = operands.as_slice()
             && left.text().to_string().trim() == "__DIR__"
             && let Some((rest, _)) = string_value(right)
@@ -177,6 +203,7 @@ pub fn folder_of(argument: &SyntaxNode) -> Option<String> {
             return Some(rest.trim_start_matches('/').to_string());
         }
     }
+
     None
 }
 
@@ -185,13 +212,17 @@ pub fn read_statement(statement: &SyntaxNode, resolver: &NameResolver, facts: &m
     if statement.kind() != EXPR_STATEMENT {
         return;
     }
+
     let Some(expression) = statement.children().next() else {
         return;
     };
+
     let Some(links) = flatten_chain(&expression) else {
         return;
     };
+
     let root = links[0].name.trim_start_matches('\\').to_ascii_lowercase();
+
     match root.as_str() {
         "dataset" => {
             if let Some((name, span)) = links[0].arguments.first().and_then(string_value) {
@@ -207,8 +238,10 @@ pub fn read_statement(statement: &SyntaxNode, resolver: &NameResolver, facts: &m
         }
         "uses" | "pest" => {
             let mut binding = TestBinding::default();
+
             for (position, link) in links.iter().enumerate() {
                 let method = link.name.to_ascii_lowercase();
+
                 match (position, method.as_str()) {
                     (0, "uses") | (_, "extend" | "use" | "uses") => {
                         for argument in &link.arguments {
@@ -227,6 +260,7 @@ pub fn read_statement(statement: &SyntaxNode, resolver: &NameResolver, facts: &m
                     _ => {}
                 }
             }
+
             if !binding.uses.is_empty() {
                 facts.bindings.push(binding);
             }
@@ -243,10 +277,13 @@ pub fn read_groups(class: &SyntaxNode, resolver: &NameResolver, facts: &mut Test
                 let Some(name) = node.children().find(|child| child.kind() == NAME) else {
                     continue;
                 };
+
                 let resolved = resolver.resolve_class(&name.text().to_string());
+
                 if !resolved.eq_ignore_ascii_case("PHPUnit\\Framework\\Attributes\\Group") {
                     continue;
                 }
+
                 if let Some((group, _)) = argument_expressions(&node).first().and_then(string_value) {
                     push_group(facts, group);
                 }
@@ -254,6 +291,7 @@ pub fn read_groups(class: &SyntaxNode, resolver: &NameResolver, facts: &mut Test
             SyntaxElement::Token(token) if token.kind() == DOC_COMMENT && token.text().contains("@group") => {
                 for line in token.text().lines() {
                     let line = line.trim_start_matches(|c: char| c.is_whitespace() || c == '*' || c == '/');
+
                     if let Some(rest) = line.strip_prefix("@group")
                         && let Some(group) = rest.split_whitespace().next()
                     {
@@ -291,6 +329,7 @@ mod tests {
         let found = facts(
             "<?php\nnamespace Tests;\nuse Tests\\Support\\Case1;\nuse Lib\\Refresh;\ndataset('event sizes', [1, 2]);\nuses(Case1::class, Refresh::class)->in('Feature', 'Unit/Http');\npest()->extend(Case1::class)->use(Refresh::class)->in('Browser');\nuses(Case1::class);\n",
         );
+
         assert_eq!(found.datasets.len(), 1);
         assert_eq!(found.datasets[0].name, "event sizes");
         assert_eq!(found.bindings.len(), 3);
@@ -305,6 +344,7 @@ mod tests {
         let found = facts(
             "<?php\nuse PHPUnit\\Framework\\Attributes\\Group;\n#[Group('slow')]\nclass A {\n #[Group(\"db\")] function a() {}\n /** @group fast */ function b() {}\n}\n",
         );
+
         assert_eq!(found.groups, vec!["slow", "db", "fast"]);
     }
 
@@ -313,6 +353,7 @@ mod tests {
         let found = facts(
             "<?php\nuses(A::class)->in(__DIR__);\nuses(B::class)->in(__DIR__ . '/Feature');\nexpect()->extend('toBeFoo', fn () => $this);\n",
         );
+
         assert_eq!(found.bindings[0].folders, vec!["."]);
         assert_eq!(found.bindings[1].folders, vec!["Feature"]);
         assert_eq!(found.expectations.len(), 1);

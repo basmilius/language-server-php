@@ -41,6 +41,7 @@ fn names_of(path: &Path) -> Option<(String, String)> {
     let stem = path.file_stem()?.to_string_lossy().into_owned();
     let (domain, locale) = stem.rsplit_once('.')?;
     let domain = domain.split('+').next().unwrap_or(domain);
+
     Some((domain.to_string(), locale.to_string()))
 }
 
@@ -48,14 +49,18 @@ impl Section for SfTranslations {
     fn build(index: &Index) -> Self {
         let mut found = SfTranslations::default();
         let dir = index.framework_root().join("translations");
+
         for path in index.files_below(&dir) {
             let Some((domain, locale)) = names_of(&path) else {
                 continue;
             };
+
             let Some(text) = index.read_text(&path) else {
                 continue;
             };
+
             let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+
             let mut push = |key: String, value: Option<String>, span: Span| {
                 found.entries.push(SfTranslation {
                     key,
@@ -66,6 +71,7 @@ impl Section for SfTranslations {
                     span,
                 });
             };
+
             match extension {
                 "yaml" | "yml" => {
                     if let Some(root) = parse_yaml(&text) {
@@ -75,6 +81,7 @@ impl Section for SfTranslations {
                 "xlf" | "xliff" => read_xliff(&text, &mut push),
                 "php" => {
                     let tree = parse(&text).syntax();
+
                     if let Some(array) = tree
                         .children()
                         .filter(|node| node.kind() == RETURN_STATEMENT)
@@ -87,6 +94,7 @@ impl Section for SfTranslations {
                 _ => {}
             }
         }
+
         found
     }
 
@@ -102,6 +110,7 @@ fn flatten_yaml(node: &Node, prefix: &str, push: &mut dyn FnMut(String, Option<S
         } else {
             format!("{prefix}.{name}")
         };
+
         match value {
             Node::Map(_) => flatten_yaml(value, &key, push),
             other => push(key, other.as_str().map(str::to_string), span),
@@ -114,11 +123,13 @@ fn flatten_php(array: &SyntaxNode, prefix: &str, push: &mut dyn FnMut(String, Op
         let Some(Literal::Text(name, span)) = key.as_ref().and_then(literal_of) else {
             continue;
         };
+
         let full = if prefix.is_empty() {
             name
         } else {
             format!("{prefix}.{name}")
         };
+
         if value.kind() == ARRAY_EXPR {
             flatten_php(&value, &full, push);
         } else {
@@ -126,6 +137,7 @@ fn flatten_php(array: &SyntaxNode, prefix: &str, push: &mut dyn FnMut(String, Op
                 Some(Literal::Text(text, _)) => Some(text),
                 _ => None,
             };
+
             push(full, text, span);
         }
     }
@@ -135,18 +147,24 @@ fn flatten_php(array: &SyntaxNode, prefix: &str, push: &mut dyn FnMut(String, Op
 /// that has one, else its id.
 fn read_xliff(text: &str, push: &mut dyn FnMut(String, Option<String>, Span)) {
     let mut rest = 0;
+
     while let Some(at) = text[rest..].find("<source>") {
         let start = rest + at + "<source>".len();
+
         let Some(length) = text[start..].find("</source>") else {
             break;
         };
+
         let key = text[start..start + length].trim().to_string();
+
         let value = text[start + length..].find("<target").and_then(|target| {
             let from = start + length + target;
             let begin = text[from..].find('>')? + from + 1;
             let end = text[begin..].find("</target>")? + begin;
+
             (end - begin < 400).then(|| text[begin..end].to_string())
         });
+
         push(
             key.clone(),
             value,
@@ -155,6 +173,7 @@ fn read_xliff(text: &str, push: &mut dyn FnMut(String, Option<String>, Span)) {
                 end: (start + length) as u32,
             },
         );
+
         rest = start + length;
     }
 }
@@ -181,6 +200,7 @@ mod tests {
                 "<?xml version=\"1.0\"?><xliff><file><body><trans-unit id=\"x\"><source>Invalid credentials.</source><target>Wrong</target></trans-unit></body></file></xliff>",
             ),
         ]);
+
         let translations = index.section::<SfTranslations>();
         assert_eq!(translations.find("app.title", Some("messages")).len(), 2);
         assert_eq!(translations.find("app.nested.deep", None).len(), 1);

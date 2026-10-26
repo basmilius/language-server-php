@@ -18,6 +18,7 @@ pub enum Role {
     DataProvider,
     Depends,
     Covers,
+
     /// A method of the class a test double stands for.
     Mocked,
 }
@@ -30,8 +31,10 @@ pub enum StringTarget {
         class: Name,
         role: Role,
     },
+
     Function,
     Group,
+
     /// A Pest dataset.
     Dataset,
 }
@@ -41,8 +44,10 @@ pub enum StringTarget {
 pub struct TestString {
     /// The text without its quotes.
     pub range: TextRange,
+
     pub value: String,
     pub target: StringTarget,
+
     /// The string is where the name is declared, as the name of a dataset is.
     pub declaration: bool,
 }
@@ -50,8 +55,10 @@ pub struct TestString {
 struct Rule {
     attribute: &'static str,
     string_argument: (usize, &'static str),
+
     /// Where the class the method belongs to is named.
     class_argument: Option<(usize, &'static str)>,
+
     kind: RuleKind,
 }
 
@@ -152,37 +159,47 @@ fn attribute_strings(analyzer: &Analyzer<'_>, attribute: &SyntaxNode) -> Vec<Tes
     let Some(name) = attribute.children().find(|child| child.kind() == NAME) else {
         return Vec::new();
     };
+
     let resolved = analyzer.resolver.resolve_class(&name.text().to_string());
+
     let Some(short) = resolved.strip_prefix(ATTRIBUTES) else {
         return Vec::new();
     };
+
     let Some(rule) = RULES.iter().find(|rule| rule.attribute.eq_ignore_ascii_case(short)) else {
         return Vec::new();
     };
+
     let args = arguments(attribute);
+
     let argument = |(position, name): (usize, &str)| {
         args.iter()
             .find(|arg| arg.name.as_deref() == Some(name))
             .or_else(|| args.get(position).filter(|arg| arg.name.is_none()))
             .and_then(|arg| arg.expr.clone())
     };
+
     let Some((value, span)) = argument(rule.string_argument).as_ref().and_then(string_value) else {
         return Vec::new();
     };
+
     let target = match rule.kind {
         RuleKind::Method(role) => {
             let class = match rule.class_argument {
                 Some(position) => argument(position).and_then(|expr| class_constant(&expr, &analyzer.resolver)),
                 None => analyzer.class.as_ref().map(|class| class.name.clone()),
             };
+
             let Some(class) = class else {
                 return Vec::new();
             };
+
             StringTarget::Method { class, role }
         }
         RuleKind::Function => StringTarget::Function,
         RuleKind::Group => StringTarget::Group,
     };
+
     vec![TestString {
         range: range_of(span.start, span.end),
         value,
@@ -194,21 +211,27 @@ fn attribute_strings(analyzer: &Analyzer<'_>, attribute: &SyntaxNode) -> Vec<Tes
 /// The names `@dataProvider`, `@depends` and `@group` give in a doc comment.
 fn doc_strings(analyzer: &Analyzer<'_>, token: &SyntaxToken) -> Vec<TestString> {
     let text = token.text();
+
     if !text.contains("@dataProvider") && !text.contains("@depends") && !text.contains("@group") {
         return Vec::new();
     }
+
     let base = u32::from(token.text_range().start());
     let mut out = Vec::new();
     let mut line_start = 0;
+
     for line in text.split_inclusive('\n') {
         let offset_in_text = line_start;
         line_start += line.len();
         let trimmed = line.trim_start_matches(|c: char| c.is_whitespace() || c == '*' || c == '/');
         let skipped = line.len() - trimmed.len();
+
         let Some(tag_end) = trimmed.find(|c: char| c.is_whitespace()) else {
             continue;
         };
+
         let (tag, rest) = trimmed.split_at(tag_end);
+
         let role = match tag {
             "@dataProvider" => Role::DataProvider,
             "@depends" => Role::Depends,
@@ -216,6 +239,7 @@ fn doc_strings(analyzer: &Analyzer<'_>, token: &SyntaxToken) -> Vec<TestString> 
                 if let Some(word) = rest.split_whitespace().next() {
                     let at = rest.find(word).unwrap_or(0);
                     let from = base + (offset_in_text + skipped + tag_end + at) as u32;
+
                     out.push(TestString {
                         range: range_of(from, from + word.len() as u32),
                         value: word.to_string(),
@@ -223,26 +247,34 @@ fn doc_strings(analyzer: &Analyzer<'_>, token: &SyntaxToken) -> Vec<TestString> 
                         declaration: false,
                     });
                 }
+
                 continue;
             }
             _ => continue,
         };
+
         let mut words = rest.split_whitespace().peekable();
         let mut cursor = 0;
         let mut word = None;
+
         for candidate in words.by_ref() {
             let at = rest[cursor..].find(candidate).map_or(cursor, |found| cursor + found);
             cursor = at + candidate.len();
+
             if matches!(candidate, "clone" | "!clone") {
                 continue;
             }
+
             if candidate != "*/" {
                 word = Some((candidate, at));
             }
+
             break;
         }
+
         let Some((word, at)) = word else {
             let from = base + (offset_in_text + skipped + line_end_of_tag(trimmed, tag_end)) as u32;
+
             out.push(TestString {
                 range: range_of(from, from),
                 value: String::new(),
@@ -256,8 +288,10 @@ fn doc_strings(analyzer: &Analyzer<'_>, token: &SyntaxToken) -> Vec<TestString> 
                 },
                 declaration: false,
             });
+
             continue;
         };
+
         let (class, method, method_at) = match word.split_once("::") {
             Some((class, method)) => (
                 Some(analyzer.resolver.resolve_class(class)),
@@ -266,10 +300,13 @@ fn doc_strings(analyzer: &Analyzer<'_>, token: &SyntaxToken) -> Vec<TestString> 
             ),
             None => (analyzer.class.as_ref().map(|class| class.name.clone()), word, at),
         };
+
         let Some(class) = class else {
             continue;
         };
+
         let from = base + (offset_in_text + skipped + tag_end + method_at) as u32;
+
         out.push(TestString {
             range: range_of(from, from + method.len() as u32),
             value: method.to_string(),
@@ -277,6 +314,7 @@ fn doc_strings(analyzer: &Analyzer<'_>, token: &SyntaxToken) -> Vec<TestString> 
             declaration: false,
         });
     }
+
     out
 }
 
@@ -289,12 +327,14 @@ fn line_end_of_tag(trimmed: &str, tag_end: usize) -> usize {
 fn call_strings(analyzer: &Analyzer<'_>, call: &SyntaxNode) -> Vec<TestString> {
     let mut out = super::mocks::call_strings(analyzer, call);
     out.extend(crate::pest::call_strings(analyzer, call));
+
     out
 }
 
 /// Every string of a file that names a test, a function or a group.
 pub fn strings_in(ctx: &FileContext<'_>) -> Vec<TestString> {
     let mut out = Vec::new();
+
     for element in ctx.root.descendants_with_tokens() {
         match element {
             php_syntax::SyntaxElement::Node(node) if node.kind() == ATTRIBUTE => {
@@ -311,6 +351,7 @@ pub fn strings_in(ctx: &FileContext<'_>) -> Vec<TestString> {
             _ => {}
         }
     }
+
     out
 }
 
@@ -321,16 +362,19 @@ pub fn string_at(analyzer: &Analyzer<'_>, offset: u32) -> Option<TestString> {
         php_syntax::TokenAtOffset::Single(token) => vec![token],
         php_syntax::TokenAtOffset::Between(left, right) => vec![right, left],
     };
+
     for token in tokens {
         let found = match token.kind() {
             STRING_LITERAL => {
                 let literal = token.parent().and_then(|literal| literal.parent());
+
                 let owner = literal.as_ref().and_then(|argument| {
                     argument
                         .ancestors()
                         .take(6)
                         .find(|ancestor| matches!(ancestor.kind(), ATTRIBUTE | CALL_EXPR))
                 });
+
                 match owner {
                     Some(owner) if owner.kind() == ATTRIBUTE => attribute_strings(analyzer, &owner),
                     Some(owner) => call_strings(analyzer, &owner),
@@ -340,11 +384,14 @@ pub fn string_at(analyzer: &Analyzer<'_>, offset: u32) -> Option<TestString> {
             DOC_COMMENT => doc_strings(analyzer, &token),
             _ => Vec::new(),
         };
+
         let at = |string: &TestString| start_of(string) <= offset && offset <= end_of(string);
+
         if let Some(string) = found.into_iter().find(at) {
             return Some(string);
         }
     }
+
     None
 }
 
@@ -361,7 +408,9 @@ pub fn method_of(index: &Index, string: &TestString) -> Option<(Name, String)> {
     let StringTarget::Method { class, .. } = &string.target else {
         return None;
     };
+
     let found = index.find_method(&Type::class(class.clone()), &string.value)?;
+
     Some((found.class.decl.name.clone(), found.member.name.clone()))
 }
 
@@ -370,10 +419,12 @@ pub fn symbol_of(index: &Index, string: &TestString, analyzer: &Analyzer<'_>) ->
     match &string.target {
         StringTarget::Method { .. } => {
             let (class, name) = method_of(index, string)?;
+
             Some(Symbol::Method { class, name })
         }
         StringTarget::Function => {
             let candidates = analyzer.resolver.function_candidates(&string.value);
+
             Some(Symbol::Function(index.first_function(&candidates)?.decl.name.clone()))
         }
         StringTarget::Dataset => Some(Symbol::Dataset(string.value.clone())),
@@ -387,5 +438,6 @@ pub fn symbols_at_string(ctx: &FileContext<'_>, offset: u32) -> Option<(TextRang
     let analyzer = ctx.analyzer(&node);
     let string = string_at(&analyzer, offset)?;
     let symbol = symbol_of(ctx.index, &string, &analyzer)?;
+
     Some((string.range, vec![symbol]))
 }

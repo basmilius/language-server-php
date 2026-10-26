@@ -10,6 +10,7 @@ pub(super) fn run(cx: &Cx) {
     if !cx.ready || !cx.index.frameworks().any() {
         return;
     }
+
     let wanted = [
         KeyKind::Config,
         KeyKind::Route,
@@ -27,16 +28,20 @@ pub(super) fn run(cx: &Cx) {
         || cx.on("unknown-cast")
         || cx.on("unknown-entity-field")
         || cx.on("unknown-model-key");
+
     if !wanted {
         return;
     }
+
     if cx.on("unknown-validation-rule") && cx.index.frameworks().laravel {
         for set in crate::frameworks::rules::rule_sets(&cx.file) {
             for part in &set.parts {
                 let crate::frameworks::rules::Part::Rule { name, range } = part else {
                     continue;
                 };
+
                 let analyzer = cx.file.analyzer(&cx.file.root);
+
                 if crate::frameworks::rules::is_unknown_rule(&analyzer, name) {
                     cx.report(
                         "unknown-validation-rule",
@@ -48,18 +53,22 @@ pub(super) fn run(cx: &Cx) {
             }
         }
     }
+
     if cx.on("unknown-cast") {
         unknown_casts(cx);
     }
+
     if cx.on("unknown-entity-field") {
         unknown_entity_fields(cx);
     }
+
     let relations = cx.on("unknown-relation")
         && cx.index.frameworks().eloquent
         && !cx
             .index
             .section::<php_index::framework::eloquent::DynamicRelations>()
             .found;
+
     for key in keys_in(&cx.file) {
         if matches!(
             key.kind,
@@ -68,20 +77,26 @@ pub(super) fn run(cx: &Cx) {
             if cx.on("unknown-model-key") {
                 unknown_model_key(cx, &key);
             }
+
             continue;
         }
+
         if key.kind == KeyKind::Relation {
             if relations {
                 unknown_relations(cx, &key);
             }
+
             continue;
         }
+
         let Some(code) = key.kind.inspection().filter(|code| cx.on(code)) else {
             continue;
         };
+
         if key.guarded || key.value.is_empty() || !is_missing(cx.index, key.kind, &key.value) {
             continue;
         }
+
         let message = match key.kind {
             KeyKind::Config => format!("The config key '{}' is not in the config files", key.value),
             KeyKind::Route => format!("No route is named '{}'", key.value),
@@ -95,6 +110,7 @@ pub(super) fn run(cx: &Cx) {
             KeyKind::WorkflowPlace => format!("No workflow has the place '{}'", key.value),
             _ => format!("The translation '{}' is not in the language files", key.value),
         };
+
         cx.report(code, key.range, message, super::Fix::None);
     }
 }
@@ -104,18 +120,22 @@ fn unknown_model_key(cx: &Cx, key: &crate::frameworks::keys::KeyString) {
     let Some(model) = &key.scope else {
         return;
     };
+
     if key.value.is_empty()
         || key.value == "*"
         || !php_index::framework::keys::is_missing_model_key(cx.index, key.kind, model, &key.value)
     {
         return;
     }
+
     let short = model.rsplit('\\').next().unwrap_or(model);
+
     let what = match key.kind {
         KeyKind::ModelColumn => "column",
         KeyKind::ModelRelation => "relation",
         _ => "property",
     };
+
     cx.report(
         "unknown-model-key",
         key.range,
@@ -131,19 +151,24 @@ fn unknown_relations(cx: &Cx, key: &crate::frameworks::keys::KeyString) {
         if segment.relation.is_some() || segment.name.is_empty() || segment.name == "*" {
             continue;
         }
+
         let model = php_index::Type::class(segment.model.clone());
+
         if cx.index.find_method(&model, &segment.name).is_some() {
             continue;
         }
+
         // A query of a parent model may run for a child that declares the relation.
         let in_a_child = cx.index.all_subtypes(&segment.model).iter().any(|child| {
             cx.index
                 .find_method(&php_index::Type::class(child.decl.name.clone()), &segment.name)
                 .is_some()
         });
+
         if in_a_child {
             continue;
         }
+
         cx.report(
             "unknown-relation",
             segment.range,
@@ -163,6 +188,7 @@ fn unknown_casts(cx: &Cx) {
     let Some(primitives) = php_index::framework::eloquent::primitive_casts(cx.index) else {
         return;
     };
+
     for (cast, range) in crate::frameworks::casts::cast_values(&cx.file) {
         if cast.is_empty()
             || cast.contains('\\')
@@ -170,6 +196,7 @@ fn unknown_casts(cx: &Cx) {
         {
             continue;
         }
+
         cx.report(
             "unknown-cast",
             range,
@@ -182,19 +209,25 @@ fn unknown_casts(cx: &Cx) {
 /// The fields DQL names that the entity of their alias does not have, nor any entity below it.
 fn unknown_entity_fields(cx: &Cx) {
     let entities = cx.index.section::<php_index::framework::symfony::doctrine::Entities>();
+
     for part in crate::frameworks::dql::parts_in(&cx.file) {
         let crate::frameworks::dql::Part::Field { entity, name, range } = part else {
             continue;
         };
+
         if name.is_empty() || entities.find(&entity).is_none() {
             continue;
         }
+
         let ty = php_index::Type::class(entity.clone());
+
         if cx.index.find_property(&ty, &name).is_some() || super::members::a_subtype_declares(cx, &entity, &name, false)
         {
             continue;
         }
+
         let short = entity.rsplit('\\').next().unwrap_or(&entity);
+
         cx.report(
             "unknown-entity-field",
             range,

@@ -24,10 +24,12 @@ pub fn complete_string(
     let start = u32::from(string.range.start());
     let typed = text.get(start as usize..offset as usize)?;
     let candidates = candidates(&analyzer, root, &string);
+
     let mut items: Vec<(u8, CompletionItem)> = candidates
         .into_iter()
         .filter_map(|candidate| {
             let score = match_score(&candidate.name, typed)?;
+
             Some((
                 score,
                 CompletionItem {
@@ -50,9 +52,11 @@ pub fn complete_string(
             ))
         })
         .collect();
+
     items.sort_by(|left, right| (left.0, &left.1.sort_text).cmp(&(right.0, &right.1.sort_text)));
     let incomplete = items.len() > options.limit;
     items.truncate(options.limit);
+
     Some(CompletionList {
         items: items.into_iter().map(|(_, item)| item).collect(),
         incomplete,
@@ -64,12 +68,14 @@ pub struct Candidate {
     pub kind: ItemKind,
     pub detail: Option<String>,
     pub description: Option<String>,
+
     /// Sorts the candidates that fit best first.
     pub rank: u8,
 }
 
 fn candidates(analyzer: &Analyzer<'_>, root: &SyntaxNode, string: &TestString) -> Vec<Candidate> {
     let index = analyzer.index;
+
     match &string.target {
         StringTarget::Method { class, role } => method_candidates(analyzer, root, string, class, *role),
         StringTarget::Function => index
@@ -110,9 +116,11 @@ fn method_candidates(
     let own = enclosing_method(root, u32::from(string.range.start()));
     let in_test_case = test_case_ancestor(index, class).is_some();
     let mut out = Vec::new();
+
     for found in index.methods(&Type::class(class.to_string())) {
         let method = &found.member;
         let name = &method.name;
+
         if method.visibility != php_index::Visibility::Public
             || found.class.decl.name.starts_with("PHPUnit\\")
             || name.starts_with("__")
@@ -120,7 +128,9 @@ fn method_candidates(
         {
             continue;
         }
+
         let is_test = in_test_case && is_test_method(found.class.decl, method);
+
         let rank = match role {
             Role::DataProvider if is_test || is_lifecycle(name) => continue,
             Role::DataProvider => u8::from(!method.is_static),
@@ -128,6 +138,7 @@ fn method_candidates(
             Role::Mocked if method.is_final || method.is_static => continue,
             _ => 0,
         };
+
         out.push(Candidate {
             name: name.clone(),
             kind: ItemKind::Method,
@@ -136,6 +147,7 @@ fn method_candidates(
             rank,
         });
     }
+
     out
 }
 
@@ -166,18 +178,22 @@ fn groups(index: &Index, root: &SyntaxNode) -> Vec<String> {
         .test_files()
         .flat_map(|(_, facts)| facts.groups.iter().cloned())
         .collect();
+
     let mut own = php_index::test_facts::TestFacts::default();
     let resolver = php_index::extract::resolver_at(root, u32::from(root.text_range().end()));
+
     for class in root
         .descendants()
         .filter(|node| matches!(node.kind(), CLASS_DECLARATION))
     {
         php_index::test_facts::read_groups(&class, &resolver, &mut own);
     }
+
     groups.extend(own.groups);
     groups.retain(|group| !group.is_empty());
     groups.sort();
     groups.dedup();
+
     groups
 }
 
@@ -185,6 +201,7 @@ fn groups(index: &Index, root: &SyntaxNode) -> Vec<String> {
 /// its kin, where a class is written as `Foo::class`.
 pub fn in_class_argument(analyzer: &Analyzer<'_>, token: &php_syntax::SyntaxToken) -> bool {
     let mut inside_argument = false;
+
     for ancestor in token.parent_ancestors() {
         match ancestor.kind() {
             ARGUMENT => inside_argument = true,
@@ -192,7 +209,9 @@ pub fn in_class_argument(analyzer: &Analyzer<'_>, token: &php_syntax::SyntaxToke
                 let Some(name) = crate::ast::child_of(&ancestor, NAME) else {
                     return false;
                 };
+
                 let resolved = analyzer.resolver.resolve_class(&crate::ast::text_of(&name));
+
                 return resolved.strip_prefix(super::ATTRIBUTES).is_some_and(|short| {
                     ["CoversClass", "UsesClass", "CoversTrait", "UsesTrait", "DependsOnClass"]
                         .iter()
@@ -203,5 +222,6 @@ pub fn in_class_argument(analyzer: &Analyzer<'_>, token: &php_syntax::SyntaxToke
             _ => {}
         }
     }
+
     false
 }

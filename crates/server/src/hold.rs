@@ -10,6 +10,7 @@ use std::sync::{Arc, Condvar, Mutex};
 pub enum Job {
     /// The read of the `.sql` files of the workspace folders.
     SqlFiles,
+
     /// The search for the database a project is configured for.
     SqlDialect,
 }
@@ -44,10 +45,12 @@ impl Drop for Hold {
 /// Holds `job` of the project at `root` before it starts.
 pub fn close(root: &Path, job: Job) -> Hold {
     let gate = Arc::new(Gate::default());
+
     GATES
         .lock()
         .expect("the gates")
         .push((root.to_path_buf(), job, gate.clone()));
+
     Hold { gate }
 }
 
@@ -59,8 +62,10 @@ pub(crate) fn pass(root: &Path, job: Job) {
         .iter()
         .find(|(held, held_job, _)| held == root && *held_job == job)
         .map(|(_, _, gate)| gate.clone());
+
     if let Some(gate) = gate {
         let mut open = gate.open.lock().expect("the gate");
+
         while !*open {
             open = gate.changed.wait(open).expect("the gate");
         }

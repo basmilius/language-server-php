@@ -13,6 +13,7 @@ pub type Name = String;
 pub struct ShapeField {
     /// `None` for a positional entry of a list shape.
     pub key: Option<String>,
+
     pub optional: bool,
     pub ty: Type,
 }
@@ -30,6 +31,7 @@ pub struct CallableParam {
 pub struct CallableType {
     /// `Closure(...)` as opposed to `callable(...)`.
     pub closure: bool,
+
     pub params: Vec<CallableParam>,
     pub ret: Option<Type>,
 }
@@ -39,6 +41,7 @@ pub struct CallableType {
 pub struct Conditional {
     /// The subject: a parameter name starting with `$`, or a template name.
     pub subject: String,
+
     pub is: Type,
     pub negated: bool,
     pub then: Type,
@@ -49,6 +52,7 @@ pub struct Conditional {
 pub enum Type {
     /// Nothing is known: the inference gave up here.
     Unknown,
+
     Mixed,
     Void,
     Never,
@@ -61,18 +65,25 @@ pub enum Type {
     String,
     Object,
     Resource,
+
     /// `int|string`.
     ArrayKey,
+
     /// `int|float|numeric-string`.
     Numeric,
+
     /// `int|float|string|bool`.
     Scalar,
+
     IntLiteral(i64),
     StringLiteral(String),
+
     /// `array<K, V>`; a bare `array` is `array<array-key, mixed>`.
     Array(Box<Type>, Box<Type>),
+
     /// `list<V>`: an array with keys 0, 1, 2 and so on.
     List(Box<Type>),
+
     Shape(Vec<ShapeField>),
     Iterable(Box<Type>, Box<Type>),
     Callable(Option<Box<CallableType>>),
@@ -80,16 +91,22 @@ pub enum Type {
         name: Name,
         args: Vec<Type>,
     },
+
     /// The class a method is called on; `$this` is the same type.
     Static,
+
     /// `self` in a trait, where it is the class that uses the trait.
     SelfType,
+
     /// `parent` where the class has no parent in sight.
     Parent,
+
     /// A name from `@template`.
     Template(String),
+
     /// `class-string<T>`, or `class-string` without a bound.
     ClassString(Option<Box<Type>>),
+
     Union(Vec<Type>),
     Intersection(Vec<Type>),
     Conditional(Box<Conditional>),
@@ -115,6 +132,7 @@ impl Type {
     /// no member at all is `never`.
     pub fn union(types: impl IntoIterator<Item = Type>) -> Type {
         let mut flat: Vec<Type> = Vec::new();
+
         for ty in types {
             match ty {
                 Type::Union(inner) => {
@@ -132,21 +150,26 @@ impl Type {
                 }
             }
         }
+
         if flat.iter().any(|ty| matches!(ty, Type::Mixed)) {
             return Type::Mixed;
         }
+
         // `A|(A&B)` is `A`.
         let plain: Vec<Type> = flat
             .iter()
             .filter(|ty| !matches!(ty, Type::Intersection(_)))
             .cloned()
             .collect();
+
         flat.retain(|ty| match ty {
             Type::Intersection(parts) => !parts.iter().any(|part| plain.contains(part)),
             _ => true,
         });
+
         let is_empty_array =
             |ty: &Type| matches!(ty, Type::Array(key, value) if **key == Type::Never && **value == Type::Never);
+
         if flat.iter().any(is_empty_array)
             && flat
                 .iter()
@@ -154,10 +177,12 @@ impl Type {
         {
             flat.retain(|ty| !is_empty_array(ty));
         }
+
         if flat.contains(&Type::True) && flat.contains(&Type::False) {
             flat.retain(|ty| !matches!(ty, Type::True | Type::False));
             flat.push(Type::Bool);
         }
+
         match flat.len() {
             0 => Type::Never,
             1 => flat.remove(0),
@@ -222,6 +247,7 @@ impl Type {
         self_name: Option<&str>,
     ) -> Type {
         let sub = |ty: &Type| ty.substitute(templates, static_type, self_name);
+
         match self {
             Type::Template(name) => templates.get(name).cloned().unwrap_or_else(|| self.clone()),
             Type::Static => static_type.cloned().unwrap_or(Type::Static),
@@ -276,6 +302,7 @@ impl Type {
     pub fn class_names(&self) -> Vec<&str> {
         let mut out = Vec::new();
         self.collect_class_names(&mut out);
+
         out
     }
 
@@ -306,6 +333,7 @@ impl Type {
     pub fn display_with(&self, class: &mut dyn FnMut(&str) -> String) -> String {
         let mut out = String::new();
         self.write(&mut out, class);
+
         out
     }
 
@@ -354,19 +382,25 @@ impl Type {
             }
             Type::Shape(fields) => {
                 out.push_str("array{");
+
                 for (index, field) in fields.iter().enumerate() {
                     if index > 0 {
                         out.push_str(", ");
                     }
+
                     if let Some(key) = &field.key {
                         out.push_str(key);
+
                         if field.optional {
                             out.push('?');
                         }
+
                         out.push_str(": ");
                     }
+
                     field.ty.write(out, class);
                 }
+
                 out.push('}');
             }
             Type::Iterable(key, value) => {
@@ -383,19 +417,25 @@ impl Type {
             Type::Callable(None) => out.push_str("callable"),
             Type::Callable(Some(callable)) => {
                 out.push_str(if callable.closure { "Closure(" } else { "callable(" });
+
                 for (index, param) in callable.params.iter().enumerate() {
                     if index > 0 {
                         out.push_str(", ");
                     }
+
                     param.ty.write(out, class);
+
                     if param.variadic {
                         out.push_str("...");
                     }
+
                     if param.optional {
                         out.push('=');
                     }
                 }
+
                 out.push(')');
+
                 if let Some(ret) = &callable.ret {
                     out.push_str(": ");
                     ret.write(out, class);
@@ -403,14 +443,18 @@ impl Type {
             }
             Type::Class { name, args } => {
                 out.push_str(&class(name));
+
                 if !args.is_empty() {
                     out.push('<');
+
                     for (index, arg) in args.iter().enumerate() {
                         if index > 0 {
                             out.push_str(", ");
                         }
+
                         arg.write(out, class);
                     }
+
                     out.push('>');
                 }
             }
@@ -426,20 +470,27 @@ impl Type {
             }
             Type::Union(members) => {
                 let others: Vec<&Type> = members.iter().filter(|ty| !matches!(ty, Type::Null)).collect();
+
                 if others.len() == 1 && members.len() == 2 && !matches!(others[0], Type::Callable(_)) {
                     out.push('?');
                     others[0].write(out, class);
+
                     return;
                 }
+
                 for (index, member) in members.iter().enumerate() {
                     if index > 0 {
                         out.push('|');
                     }
+
                     let wrap = matches!(member, Type::Intersection(_) | Type::Conditional(_));
+
                     if wrap {
                         out.push('(');
                     }
+
                     member.write(out, class);
+
                     if wrap {
                         out.push(')');
                     }
@@ -450,14 +501,17 @@ impl Type {
                     if index > 0 {
                         out.push('&');
                     }
+
                     member.write(out, class);
                 }
             }
             Type::Conditional(conditional) => {
                 let _ = write!(out, "({} is ", conditional.subject);
+
                 if conditional.negated {
                     out.push_str("not ");
                 }
+
                 conditional.is.write(out, class);
                 out.push_str(" ? ");
                 conditional.then.write(out, class);
@@ -504,6 +558,7 @@ mod tests {
         assert_eq!(Type::class("App\\User").nullable().display(false), "?App\\User");
         assert_eq!(Type::plain_array().display(true), "array");
         assert_eq!(Type::List(Box::new(Type::Int)).display(true), "list<int>");
+
         assert_eq!(
             Type::Union(vec![Type::Int, Type::String, Type::Null]).display(true),
             "int|string|null"
@@ -516,6 +571,7 @@ mod tests {
         map.insert("T".to_string(), Type::class("Foo"));
         let ty = Type::Array(Box::new(Type::Int), Box::new(Type::Template("T".into())));
         assert_eq!(ty.substitute(&map, None, None).display(true), "array<int, Foo>");
+
         assert_eq!(
             Type::Static.substitute(&map, Some(&Type::class("Bar")), None),
             Type::class("Bar")

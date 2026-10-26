@@ -38,6 +38,7 @@ pub fn is_relative_class(lower: &str) -> bool {
 /// The member name of `$a->name`, `A::name` or `A::$name`, or `None` for a dynamic name.
 pub fn member_name(access: &SyntaxNode) -> Option<SyntaxNode> {
     let first = access.children().next()?;
+
     access
         .children()
         .filter(|child| child.kind() == NAME)
@@ -54,27 +55,33 @@ pub fn is_callee(node: &SyntaxNode) -> bool {
 /// Whether a node sits where a missing value is the point: an `isset`, an `empty`, or the left of `??`.
 pub fn in_guard(node: &SyntaxNode) -> bool {
     let mut current = node.clone();
+
     while let Some(parent) = current.parent() {
         match parent.kind() {
             ISSET_EXPR | EMPTY_EXPR => return true,
             BINARY_EXPR => {
                 let is_coalesce = ast::tokens(&parent).any(|token| token.kind() == COALESCE);
+
                 if is_coalesce && parent.children().next().as_ref() == Some(&current) {
                     return true;
                 }
             }
             ASSIGN_EXPR => {
                 let is_coalesce = ast::tokens(&parent).any(|token| token.kind() == COALESCE_ASSIGN);
+
                 if is_coalesce && parent.children().next().as_ref() == Some(&current) {
                     return true;
                 }
+
                 return false;
             }
             kind if is_boundary(kind) => return false,
             _ => {}
         }
+
         current = parent;
     }
+
     false
 }
 
@@ -97,6 +104,7 @@ fn is_boundary(kind: SyntaxKind) -> bool {
 /// `function_exists` or `property_exists`: code behind it is written for the name being absent.
 pub fn guarded_by_check(node: &SyntaxNode, checks: &[&str], word: &str) -> bool {
     let word = word.to_ascii_lowercase();
+
     for ancestor in node.ancestors() {
         let condition = match ancestor.kind() {
             IF_STATEMENT | ELSEIF_CLAUSE | WHILE_STATEMENT => ancestor
@@ -106,23 +114,29 @@ pub fn guarded_by_check(node: &SyntaxNode, checks: &[&str], word: &str) -> bool 
             BINARY_EXPR => ancestor.children().next(),
             _ => None,
         };
+
         let Some(condition) = condition else {
             continue;
         };
+
         if condition.text_range().contains_range(node.text_range()) {
             continue;
         }
+
         let text = condition.text().to_string().to_ascii_lowercase();
+
         if checks.iter().any(|check| text.contains(check)) && text.contains(&word) {
             return true;
         }
     }
+
     false
 }
 
 /// The variable at the root of `$a`, `$a->b`, `$a['x']` or `$a->b()`.
 pub fn root_variable(node: &SyntaxNode) -> Option<SyntaxNode> {
     let mut current = node.clone();
+
     loop {
         match current.kind() {
             VARIABLE_EXPR => return Some(current),
@@ -142,10 +156,13 @@ pub fn reassigned_in_loop(node: &SyntaxNode) -> bool {
     let Some(variable) = root_variable(node) else {
         return false;
     };
+
     let name = text_of(&variable);
+
     if name == "$this" {
         return false;
     }
+
     for ancestor in variable.ancestors() {
         match ancestor.kind() {
             WHILE_STATEMENT | DO_WHILE_STATEMENT | FOR_STATEMENT | FOREACH_STATEMENT => {
@@ -157,29 +174,37 @@ pub fn reassigned_in_loop(node: &SyntaxNode) -> bool {
             _ => {}
         }
     }
+
     false
 }
 
 /// Whether a variable is written anywhere in a node, not counting the functions inside it.
 pub fn assigns_variable(node: &SyntaxNode, name: &str) -> bool {
     let mut preorder = node.preorder();
+
     while let Some(event) = preorder.next() {
         let php_syntax::WalkEvent::Enter(current) = event else {
             continue;
         };
+
         if current != *node && matches!(current.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION | CLOSURE_EXPR) {
             preorder.skip_subtree();
+
             continue;
         }
+
         if current.kind() == VARIABLE_EXPR && text_of(&current) == name && is_write_target(&current) {
             return true;
         }
+
         let by_reference =
             current.kind() == CLOSURE_USE_VARIABLE && ast::tokens(&current).any(|token| token.kind() == AMP);
+
         if by_reference && ast::first_token(&current, VARIABLE).is_some_and(|token| token.text() == name) {
             return true;
         }
     }
+
     false
 }
 

@@ -40,6 +40,7 @@ pub fn range_of(start: u32, end: u32) -> TextRange {
 pub fn node_at(root: &SyntaxNode, offset: u32) -> SyntaxNode {
     let offset = offset.min(end(root));
     let range = range_of(offset, offset);
+
     match root.covering_element(range) {
         SyntaxElement::Node(node) => node,
         SyntaxElement::Token(token) => token.parent().unwrap_or_else(|| root.clone()),
@@ -64,11 +65,14 @@ pub fn is_function_like(kind: SyntaxKind) -> bool {
 /// inside the arrow function or closure whose parameters it may use.
 pub fn statement_anchor(node: &SyntaxNode) -> u32 {
     let mut current = node.clone();
+
     loop {
         let kind = current.kind();
+
         if matches!(kind, ARROW_FUNCTION_EXPR | CLOSURE_EXPR) && current != *node {
             return start(&current) + 1;
         }
+
         if matches!(
             kind,
             EXPR_STATEMENT
@@ -80,15 +84,18 @@ pub fn statement_anchor(node: &SyntaxNode) -> u32 {
         ) {
             return start(&current);
         }
+
         let Some(parent) = current.parent() else {
             return start(node);
         };
+
         if matches!(
             parent.kind(),
             BLOCK | STATEMENT_LIST | SOURCE_FILE | CASE_CLAUSE | DEFAULT_CLAUSE | CLASS_BODY
         ) {
             return start(&current);
         }
+
         current = parent;
     }
 }
@@ -108,6 +115,7 @@ pub fn is_class_like(kind: SyntaxKind) -> bool {
 /// The range of the last segment of a written name, which is the part a rename replaces.
 pub fn last_segment(range: TextRange, text: &str) -> TextRange {
     let raw = &text[usize::from(range.start())..usize::from(range.end())];
+
     match raw.rfind('\\') {
         Some(at) => range_of(u32::from(range.start()) + at as u32 + 1, u32::from(range.end())),
         None => range,
@@ -118,6 +126,7 @@ pub fn last_segment(range: TextRange, text: &str) -> TextRange {
 pub fn last_segment_of_token(token: &SyntaxToken) -> TextRange {
     let text = token.text();
     let range = token.text_range();
+
     match text.rfind('\\') {
         Some(at) => range_of(u32::from(range.start()) + at as u32 + 1, u32::from(range.end())),
         None => range,

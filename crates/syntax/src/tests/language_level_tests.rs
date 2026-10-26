@@ -2,6 +2,7 @@ use crate::{FEATURES, LevelSeverity, PhpVersion, check_language_level, parse};
 
 fn diagnostics(text: &str, level: PhpVersion) -> Vec<(String, LevelSeverity, bool)> {
     let parsed = parse(&format!("<?php\n{text}\n"));
+
     check_language_level(&parsed.syntax(), level)
         .into_iter()
         .map(|found| (found.message, found.severity, found.deprecated))
@@ -10,6 +11,7 @@ fn diagnostics(text: &str, level: PhpVersion) -> Vec<(String, LevelSeverity, boo
 
 fn features_found(text: &str, level: PhpVersion) -> Vec<&'static str> {
     let parsed = parse(&format!("<?php\n{text}\n"));
+
     check_language_level(&parsed.syntax(), level)
         .into_iter()
         .map(|found| found.feature)
@@ -36,6 +38,7 @@ fn the_same_file_has_version_errors_only_at_the_old_level() {
     assert!(features_found(text, PhpVersion::V8_5).is_empty());
     let at_8_0 = diagnostics(text, PhpVersion::V8_0);
     let messages: Vec<&str> = at_8_0.iter().map(|found| found.0.as_str()).collect();
+
     assert_eq!(
         messages,
         [
@@ -44,6 +47,7 @@ fn the_same_file_has_version_errors_only_at_the_old_level() {
             "First-class callable syntax is only available since PHP 8.1"
         ]
     );
+
     let at_8_4 = diagnostics(text, PhpVersion::V8_4);
     assert_eq!(at_8_4.len(), 1, "{at_8_4:?}");
     assert!(at_8_4.iter().all(|found| found.1 == LevelSeverity::Error));
@@ -56,6 +60,7 @@ fn ranges_point_at_the_construct() {
     let found = check_language_level(&parsed.syntax(), PhpVersion::V8_3);
     assert_eq!(found.len(), 1);
     let range = found[0].range;
+
     assert_eq!(
         &source[usize::from(range.start())..usize::from(range.end())],
         "{ get => 1; }"
@@ -70,6 +75,7 @@ fn deprecations_are_warnings_with_the_tag() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].1, LevelSeverity::Warning);
     assert!(found[0].2);
+
     assert_eq!(
         found[0].0,
         "The ${...} form of string interpolation is deprecated since PHP 8.2"
@@ -90,37 +96,46 @@ fn every_feature_row_has_a_working_example() {
     for feature in FEATURES {
         let source = format!("<?php\n{}\n", feature.example);
         let parsed = parse(&source);
+
         assert_eq!(
             parsed.errors(),
             &[],
             "the example of {} must parse without syntax errors",
             feature.id
         );
+
         let found_at = |level: PhpVersion| features_found(feature.example, level).contains(&feature.id);
+
         if let Some(since) = feature.since {
             assert!(
                 found_at(since.previous()),
                 "{} must be reported below {since}",
                 feature.id
             );
+
             assert!(!found_at(since), "{} must be accepted at {since}", feature.id);
         }
+
         if let Some(removed) = feature.removed {
             assert!(
                 !found_at(removed.previous()),
                 "{} must be accepted below {removed}",
                 feature.id
             );
+
             assert!(found_at(removed), "{} must be reported from {removed}", feature.id);
         }
+
         if let Some(deprecated) = feature.deprecated {
             assert!(
                 !found_at(deprecated.previous()),
                 "{} must be quiet below {deprecated}",
                 feature.id
             );
+
             assert!(found_at(deprecated), "{} must warn from {deprecated}", feature.id);
         }
+
         assert!(
             feature.since.is_some() || feature.deprecated.is_some() || feature.removed.is_some(),
             "{} must change status in some version",
@@ -158,6 +173,7 @@ fn partial_application_parses_and_is_new_in_8_6() {
 fn what_php_8_6_allows_is_reported_before_it() {
     let text = "readonly class R { public int $y = 2; }\nclass A { public readonly int $x = 1; public int $z = 3; #[\\Override] const C = 1; }\nenum E { public function __debugInfo(): array { return []; } }\nFOO->bar = 1;\n$o->bar = 2;";
     assert!(features_found(text, PhpVersion::V8_6).is_empty());
+
     assert_eq!(
         features_found(text, PhpVersion::V8_5),
         [

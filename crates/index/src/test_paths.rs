@@ -10,15 +10,19 @@ pub fn is_test_file(path: &Path, root: &Path) -> bool {
         .file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with("Test.php"));
+
     if named_test {
         return true;
     }
+
     if root.as_os_str().is_empty() {
         return false;
     }
+
     let Some(folders) = path.strip_prefix(root).ok().and_then(Path::parent) else {
         return false;
     };
+
     folders.components().any(|component| match component {
         Component::Normal(name) => name
             .to_str()
@@ -94,7 +98,9 @@ mod tests {
             "/work/app/tests/C.php",
             "/work/app/src/D.php",
         ];
+
         demote_test_files(&mut items, |item| test_file(item));
+
         assert_eq!(
             items,
             vec![

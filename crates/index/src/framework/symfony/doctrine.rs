@@ -22,11 +22,13 @@ const MAPPING: &str = "Doctrine\\ORM\\Mapping\\";
 pub enum FieldKind {
     Column,
     Id,
+
     /// A relation to another entity.
     Relation {
         target: Option<Name>,
         many: bool,
     },
+
     Embedded,
 }
 
@@ -69,17 +71,21 @@ impl Entities {
 impl Section for Entities {
     fn build(index: &Index) -> Self {
         let mut found = Entities::default();
+
         for class in index.class_names() {
             if class.file.origin != Origin::Project {
                 continue;
             }
+
             let Some(loaded) = class.load() else {
                 continue;
             };
+
             if let Some(info) = read_entity(index, loaded) {
                 found.entities.push(info);
             }
         }
+
         found
     }
 
@@ -100,19 +106,23 @@ fn attribute_named<'a>(attributes: &'a [Attribute], short: &str) -> Option<&'a A
 fn read_entity(index: &Index, class: Class<'_>) -> Option<EntityInfo> {
     let decl = class.decl;
     let entity = attribute_named(&decl.attributes, "Entity")?;
+
     let repository = entity
         .args
         .iter()
         .find(|arg| arg.name.as_deref() == Some("repositoryClass"))
         .or_else(|| entity.args.first().filter(|arg| arg.name.is_none()))
         .and_then(|arg| class_in_attribute(index, class, &arg.value));
+
     let mut fields = Vec::new();
+
     for property in &decl.properties {
         let kind = if let Some(relation) = ["ManyToOne", "OneToOne", "OneToMany", "ManyToMany"]
             .iter()
             .find_map(|name| attribute_named(&property.attributes, name).map(|attribute| (*name, attribute)))
         {
             let (name, attribute) = relation;
+
             let target = attribute
                 .args
                 .iter()
@@ -125,6 +135,7 @@ fn read_entity(index: &Index, class: Class<'_>) -> Option<EntityInfo> {
                         .and_then(|ty| ty.class_names().into_iter().next().map(str::to_string))
                         .filter(|name| !name.ends_with("Collection"))
                 });
+
             FieldKind::Relation {
                 target,
                 many: matches!(name, "OneToMany" | "ManyToMany"),
@@ -138,12 +149,14 @@ fn read_entity(index: &Index, class: Class<'_>) -> Option<EntityInfo> {
         } else {
             continue;
         };
+
         fields.push(EntityField {
             name: property.name.clone(),
             kind,
             name_span: property.name_span,
         });
     }
+
     Some(EntityInfo {
         class: decl.name.clone(),
         repository,
@@ -165,9 +178,11 @@ pub fn entity_of_repository(index: &Index, repository: &Type) -> Option<Name> {
             }
         }
     }
+
     let Type::Class { name, .. } = repository else {
         return None;
     };
+
     index
         .section::<Entities>()
         .of_repository(name)
@@ -190,16 +205,20 @@ pub(crate) fn extend_properties<'a>(
     out: &mut Vec<Found<'a, crate::model::Property>>,
 ) {
     let entities = index.section::<Entities>();
+
     for found in out.iter_mut() {
         if only.is_some_and(|only| found.member.name != only) {
             continue;
         }
+
         let Some(entity) = entities.find(&found.class.decl.name) else {
             continue;
         };
+
         let Some(field) = entity.fields.iter().find(|field| field.name == found.member.name) else {
             continue;
         };
+
         let FieldKind::Relation {
             target: Some(target),
             many: true,
@@ -207,17 +226,22 @@ pub(crate) fn extend_properties<'a>(
         else {
             continue;
         };
+
         let Some(Type::Class { name, args }) = found.member.effective_type(index.level) else {
             continue;
         };
+
         if !args.is_empty() || !index.is_subclass_of(name, COLLECTION) && !name.eq_ignore_ascii_case(COLLECTION) {
             continue;
         }
+
         let mut refined = found.member.clone().into_owned();
+
         refined.doc_ty = Some(Type::Class {
             name: name.clone(),
             args: vec![Type::Int, Type::class(target.clone())],
         });
+
         found.member = Cow::Owned(refined);
     }
 }
@@ -236,35 +260,44 @@ pub(crate) fn extend_methods<'a>(
     let Some(first) = ancestors.first() else {
         return;
     };
+
     if !is_repository(ancestors) || first.class.decl.name.eq_ignore_ascii_case(ENTITY_REPOSITORY) {
         return;
     }
+
     let repository = Type::class(first.class.decl.name.clone());
+
     let Some(entity) = entity_of_repository(index, &repository) else {
         return;
     };
+
     let entity_type = Type::class(entity.clone());
+
     let interface = Type::Class {
         name: OBJECT_REPOSITORY.to_string(),
         args: vec![entity_type.clone()],
     };
+
     for found in out.iter_mut() {
         if !FINDERS.iter().any(|name| found.member.name.eq_ignore_ascii_case(name))
             || !found.class.decl.name.eq_ignore_ascii_case(ENTITY_REPOSITORY)
         {
             continue;
         }
+
         let Some(documented) = index
             .find_declared_method(&interface, &found.member.name)
             .and_then(|from| from.member.callable.doc_ret.clone().map(|ret| from.resolve(&ret)))
         else {
             continue;
         };
+
         let mut refined = found.member.clone().into_owned();
         refined.callable.doc_ret = Some(documented);
         refined.callable.ret = None;
         found.member = Cow::Owned(refined);
     }
+
     magic_finders(index, &entity, only, first, out, names);
 }
 
@@ -281,8 +314,10 @@ fn magic_finders<'a>(
     let Some(class) = index.class(entity) else {
         return;
     };
+
     let entity_type = Type::class(entity.to_string());
     let info = index.section::<Entities>();
+
     let fields: Vec<String> = match info.find(entity) {
         Some(info) => info.fields.iter().map(|field| field.name.clone()).collect(),
         None => class
@@ -292,24 +327,30 @@ fn magic_finders<'a>(
             .map(|property| property.name.clone())
             .collect(),
     };
+
     for field in fields {
         let studly = {
             let mut chars = field.chars();
+
             chars
                 .next()
                 .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
                 .unwrap_or_default()
         };
+
         let variants: [(&str, Type); 3] = [
             ("findBy", Type::List(Box::new(entity_type.clone()))),
             ("findOneBy", entity_type.clone().nullable()),
             ("countBy", Type::Int),
         ];
+
         for (prefix, ret) in variants {
             let name = format!("{prefix}{studly}");
+
             if only.is_some_and(|only| !only.eq_ignore_ascii_case(&name)) || !names.insert(name.to_ascii_lowercase()) {
                 continue;
             }
+
             out.push(Found {
                 class: first.class,
                 member: Cow::Owned(magic_method(&name, ret, &field, class.decl)),
@@ -320,6 +361,7 @@ fn magic_finders<'a>(
             });
         }
     }
+
     let _ = camel;
 }
 
@@ -338,6 +380,7 @@ fn magic_method(name: &str, ret: Type, field: &str, entity: &ClassDecl) -> Metho
         availability: Availability::default(),
         span: entity.name_span,
     };
+
     Method {
         name: name.to_string(),
         visibility: Visibility::Public,
@@ -390,6 +433,7 @@ mod tests {
 
     fn with_entities() -> crate::index::Index {
         let mut files = FRAMEWORK.to_vec();
+
         files.extend_from_slice(&[
             (
                 "src/Entity/User.php",
@@ -401,21 +445,25 @@ mod tests {
                 "<?php namespace App\\Repository;\nuse App\\Entity\\User;\nuse Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository;\n/** @extends ServiceEntityRepository<User> */\nclass UserRepository extends ServiceEntityRepository {}",
             ),
         ]);
+
         project(&files)
     }
 
     #[test]
     fn an_entity_names_its_repository_and_its_fields() {
         let index = with_entities();
+
         assert_eq!(
             repository_of(&index, "App\\Entity\\User").as_deref(),
             Some("App\\Repository\\UserRepository")
         );
+
         assert_eq!(repository_of(&index, "App\\Entity\\Post"), None);
         let entities = index.section::<Entities>();
         let user = entities.find("App\\Entity\\User").expect("an entity");
         let names: Vec<&str> = user.fields.iter().map(|field| field.name.as_str()).collect();
         assert_eq!(names, ["id", "email", "firstName", "posts"]);
+
         assert_eq!(
             user.fields[3].kind,
             FieldKind::Relation {
@@ -428,20 +476,25 @@ mod tests {
     #[test]
     fn a_collection_of_a_relation_holds_the_target_entity() {
         let mut index = with_entities();
+
         crate::framework::testing::add(
             &mut index,
             "vendor/orm/Collection.php",
             "<?php namespace Doctrine\\Common\\Collections; /** @template TKey @template T */ interface Collection {}",
         );
+
         crate::framework::testing::add(
             &mut index,
             "src/Entity/Author.php",
             "<?php namespace App\\Entity; use Doctrine\\Common\\Collections\\Collection; use Doctrine\\ORM\\Mapping as ORM; #[ORM\\Entity] class Author { #[ORM\\OneToMany(targetEntity: Post::class, mappedBy: 'author')] private Collection $posts; }",
         );
+
         let found = index
             .find_property(&Type::class("App\\Entity\\Author"), "posts")
             .expect("a property");
+
         let ty = found.member.effective_type(index.level).expect("a type");
+
         assert_eq!(
             ty.display(false),
             "Doctrine\\Common\\Collections\\Collection<int, App\\Entity\\Post>"
@@ -452,14 +505,17 @@ mod tests {
     fn the_finders_of_a_repository_give_its_entity() {
         let index = with_entities();
         let repository = Type::class("App\\Repository\\UserRepository");
+
         let shown = |name: &str| {
             let found = index.find_method(&repository, name).expect("a method");
+
             found
                 .member
                 .callable
                 .effective_return(index.level)
                 .map(|ty| found.resolve(ty).display(false))
         };
+
         assert_eq!(shown("find").as_deref(), Some("?App\\Entity\\User"));
         assert_eq!(shown("findOneBy").as_deref(), Some("?App\\Entity\\User"));
         assert_eq!(shown("findAll").as_deref(), Some("list<App\\Entity\\User>"));

@@ -21,8 +21,10 @@ pub(crate) fn wanted(kind: &str, only: Option<&[CodeActionKind]>) -> bool {
     let Some(only) = only else {
         return true;
     };
+
     only.iter().any(|requested| {
         let requested = requested.as_str();
+
         kind == requested || kind.starts_with(&format!("{requested}."))
     })
 }
@@ -45,6 +47,7 @@ fn workspace_edit(
     edits: &[php_analysis::completion::TextEdit],
 ) -> WorkspaceEdit {
     let edits = lsp_edits(mapper, edits);
+
     if document_changes {
         return WorkspaceEdit {
             changes: None,
@@ -58,6 +61,7 @@ fn workspace_edit(
             change_annotations: None,
         };
     }
+
     WorkspaceEdit {
         changes: Some(HashMap::from([(uri.clone(), edits)])),
         document_changes: None,
@@ -67,6 +71,7 @@ fn workspace_edit(
 
 pub(crate) fn selection(mapper: &Mapper, range: lsp_types::Range) -> TextRange {
     let (start, end) = (mapper.offset(range.start), mapper.offset(range.end));
+
     TextRange::new(start.min(end), start.max(end))
 }
 
@@ -78,20 +83,24 @@ impl Server {
         let version = self.documents.get(&uri)?.version;
         let only = params.context.only.clone();
         let refactors = self.refactor_actions(&params);
+
         let fixes = self.inspect_document(&uri, |env, mapper, _| {
             let range = selection(mapper, params.range);
             let findings = inspect(env);
+
             let input = ActionInput {
                 env,
                 range,
                 findings: &findings,
             };
+
             with_actions(&input, |actions| {
                 actions
                     .iter()
                     .filter(|action| wanted(action.kind.name(), only.as_deref()))
                     .map(|action| {
                         let defer = resolve && action.expensive;
+
                         CodeActionOrCommand::CodeAction(CodeAction {
                             title: action.title.clone(),
                             kind: Some(CodeActionKind::from(action.kind.name().to_string())),
@@ -117,17 +126,23 @@ impl Server {
                     .collect::<CodeActionResponse>()
             })
         })?;
+
         let mut actions: Vec<Value> = fixes
             .into_iter()
             .filter_map(|action| serde_json::to_value(action).ok())
             .collect();
+
         actions.extend(refactors);
+
         let range = {
             let document = self.documents.get(&uri)?;
+
             selection(&document.mapper(self.encoding), params.range)
         };
+
         let sql = self.sql_code_actions(&uri, range, &params.context.diagnostics, only.as_deref());
         actions.extend(sql.into_iter().filter_map(|action| serde_json::to_value(action).ok()));
+
         Some(actions)
     }
 
@@ -136,9 +151,11 @@ impl Server {
         if action.pointer("/data/refactor").and_then(Value::as_bool) == Some(true) {
             return self.resolve_refactor(action);
         }
+
         let Ok(action) = serde_json::from_value::<CodeAction>(action) else {
             return Ok(None);
         };
+
         Ok(self
             .resolve_fix(action)
             .and_then(|resolved| serde_json::to_value(resolved).ok()))
@@ -151,27 +168,35 @@ impl Server {
         let id = data.get("id")?.as_str()?.to_string();
         let (start, end) = (data.get("start")?.as_u64()?, data.get("end")?.as_u64()?);
         let document_changes = self.document_changes;
+
         if self.documents.get(&uri)?.version != version {
             return Some(action);
         }
+
         let range = TextRange::new(
             TextSize::from(u32::try_from(start).ok()?),
             TextSize::from(u32::try_from(end).ok()?),
         );
+
         let edit = self.inspect_document(&uri, |env, mapper, _| {
             let findings = inspect(env);
+
             let input = ActionInput {
                 env,
                 range,
                 findings: &findings,
             };
+
             with_actions(&input, |actions| {
                 let found: Option<&Action<'_>> = actions.iter().find(|candidate| candidate.id == id);
+
                 found.map(|found| workspace_edit(&uri, version, document_changes, mapper, &found.edits()))
             })
         })??;
+
         action.edit = Some(edit);
         action.data = None::<Value>;
+
         Some(action)
     }
 
@@ -180,13 +205,17 @@ impl Server {
     pub(crate) fn on_type_formatting(&mut self, params: DocumentOnTypeFormattingParams) -> Option<Vec<TextEdit>> {
         let uri = params.text_document_position.text_document.uri.clone();
         let position = params.text_document_position.position;
+
         let stub = self.inspect_document(&uri, |env, mapper, _| {
             let offset = u32::from(mapper.offset(position));
+
             if params.ch == "\n" {
                 return php_analysis::actions::doc_stub_at(env, offset).map(|stub| lsp_edits(mapper, &[stub]));
             }
+
             None
         })?;
+
         match stub {
             Some(edits) => Some(edits),
             None => self.typed_formatting(&params).or_else(|| Some(Vec::new())),

@@ -14,10 +14,13 @@ pub struct Diagnostic {
     pub range: TextRange,
     pub message: String,
     pub severity: DiagnosticSeverity,
+
     /// Set for deprecated syntax, which a client may draw struck through.
     pub deprecated: bool,
+
     /// Set for code that does nothing, which a client may draw faded.
     pub unnecessary: bool,
+
     /// `syntax` for a parse error, the feature id for a language level finding.
     pub code: &'static str,
 }
@@ -36,6 +39,7 @@ pub fn diagnostics(parse: &Parse, level: PhpVersion) -> Vec<Diagnostic> {
             code: "syntax",
         })
         .collect();
+
     found.extend(
         check_language_level(&parse.syntax(), level)
             .into_iter()
@@ -51,7 +55,9 @@ pub fn diagnostics(parse: &Parse, level: PhpVersion) -> Vec<Diagnostic> {
                 code: finding.feature,
             }),
     );
+
     found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
+
     found
 }
 
@@ -66,6 +72,7 @@ mod tests {
         let found = diagnostics(&parsed, PhpVersion::V8_4);
         let codes: Vec<_> = found.iter().map(|found| found.code).collect();
         assert_eq!(codes, ["pipe-operator", "syntax"]);
+
         assert!(
             diagnostics(&parsed, PhpVersion::DEFAULT)
                 .iter()

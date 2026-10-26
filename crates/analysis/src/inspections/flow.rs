@@ -15,10 +15,13 @@ use crate::infer::Analyzer;
 enum End {
     /// Control goes on to what follows.
     Completes,
+
     /// The function does not go on: `return`, `throw`, `exit`.
     Terminates,
+
     /// `break` or `continue`: control leaves the loop or `switch` around.
     Jumps,
+
     /// Not known.
     Unknown,
 }
@@ -43,8 +46,10 @@ fn statements_of(container: &SyntaxNode) -> Vec<SyntaxNode> {
     if !matches!(container.kind(), CASE_CLAUSE | DEFAULT_CLAUSE) {
         return container.children().collect();
     }
+
     let mut after_colon = false;
     let mut out = Vec::new();
+
     for element in container.children_with_tokens() {
         match element {
             php_syntax::SyntaxElement::Token(token) if matches!(token.kind(), COLON | SEMICOLON) => {
@@ -54,6 +59,7 @@ fn statements_of(container: &SyntaxNode) -> Vec<SyntaxNode> {
             _ => {}
         }
     }
+
     out
 }
 
@@ -81,7 +87,9 @@ fn check_unreachable(cx: &Cx, container: &SyntaxNode) {
     if !cx.on("unreachable-code") || has_goto(container) {
         return;
     }
+
     let statements = statements_of(container);
+
     let Some(position) = statements.iter().position(|statement| {
         !is_hoisted(statement.kind())
             && statement_end(cx, statement) != End::Completes
@@ -89,14 +97,18 @@ fn check_unreachable(cx: &Cx, container: &SyntaxNode) {
     }) else {
         return;
     };
+
     let rest: Vec<&SyntaxNode> = statements[position + 1..]
         .iter()
         .filter(|statement| !is_hoisted(statement.kind()))
         .collect();
+
     let (Some(first), Some(last)) = (rest.first(), rest.last()) else {
         return;
     };
+
     let range = TextRange::new(first.text_range().start(), last.text_range().end());
+
     cx.report(
         "unreachable-code",
         range,
@@ -129,16 +141,19 @@ pub(crate) fn statements_leave(cx: &Cx, statements: &[SyntaxNode]) -> bool {
 
 fn sequence_end(cx: &Cx, statements: &[SyntaxNode]) -> End {
     let mut unknown = false;
+
     for statement in statements {
         if is_hoisted(statement.kind()) {
             continue;
         }
+
         match statement_end(cx, statement) {
             End::Completes => {}
             End::Unknown => unknown = true,
             other => return if unknown { End::Unknown } else { other },
         }
     }
+
     if unknown { End::Unknown } else { End::Completes }
 }
 
@@ -154,9 +169,11 @@ fn alternatives_end(ends: &[End]) -> End {
     if ends.contains(&End::Completes) {
         return End::Completes;
     }
+
     if ends.contains(&End::Unknown) {
         return End::Unknown;
     }
+
     if ends.iter().all(|end| *end == End::Terminates) {
         End::Terminates
     } else {
@@ -185,6 +202,7 @@ fn expression_end(cx: &Cx, statement: &SyntaxNode) -> End {
     let Some(expression) = statement.children().next() else {
         return End::Completes;
     };
+
     match expression.kind() {
         THROW_EXPR | EXIT_EXPR => End::Terminates,
         CALL_EXPR => call_end(cx, &expression),
@@ -200,9 +218,11 @@ fn call_end(cx: &Cx, call: &SyntaxNode) -> End {
     let env = analyzer.env_around(call);
     let mut callees = analyzer.callees(call, &env);
     callees.dedup_by(|left, right| left.name == right.name);
+
     let [callee] = callees.as_slice() else {
         return End::Completes;
     };
+
     if callee.callable.native_return(cx.index.level) == Some(&Type::Never) {
         End::Terminates
     } else if callee.callable.doc_ret.as_ref() == Some(&Type::Never) {
@@ -215,11 +235,14 @@ fn call_end(cx: &Cx, call: &SyntaxNode) -> End {
 fn if_end(cx: &Cx, statement: &SyntaxNode) -> End {
     let mut parts = statement.children();
     let condition = parts.next();
+
     if condition.as_ref().is_some_and(is_constant_true) {
         return End::Unknown;
     }
+
     let mut ends = Vec::new();
     let mut has_else = false;
+
     for part in parts {
         match part.kind() {
             ELSEIF_CLAUSE => {
@@ -234,15 +257,18 @@ fn if_end(cx: &Cx, statement: &SyntaxNode) -> End {
             _ => ends.push(branch_end(cx, &part)),
         }
     }
+
     if !has_else {
         return End::Completes;
     }
+
     alternatives_end(&ends)
 }
 
 fn is_constant_true(condition: &SyntaxNode) -> bool {
     let text = condition.text().to_string();
     let text = text.trim();
+
     text.eq_ignore_ascii_case("true") || text == "1"
 }
 
@@ -252,13 +278,16 @@ fn loop_end(statement: &SyntaxNode) -> End {
         DO_WHILE_STATEMENT => statement.children().last(),
         _ => None,
     };
+
     let endless = match statement.kind() {
         FOR_STATEMENT => for_condition_is_empty(statement),
         _ => condition.as_ref().is_some_and(is_constant_true),
     };
+
     if !endless {
         return End::Completes;
     }
+
     if leaves_loop(statement) {
         End::Completes
     } else {
@@ -269,9 +298,11 @@ fn loop_end(statement: &SyntaxNode) -> End {
 /// `for (init; ; step)`: nothing between the two semicolons.
 fn for_condition_is_empty(statement: &SyntaxNode) -> bool {
     let mut semicolons = 0;
+
     for element in statement.children_with_tokens() {
         if element.kind() == SEMICOLON {
             semicolons += 1;
+
             if semicolons == 2 {
                 return true;
             }
@@ -279,6 +310,7 @@ fn for_condition_is_empty(statement: &SyntaxNode) -> bool {
             return false;
         }
     }
+
     false
 }
 
@@ -286,12 +318,14 @@ fn for_condition_is_empty(statement: &SyntaxNode) -> bool {
 fn leaves_loop(statement: &SyntaxNode) -> bool {
     let mut preorder = statement.preorder();
     let mut depth = 0u32;
+
     while let Some(event) = preorder.next() {
         match event {
             php_syntax::WalkEvent::Enter(node) => {
                 if node == *statement {
                     continue;
                 }
+
                 match node.kind() {
                     FUNCTION_DECLARATION | CLOSURE_EXPR | ARROW_FUNCTION_EXPR | CLASS_DECLARATION | ANONYMOUS_CLASS => {
                         preorder.skip_subtree();
@@ -310,6 +344,7 @@ fn leaves_loop(statement: &SyntaxNode) -> bool {
                             })
                             .and_then(|token| token.text().parse().ok())
                             .unwrap_or(1);
+
                         if level > depth {
                             return true;
                         }
@@ -328,6 +363,7 @@ fn leaves_loop(statement: &SyntaxNode) -> bool {
             }
         }
     }
+
     false
 }
 
@@ -336,12 +372,16 @@ fn switch_end(cx: &Cx, statement: &SyntaxNode) -> End {
         .children()
         .filter(|child| matches!(child.kind(), CASE_CLAUSE | DEFAULT_CLAUSE))
         .collect();
+
     if !clauses.iter().any(|clause| clause.kind() == DEFAULT_CLAUSE) {
         return End::Completes;
     }
+
     let mut unknown = false;
+
     for (position, clause) in clauses.iter().enumerate() {
         let last = position + 1 == clauses.len();
+
         match sequence_end(cx, &statements_of(clause)) {
             End::Jumps => return End::Completes,
             End::Completes if last => return End::Completes,
@@ -349,6 +389,7 @@ fn switch_end(cx: &Cx, statement: &SyntaxNode) -> End {
             _ => {}
         }
     }
+
     if unknown { End::Unknown } else { End::Terminates }
 }
 
@@ -358,18 +399,23 @@ fn try_end(cx: &Cx, statement: &SyntaxNode) -> End {
             .children()
             .next()
             .map_or(End::Completes, |body| branch_end(cx, &body));
+
         if ends != End::Completes {
             return ends;
         }
     }
+
     let mut ends = Vec::new();
+
     if let Some(body) = statement.children().find(|child| child.kind() == BLOCK) {
         ends.push(branch_end(cx, &body));
     }
+
     for catch in statement.children().filter(|child| child.kind() == CATCH_CLAUSE) {
         let body = catch.children().find(|child| child.kind() == BLOCK);
         ends.push(body.map_or(End::Unknown, |body| branch_end(cx, &body)));
     }
+
     alternatives_end(&ends)
 }
 
@@ -378,27 +424,36 @@ fn try_end(cx: &Cx, statement: &SyntaxNode) -> End {
 fn check_function(cx: &Cx, function: &SyntaxNode) {
     let wants_missing = cx.on("missing-return");
     let wants_returns = cx.on("return-type-mismatch");
+
     if !(wants_missing || wants_returns) {
         return;
     }
+
     let Some(return_type) = child_of(function, RETURN_TYPE) else {
         return;
     };
+
     let body = child_of(function, BLOCK);
+
     if body.as_ref().is_some_and(|body| contains_yield(body) || has_goto(body)) {
         return;
     }
+
     let analyzer = cx.file.analyzer(function);
     let callable = super::types::callable_of(&analyzer, function);
+
     let Some(declared) = callable.native_return(cx.index.level).cloned() else {
         return;
     };
+
     let label = declared.display(true);
+
     if wants_missing && !matches!(declared, Type::Void | Type::Never) {
         if let Some(body) = &body {
             if sequence_end(cx, &body.children().collect::<Vec<_>>()) == End::Completes {
                 let anchor =
                     child_of(function, NAME).map_or_else(|| return_type.text_range(), |name| name.text_range());
+
                 cx.report(
                     "missing-return",
                     anchor,
@@ -408,6 +463,7 @@ fn check_function(cx: &Cx, function: &SyntaxNode) {
             }
         }
     }
+
     if wants_returns {
         check_returns(cx, function, &analyzer, &callable, &declared);
     }
@@ -415,10 +471,12 @@ fn check_function(cx: &Cx, function: &SyntaxNode) {
 
 fn contains_yield(body: &SyntaxNode) -> bool {
     let mut preorder = body.preorder();
+
     while let Some(event) = preorder.next() {
         let php_syntax::WalkEvent::Enter(node) = event else {
             continue;
         };
+
         match node.kind() {
             YIELD_EXPR | YIELD_FROM_EXPR => return true,
             FUNCTION_DECLARATION | CLOSURE_EXPR | ARROW_FUNCTION_EXPR | ANONYMOUS_CLASS | CLASS_DECLARATION => {
@@ -427,6 +485,7 @@ fn contains_yield(body: &SyntaxNode) -> bool {
             _ => {}
         }
     }
+
     false
 }
 
@@ -439,22 +498,28 @@ fn check_returns(cx: &Cx, function: &SyntaxNode, analyzer: &Analyzer<'_>, _calla
         {
             check_returned_value(cx, analyzer, &value, declared);
         }
+
         return;
     }
+
     let Some(body) = child_of(function, BLOCK) else {
         return;
     };
+
     let mut preorder = body.preorder();
+
     while let Some(event) = preorder.next() {
         let php_syntax::WalkEvent::Enter(node) = event else {
             continue;
         };
+
         match node.kind() {
             FUNCTION_DECLARATION | CLOSURE_EXPR | ARROW_FUNCTION_EXPR | ANONYMOUS_CLASS | CLASS_DECLARATION => {
                 preorder.skip_subtree();
             }
             RETURN_STATEMENT => {
                 let value = node.children().next();
+
                 match value {
                     Some(value) => {
                         if matches!(declared, Type::Void) {
@@ -494,9 +559,11 @@ fn check_returns(cx: &Cx, function: &SyntaxNode, analyzer: &Analyzer<'_>, _calla
 
 fn check_returned_value(cx: &Cx, analyzer: &Analyzer<'_>, value: &SyntaxNode, declared: &Type) {
     let env = analyzer.env_around(value);
+
     let Some(given) = sure_type(cx, analyzer, &env, value) else {
         return;
     };
+
     if cx.type_mismatch(&given, declared, false) {
         cx.report(
             "return-type-mismatch",
@@ -517,11 +584,13 @@ fn check_condition(cx: &Cx, node: &SyntaxNode) {
     if !cx.on("assignment-in-condition") {
         return;
     }
+
     let condition = match node.kind() {
         IF_STATEMENT | WHILE_STATEMENT | TERNARY_EXPR | ELSEIF_CLAUSE => node.children().next(),
         DO_WHILE_STATEMENT => node.children().last(),
         _ => None,
     };
+
     if let Some(condition) = condition {
         look_for_assignments(cx, &condition);
     }
@@ -536,6 +605,7 @@ fn look_for_assignments(cx: &Cx, condition: &SyntaxNode) {
         }
         BINARY_EXPR => {
             let logical = tokens(condition).any(|token| matches!(token.kind(), AND_AND | OR_OR | AND_KW | OR_KW));
+
             if logical {
                 for operand in condition.children() {
                     look_for_assignments(cx, &operand);
@@ -544,12 +614,15 @@ fn look_for_assignments(cx: &Cx, condition: &SyntaxNode) {
         }
         ASSIGN_EXPR => {
             let operator = tokens(condition).find(|token| !token.kind().is_trivia());
+
             let Some(operator) = operator.filter(|token| token.kind() == ASSIGN) else {
                 return;
             };
+
             let Some(value) = condition.children().last() else {
                 return;
             };
+
             if is_constant_value(&value) && !was_parenthesized(condition) {
                 cx.report(
                     "assignment-in-condition",
@@ -582,33 +655,44 @@ fn check_comparison(cx: &Cx, node: &SyntaxNode) {
     if !cx.on("incompatible-comparison") {
         return;
     }
+
     let Some(operator) = tokens(node).find(|token| !token.kind().is_trivia()) else {
         return;
     };
+
     let identical = operator.kind() == IDENTICAL;
+
     if !identical && operator.kind() != NOT_IDENTICAL {
         return;
     }
+
     let operands: Vec<SyntaxNode> = node.children().collect();
+
     let [left, right] = operands.as_slice() else {
         return;
     };
+
     let analyzer = cx.file.analyzer(node);
     let env = analyzer.env_around(node);
+
     let (Some(left_type), Some(right_type)) = (
         sure_type(cx, &analyzer, &env, left),
         sure_type(cx, &analyzer, &env, right),
     ) else {
         return;
     };
+
     let (Some(left_kinds), Some(right_kinds)) = (kinds_of(&left_type), kinds_of(&right_type)) else {
         return;
     };
+
     // Testing a value for `null` that cannot be is how code guards against what the types promise.
     if left_kinds.intersects(right_kinds) || left_kinds == Kinds::NULL || right_kinds == Kinds::NULL {
         return;
     }
+
     let outcome = if identical { "false" } else { "true" };
+
     cx.report(
         "incompatible-comparison",
         node.text_range(),

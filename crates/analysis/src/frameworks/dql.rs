@@ -25,6 +25,7 @@ pub enum Part {
         name: String,
         range: TextRange,
     },
+
     /// A class a statement names: an entity after `FROM`, `JOIN`, `UPDATE` or `DELETE`, or the class
     /// of `NEW` and `INSTANCE OF`.
     Class { name: String, range: TextRange },
@@ -45,9 +46,12 @@ enum Token {
         text: String,
         start: Option<u32>,
     },
+
     /// A class the code names with `::class` between two pieces.
     Class(String),
+
     Punct,
+
     /// Code whose value is not known, between two pieces.
     Hole,
 }
@@ -86,29 +90,37 @@ fn is_concat(node: &SyntaxNode) -> bool {
 fn lex(text: &str, base: u32, out: &mut Vec<Token>) {
     let bytes = text.as_bytes();
     let mut at = 0;
+
     while at < bytes.len() {
         let byte = bytes[at];
+
         if byte.is_ascii_whitespace() {
             at += 1;
         } else if byte == b'\'' || byte == b'"' {
             // A string of the query, which names nothing.
             at += 1;
+
             while at < bytes.len() && bytes[at] != byte {
                 at += 1;
             }
+
             at += 1;
             out.push(Token::Hole);
         } else if byte == b':' || byte == b'?' {
             at += 1;
+
             while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_') {
                 at += 1;
             }
+
             out.push(Token::Hole);
         } else if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'\\' {
             let start = at;
+
             while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || matches!(bytes[at], b'_' | b'\\' | b'.')) {
                 at += 1;
             }
+
             out.push(Token::Word {
                 text: text[start..at].to_string(),
                 start: Some(base + start as u32),
@@ -143,17 +155,20 @@ fn give(aliases: &mut Aliases, alias: &str, entity: Option<String>) {
 fn class_named(analyzer: &Analyzer<'_>, name: &str) -> Option<String> {
     let name = name.replace("\\\\", "\\");
     let class = analyzer.index.class(name.trim_start_matches('\\'))?;
+
     Some(class.decl.name.clone())
 }
 
 /// The entity a relation of an entity leads to.
 fn relation_target(analyzer: &Analyzer<'_>, entity: &str, field: &str) -> Option<String> {
     let entities = analyzer.index.section::<Entities>();
+
     let found = entities
         .find(entity)?
         .fields
         .iter()
         .find(|candidate| candidate.name == field)?;
+
     match &found.kind {
         FieldKind::Relation { target, .. } => target.clone(),
         _ => None,
@@ -165,6 +180,7 @@ fn joined(analyzer: &Analyzer<'_>, aliases: &Aliases, join: &str) -> Option<Opti
     match join.split_once('.') {
         Some((alias, field)) => {
             let entity = aliases.get(alias)?.as_ref()?;
+
             Some(relation_target(analyzer, entity, field))
         }
         None => Some(class_named(analyzer, join)),
@@ -182,9 +198,11 @@ fn is_keyword(token: &Token, keyword: &str) -> bool {
 /// The alias after the name at `at`, skipping `AS`.
 fn alias_after(tokens: &[Token], at: usize) -> Option<String> {
     let mut next = at + 1;
+
     if tokens.get(next).is_some_and(|token| is_keyword(token, "as")) {
         next += 1;
     }
+
     match tokens.get(next)? {
         Token::Word { text, .. }
             if !text.contains(['.', '\\']) && !NOT_ALIASES.contains(&text.to_ascii_lowercase().as_str()) =>
@@ -198,15 +216,19 @@ fn alias_after(tokens: &[Token], at: usize) -> Option<String> {
 /// The aliases a statement gives in its `FROM`, `JOIN`, `UPDATE` and `DELETE`, and the classes it names.
 fn read_statement(analyzer: &Analyzer<'_>, tokens: &[Token], aliases: &mut Aliases, parts: &mut Vec<Part>) {
     let mut joins: Vec<(String, String)> = Vec::new();
+
     for (at, token) in tokens.iter().enumerate() {
         let names_class = ["from", "join", "update", "delete", "new"]
             .iter()
             .any(|keyword| is_keyword(token, keyword))
             || is_keyword(token, "of") && at > 0 && is_keyword(&tokens[at - 1], "instance");
+
         if !names_class {
             continue;
         }
+
         let gives_alias = !is_keyword(token, "new") && !is_keyword(token, "of");
+
         match tokens.get(at + 1) {
             Some(Token::Class(name)) => {
                 if gives_alias {
@@ -224,13 +246,16 @@ fn read_statement(analyzer: &Analyzer<'_>, tokens: &[Token], aliases: &mut Alias
                 if is_keyword(&tokens[at + 1], "from") {
                     continue;
                 }
+
                 let class = class_named(analyzer, text);
+
                 if let (Some(class), Some(start)) = (&class, start) {
                     parts.push(Part::Class {
                         name: class.clone(),
                         range: range_of(*start, start + text.len() as u32),
                     });
                 }
+
                 if gives_alias {
                     if let Some(alias) = alias_after(tokens, at + 1) {
                         give(aliases, &alias, class);
@@ -240,6 +265,7 @@ fn read_statement(analyzer: &Analyzer<'_>, tokens: &[Token], aliases: &mut Alias
             _ => {}
         }
     }
+
     settle_joins(analyzer, aliases, joins);
 }
 
@@ -247,17 +273,21 @@ fn read_statement(analyzer: &Analyzer<'_>, tokens: &[Token], aliases: &mut Alias
 fn settle_joins(analyzer: &Analyzer<'_>, aliases: &mut Aliases, mut joins: Vec<(String, String)>) {
     loop {
         let before = joins.len();
+
         joins.retain(|(join, alias)| match joined(analyzer, aliases, join) {
             Some(entity) => {
                 give(aliases, alias, entity);
+
                 false
             }
             None => true,
         });
+
         if joins.is_empty() || joins.len() == before {
             break;
         }
     }
+
     for (_, alias) in joins {
         give(aliases, &alias, None);
     }
@@ -273,14 +303,18 @@ fn read_paths(tokens: &[Token], aliases: &Aliases, parts: &mut Vec<Part>) {
         else {
             continue;
         };
+
         let Some((alias, rest)) = text.split_once('.') else {
             continue;
         };
+
         let Some(Some(entity)) = aliases.get(alias) else {
             continue;
         };
+
         let name = rest.split('.').next().unwrap_or_default();
         let from = start + alias.len() as u32 + 1;
+
         parts.push(Part::Field {
             entity: entity.clone(),
             name: name.to_string(),
@@ -293,10 +327,12 @@ fn read_paths(tokens: &[Token], aliases: &Aliases, parts: &mut Vec<Part>) {
 fn role_of(analyzer: &Analyzer<'_>, argument: &SyntaxNode) -> Option<bool> {
     let list = argument.parent().filter(|list| list.kind() == ARGUMENT_LIST)?;
     let call = list.parent().filter(|call| call.kind() == CALL_EXPR)?;
+
     let position = list
         .children()
         .filter(|child| child.kind() == ARGUMENT)
         .position(|child| &child == argument)?;
+
     callees_of(analyzer, &call).into_iter().find_map(|callee| {
         markers_for(
             analyzer.index,
@@ -323,8 +359,10 @@ pub(crate) fn is_dql_argument(analyzer: &Analyzer<'_>, argument: &SyntaxNode) ->
 /// The argument whose expression a literal is a piece of.
 fn argument_around(literal: &SyntaxNode) -> Option<SyntaxNode> {
     let mut node = literal.clone();
+
     loop {
         let parent = node.parent()?;
+
         match parent.kind() {
             ARGUMENT => return Some(parent),
             BINARY_EXPR if is_concat(&parent) => node = parent,
@@ -339,6 +377,7 @@ fn argument_around(literal: &SyntaxNode) -> Option<SyntaxNode> {
 fn builder_aliases(analyzer: &Analyzer<'_>, scope: &SyntaxNode) -> Aliases {
     let mut aliases = Aliases::new();
     let mut joins: Vec<(String, String)> = Vec::new();
+
     for call in scope.descendants().filter(|node| node.kind() == CALL_EXPR) {
         let Some(name) = call
             .children()
@@ -347,27 +386,34 @@ fn builder_aliases(analyzer: &Analyzer<'_>, scope: &SyntaxNode) -> Aliases {
         else {
             continue;
         };
+
         if !is_marked(analyzer.index, &name.text().to_string()) {
             continue;
         }
+
         let arguments: Vec<SyntaxNode> = call
             .children()
             .find(|child| child.kind() == ARGUMENT_LIST)
             .map(|list| list.children().filter(|child| child.kind() == ARGUMENT).collect())
             .unwrap_or_default();
+
         let value = |position: usize| arguments.get(position).and_then(|argument| argument.children().last());
+
         let text = |position: usize| {
             value(position)
                 .and_then(|node| php_index::test_facts::string_value(&node))
                 .map(|(text, _)| text)
         };
+
         let class = |position: usize| {
             let node = value(position)?;
+
             match php_index::test_facts::class_constant(&node, &analyzer.resolver) {
                 Some(class) => Some(class_named(analyzer, &class)),
                 None => php_index::test_facts::string_value(&node).map(|(text, _)| class_named(analyzer, &text)),
             }
         };
+
         for callee in callees_of(analyzer, &call) {
             let markers = markers_for(
                 analyzer.index,
@@ -375,6 +421,7 @@ fn builder_aliases(analyzer: &Analyzer<'_>, scope: &SyntaxNode) -> Aliases {
                 callee.receiver.as_deref(),
                 &callee.method,
             );
+
             for marker in markers {
                 match marker {
                     Marker::DqlFrom { entity, alias } => {
@@ -386,6 +433,7 @@ fn builder_aliases(analyzer: &Analyzer<'_>, scope: &SyntaxNode) -> Aliases {
                         let Some(alias) = text(alias) else {
                             continue;
                         };
+
                         match (text(join), class(join)) {
                             (Some(path), _) if path.contains('.') && !path.contains('\\') => joins.push((path, alias)),
                             (_, Some(entity)) => give(&mut aliases, &alias, entity),
@@ -396,10 +444,12 @@ fn builder_aliases(analyzer: &Analyzer<'_>, scope: &SyntaxNode) -> Aliases {
                         let Some(alias) = text(alias) else {
                             continue;
                         };
+
                         let entity = callee
                             .receiver_type
                             .as_ref()
                             .and_then(|receiver| entity_of_repository(analyzer.index, receiver));
+
                         give(&mut aliases, &alias, entity);
                     }
                     _ => {}
@@ -407,7 +457,9 @@ fn builder_aliases(analyzer: &Analyzer<'_>, scope: &SyntaxNode) -> Aliases {
             }
         }
     }
+
     settle_joins(analyzer, &mut aliases, joins);
+
     aliases
 }
 
@@ -428,19 +480,23 @@ fn parts_of_argument(
     let expression = argument.children().last()?;
     let mut tokens = Vec::new();
     tokens_of(analyzer, &expression, &mut tokens);
+
     let mut aliases = if whole {
         Aliases::new()
     } else {
         let scope = scope_of(argument);
+
         builders
             .entry(scope.text_range())
             .or_insert_with(|| builder_aliases(analyzer, &scope))
             .clone()
     };
+
     let mut parts = Vec::new();
     // A part may hold a subquery with its own `FROM`.
     read_statement(analyzer, &tokens, &mut aliases, &mut parts);
     read_paths(&tokens, &aliases, &mut parts);
+
     Some(parts)
 }
 
@@ -449,15 +505,19 @@ pub fn part_at(ctx: &FileContext<'_>, offset: u32) -> Option<Part> {
     if !ctx.index.frameworks().symfony {
         return None;
     }
+
     let literal = crate::ast::node_at(&ctx.root, offset)
         .ancestors()
         .find(|node| node.kind() == LITERAL)?;
+
     let argument = argument_around(&literal)?;
     let analyzer = ctx.analyzer(&literal);
+
     parts_of_argument(&analyzer, &argument, &mut HashMap::new())?
         .into_iter()
         .find(|part| {
             let range = part.range();
+
             u32::from(range.start()) <= offset && offset <= u32::from(range.end())
         })
 }
@@ -467,21 +527,27 @@ pub fn parts_in(ctx: &FileContext<'_>) -> Vec<Part> {
     if !ctx.index.frameworks().symfony {
         return Vec::new();
     }
+
     let mut builders = HashMap::new();
     let mut out = Vec::new();
+
     for argument in ctx.root.descendants().filter(|node| node.kind() == ARGUMENT) {
         let holds_string = argument
             .children()
             .last()
             .is_some_and(|expression| matches!(expression.kind(), LITERAL | BINARY_EXPR | PAREN_EXPR));
+
         if !holds_string || !argument.descendants().any(|node| node.kind() == LITERAL) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&argument);
+
         if let Some(parts) = parts_of_argument(&analyzer, &argument, &mut builders) {
             out.extend(parts);
         }
     }
+
     out
 }
 
@@ -490,24 +556,31 @@ pub fn parts_with(ctx: &FileContext<'_>, word: &str) -> Vec<Part> {
     if !ctx.index.frameworks().symfony {
         return Vec::new();
     }
+
     let mut builders = HashMap::new();
     let mut seen = Vec::new();
     let mut out = Vec::new();
+
     for literal in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
         if php_index::test_facts::string_value(&literal).is_none_or(|(text, _)| !text.contains(word)) {
             continue;
         }
+
         let Some(argument) = argument_around(&literal) else {
             continue;
         };
+
         if seen.contains(&argument) {
             continue;
         }
+
         seen.push(argument.clone());
         let analyzer = ctx.analyzer(&literal);
+
         if let Some(parts) = parts_of_argument(&analyzer, &argument, &mut builders) {
             out.extend(parts);
         }
     }
+
     out
 }

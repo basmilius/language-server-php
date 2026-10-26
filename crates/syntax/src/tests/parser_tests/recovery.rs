@@ -13,6 +13,7 @@ fn missing_semicolon_keeps_the_next_statement() {
         error 6..6: ';' expected
     "#]],
     );
+
     check(
         "echo 1\necho 2;",
         expect![[r#"
@@ -37,6 +38,7 @@ fn unclosed_brackets_stop_at_the_statement_end() {
         error 8..8: ')' expected
     "#]],
     );
+
     check(
         "$a = [1, 2;\n$b = 2;",
         expect![[r#"
@@ -47,6 +49,7 @@ fn unclosed_brackets_stop_at_the_statement_end() {
         error 10..10: ']' expected
     "#]],
     );
+
     check(
         "$a = (1 + ;\n$b = 2;",
         expect![[r#"
@@ -72,6 +75,7 @@ fn missing_expression() {
         error 4..4: Expression expected
     "#]],
     );
+
     check(
         "$a = 1 + ;\n$b = 2;",
         expect![[r#"
@@ -82,6 +86,7 @@ fn missing_expression() {
         error 8..8: Expression expected
     "#]],
     );
+
     check(
         "return $a +;",
         expect![[r#"
@@ -111,6 +116,7 @@ fn stray_tokens() {
         error 20..21: Unexpected '}'
     "#]],
     );
+
     check(
         "$a = 1; endif; $b = 2;",
         expect![[r#"
@@ -144,6 +150,7 @@ fn unclosed_function_body_does_not_swallow_the_next_method() {
             error 32..32: '}' expected
         "#]],
     );
+
     check(
         "class A { function a() { if ($x) { $y = 1;\n  }\n public function b() {} }",
         expect![[r#"
@@ -183,6 +190,7 @@ fn broken_class_members() {
         error 25..25: Identifier expected
     "#]],
     );
+
     check(
         "class A { public }",
         expect![[r#"
@@ -195,6 +203,7 @@ fn broken_class_members() {
         error 16..16: Declaration expected
     "#]],
     );
+
     check(
         "class A { $x; function f() {} }",
         expect![[r#"
@@ -209,6 +218,7 @@ fn broken_class_members() {
               "}")))
     "#]],
     );
+
     check(
         "class A { function f(int $a $b) {} }",
         expect![[r#"
@@ -223,6 +233,7 @@ fn broken_class_members() {
         error 27..27: ',' expected
     "#]],
     );
+
     check(
         "class A { garbage ; const X = 1; }",
         expect![[r#"
@@ -273,6 +284,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 21..21: '}' expected
     "#]],
     );
+
     check(
         "if ($a",
         expect![[r#"
@@ -283,6 +295,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 6..6: Statement expected
     "#]],
     );
+
     check(
         "$a = [1, 2",
         expect![[r#"
@@ -293,6 +306,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 10..10: ';' expected
     "#]],
     );
+
     check(
         "function f() { return",
         expect![[r#"
@@ -305,6 +319,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 21..21: '}' expected
     "#]],
     );
+
     check(
         "$a->",
         expect![[r#"
@@ -315,6 +330,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 4..4: ';' expected
     "#]],
     );
+
     check(
         "Foo::",
         expect![[r#"
@@ -325,6 +341,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 5..5: ';' expected
     "#]],
     );
+
     check(
         "new",
         expect![[r#"
@@ -335,6 +352,7 @@ fn incomplete_constructs_at_the_end_of_the_file() {
         error 3..3: ';' expected
     "#]],
     );
+
     check(
         "match ($a) { 1 =>",
         expect![[r#"
@@ -367,6 +385,7 @@ fn reserved_word_names() {
         error 39..45: Reserved word 'return' cannot be used as a name
     "#]],
     );
+
     check(
         "trait T extends A {} interface I implements J {} enum E extends F {} class C extends A, B {}",
         expect![[r#"
@@ -406,6 +425,7 @@ fn syntax_that_php_rejects() {
         error 35..36: Only variables and calls can be assigned by reference
     "#]],
     );
+
     check(
         "echo (void) 1; (void) foo();",
         expect![[r#"
@@ -416,6 +436,7 @@ fn syntax_that_php_rejects() {
         error 5..11: '(void)' cast is only allowed as a statement
     "#]],
     );
+
     check(
         "unset(foo(), $a);",
         expect![[r#"
@@ -425,6 +446,7 @@ fn syntax_that_php_rejects() {
         error 6..11: Variable expected
     "#]],
     );
+
     check(
         "use A\\{\\B, function C}; use function A\\{function B};",
         expect![[r#"
@@ -436,6 +458,7 @@ fn syntax_that_php_rejects() {
         error 40..48: A group use cannot mix `function` or `const` with its own kind
     "#]],
     );
+
     check(
         "namespace \\A;",
         expect![[r#"
@@ -459,6 +482,7 @@ fn string_and_literal_errors() {
         error 9..9: ';' expected
     "#]],
     );
+
     check(
         "$a = \"\\u{110000} \\u{} \\u{zz} \\u{41}\";",
         expect![[r#"
@@ -470,6 +494,7 @@ fn string_and_literal_errors() {
         error 22..26: Invalid UTF-8 codepoint escape sequence
     "#]],
     );
+
     check(
         "$a = 089;",
         expect![[r#"
@@ -479,6 +504,7 @@ fn string_and_literal_errors() {
         error 5..8: Invalid numeric literal
     "#]],
     );
+
     check(
         "$a = <<<EOT\n  ok\n bad\n  EOT;\n",
         expect![[r#"
@@ -488,6 +514,7 @@ fn string_and_literal_errors() {
         error 17..18: Invalid body indentation level (expecting an indentation level of at least 2)
     "#]],
     );
+
     check(
         "/* never closed",
         expect![[r#"

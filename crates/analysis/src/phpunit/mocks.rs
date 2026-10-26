@@ -25,6 +25,7 @@ fn mocked_in(ty: &Type) -> Option<Name> {
                         _ => None,
                     })
                     .collect();
+
                 if names.iter().any(|name| name.starts_with(MOCK_OBJECT)) {
                     if let Some(name) = names.iter().find(|name| !name.starts_with(MOCK_OBJECT)) {
                         return Some((*name).to_string());
@@ -39,6 +40,7 @@ fn mocked_in(ty: &Type) -> Option<Name> {
             _ => {}
         }
     }
+
     None
 }
 
@@ -46,23 +48,29 @@ fn mocked_in(ty: &Type) -> Option<Name> {
 /// `$mock->method('a')`) stands for the same one as the double it was called on.
 pub fn mocked_class(analyzer: &Analyzer<'_>, expression: &SyntaxNode, env: &Env) -> Option<Name> {
     let mut current = expression.clone();
+
     for _ in 0..8 {
         let ty = analyzer.type_of(&current, env);
+
         if let Some(class) = mocked_in(&ty) {
             return Some(class);
         }
+
         current = match current.kind() {
             CALL_EXPR => {
                 let callee = current.children().next()?;
+
                 if callee.kind() != PROPERTY_FETCH_EXPR {
                     return None;
                 }
+
                 callee.children().next()?
             }
             PAREN_EXPR => current.children().next()?,
             _ => return None,
         };
     }
+
     None
 }
 
@@ -76,17 +84,22 @@ pub fn call_strings(analyzer: &Analyzer<'_>, call: &SyntaxNode) -> Vec<TestStrin
     else {
         return Vec::new();
     };
+
     let Some(name) = callee.children().find(|child| child.kind() == NAME) else {
         return Vec::new();
     };
+
     let written = name.text().to_string().to_ascii_lowercase();
     let args = arguments(call);
+
     let (class, candidates) = match written.as_str() {
         "method" => {
             let Some(object) = callee.children().next() else {
                 return Vec::new();
             };
+
             let env = analyzer.env_around(call);
+
             (
                 mocked_class(analyzer, &object, &env),
                 args.first().and_then(|arg| arg.expr.clone()).into_iter().collect(),
@@ -96,7 +109,9 @@ pub fn call_strings(analyzer: &Analyzer<'_>, call: &SyntaxNode) -> Vec<TestStrin
             let Some(object) = callee.children().next() else {
                 return Vec::new();
             };
+
             let env = analyzer.env_around(call);
+
             (
                 mocked_class(analyzer, &object, &env),
                 args.first()
@@ -114,9 +129,11 @@ pub fn call_strings(analyzer: &Analyzer<'_>, call: &SyntaxNode) -> Vec<TestStrin
         ),
         _ => return Vec::new(),
     };
+
     let Some(class) = class else {
         return Vec::new();
     };
+
     candidates
         .iter()
         .filter_map(string_value)
@@ -137,6 +154,7 @@ fn list_items(list: &SyntaxNode) -> Vec<SyntaxNode> {
     if list.kind() != ARRAY_EXPR {
         return Vec::new();
     }
+
     list.children()
         .filter(|item| item.kind() == ARRAY_ITEM)
         .filter_map(|item| item.children().last())

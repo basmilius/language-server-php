@@ -23,6 +23,7 @@ fn definitions(code: &str) -> Vec<String> {
     let fixture = fixture(code);
     let (text, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     analyzer
         .definitions(offset)
         .into_iter()
@@ -30,6 +31,7 @@ fn definitions(code: &str) -> Vec<String> {
             let path = place.path.unwrap_or_else(|| PathBuf::from("/project/current.php"));
             let source = fixture.sources.get(&path).unwrap_or(&text);
             let file = path.file_name().unwrap().to_string_lossy().into_owned();
+
             format!("{file} {}", &source[place.span.start as usize..place.span.end as usize])
         })
         .collect()
@@ -47,6 +49,7 @@ final class FooTest extends TestCase {
     public static function provide(): iterable { return []; }
 }
 "#;
+
     assert_eq!(definitions(code), vec!["current.php provide"]);
 }
 
@@ -62,6 +65,7 @@ final class FooTest extends TestCase {
     public function testIt(int $a): void {}
 }
 "#;
+
     assert_eq!(definitions(code), vec!["Providers.php numbers"]);
 }
 
@@ -80,10 +84,13 @@ final class FooTest extends TestCase {
     public static function provide(): iterable { return []; }
 }
 "#;
+
     assert_eq!(definitions(code), vec!["current.php provide"]);
+
     let depends = code
         .replace("pro$0vide", "provide")
         .replace("testFirst\n", "test$0First\n");
+
     assert_eq!(definitions(&depends), vec!["current.php testFirst"]);
 }
 
@@ -99,6 +106,7 @@ final class FooTest extends TestCase {
     public function testSecond(): void {}
 }
 "#;
+
     assert_eq!(definitions(code), vec!["current.php testFirst"]);
 }
 
@@ -107,6 +115,7 @@ fn usages(code: &str) -> Vec<String> {
     let (text, root, offset) = split_cursor(code);
     let sources = Files(fixture.sources.clone());
     let path = PathBuf::from("/project/current.php");
+
     let Some(found) = references_at(
         &fixture.index,
         &sources,
@@ -119,18 +128,23 @@ fn usages(code: &str) -> Vec<String> {
     ) else {
         return vec!["nothing".to_string()];
     };
+
     let mut out = Vec::new();
+
     for file in &found.files {
         let source = if file.path == path {
             text.clone()
         } else {
             fixture.sources[&file.path].clone()
         };
+
         let lines = LineIndex::new(&source);
+
         for hit in &file.hits {
             let line = lines
                 .line_col(&source, hit.range.start(), crate::PositionEncoding::Utf16)
                 .line;
+
             out.push(format!(
                 "{}:{} {}",
                 file.path.file_name().unwrap().to_string_lossy(),
@@ -139,6 +153,7 @@ fn usages(code: &str) -> Vec<String> {
             ));
         }
     }
+
     out
 }
 
@@ -156,6 +171,7 @@ final class FooTest extends TestCase {
     public static function pro$0vide(): iterable { return []; }
 }
 "#;
+
     assert_eq!(
         usages(code),
         vec![
@@ -178,6 +194,7 @@ final class FooTest extends TestCase {
     public function testIt(int $a): void {}
 }
 "#;
+
     assert_eq!(usages(code), vec!["Providers.php:5 numbers", "current.php:7 numbers"]);
 }
 
@@ -190,6 +207,7 @@ fn renaming_a_provider_follows_the_strings() {
     assert_eq!(prepared.placeholder, "provide");
     let sources = Files(fixture.sources.clone());
     let path = PathBuf::from("/project/current.php");
+
     let done = rename(
         &fixture.index,
         &sources,
@@ -202,15 +220,18 @@ fn renaming_a_provider_follows_the_strings() {
         "rows",
     )
     .expect("renamed");
+
     let mut edits = done.files[0].edits.clone();
     edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start()));
     let mut renamed = text.clone();
+
     for edit in edits {
         renamed.replace_range(
             usize::from(edit.range.start())..usize::from(edit.range.end()),
             &edit.text,
         );
     }
+
     assert_eq!(
         renamed,
         "<?php\nnamespace Tests;\nuse PHPUnit\\Framework\\TestCase;\nuse PHPUnit\\Framework\\Attributes\\DataProvider;\nfinal class FooTest extends TestCase {\n    #[DataProvider('rows')]\n    public function testA(int $a): void {}\n    /** @dataProvider rows */\n    public function testB(int $a): void {}\n    public static function rows(): iterable { return []; }\n}\n"
@@ -234,11 +255,13 @@ final class FooTest extends Base {
 }
 final class NotATest { public function testIt(): void {} }
 "#;
+
     let fixture = fixture(code);
     assert!(super::is_test_class(&fixture.index, "Tests\\FooTest"));
     assert!(super::is_test_class(&fixture.index, "Tests\\Base"));
     assert!(!super::is_test_class(&fixture.index, "Tests\\NotATest"));
     let class = fixture.index.class("Tests\\FooTest").unwrap();
+
     let tests: Vec<&str> = class
         .decl
         .methods
@@ -246,13 +269,16 @@ final class NotATest { public function testIt(): void {} }
         .filter(|method| super::is_test_method(class.decl, method))
         .map(|method| method.name.as_str())
         .collect();
+
     assert_eq!(tests, vec!["testPlain", "marked", "documented"]);
 }
 
 fn completions(code: &str) -> Vec<String> {
     use crate::completion::{CompletionOptions, complete};
+
     let fixture = fixture(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     complete(&fixture.index, &text, offset, CompletionOptions::default())
         .items
         .into_iter()
@@ -275,6 +301,7 @@ final class FooTest extends TestCase {
     protected function hidden(): iterable { return []; }
 }
 "#;
+
     assert_eq!(completions(code), vec!["providesNumbers", "providesWords"]);
     let typed = code.replace("'$0'", "'wor$0'");
     assert_eq!(completions(&typed), vec!["providesWords"]);
@@ -292,7 +319,9 @@ final class FooTest extends TestCase {
     public function testA(int $a): void {}
 }
 "#;
+
     assert_eq!(completions(external), vec!["numbers"]);
+
     let depends = r#"<?php
 namespace Tests;
 use PHPUnit\Framework\TestCase;
@@ -304,7 +333,9 @@ final class FooTest extends TestCase {
     public function helper(): void {}
 }
 "#;
+
     assert_eq!(completions(depends), vec!["testFirst"]);
+
     let doc = r#"<?php
 namespace Tests;
 use PHPUnit\Framework\TestCase;
@@ -314,12 +345,14 @@ final class FooTest extends TestCase {
     public function testSecond(): void {}
 }
 "#;
+
     assert_eq!(completions(doc), vec!["testFirst"]);
 }
 
 #[test]
 fn group_names_come_from_every_test_of_the_project() {
     let other = "<?php\nuse PHPUnit\\Framework\\Attributes\\Group;\n#[Group('slow')]\nclass A {}\n";
+
     let code = r#"<?php
 namespace Tests;
 use PHPUnit\Framework\Attributes\Group;
@@ -329,8 +362,10 @@ final class FooTest {
     public function testA(): void {}
 }
 "#;
+
     let fixture = Fixture::new(&[("phpunit.php", PHPUNIT), ("Other.php", other)]).with_current(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     let labels: Vec<String> = crate::completion::complete(
         &fixture.index,
         &text,
@@ -341,6 +376,7 @@ final class FooTest {
     .into_iter()
     .map(|item| item.label)
     .collect();
+
     assert_eq!(labels, vec!["fast", "slow"]);
 }
 
@@ -369,6 +405,7 @@ fn type_at(code: &str, name: &str) -> String {
     let fixture = mock_fixture(code);
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     analyzer
         .env_at(offset)
         .get(name)
@@ -390,20 +427,25 @@ final class FooTest extends TestCase {
     }
 }
 "#;
+
     let parts = |name: &str| {
         let shown = type_at(code, name);
         let mut parts: Vec<String> = shown.split('&').map(str::to_string).collect();
         parts.sort();
+
         parts
     };
+
     assert_eq!(
         parts("mock"),
         vec!["App\\Mailer", "PHPUnit\\Framework\\MockObject\\MockObject"]
     );
+
     assert_eq!(
         parts("stub"),
         vec!["App\\Mailer", "PHPUnit\\Framework\\MockObject\\Stub"]
     );
+
     assert_eq!(
         parts("built"),
         vec!["App\\Mailer", "PHPUnit\\Framework\\MockObject\\MockObject"]
@@ -423,6 +465,7 @@ final class FooTest extends TestCase {
     }
 }
 "#;
+
     assert_eq!(
         {
             let fixture = mock_fixture(code);
@@ -439,9 +482,11 @@ final class FooTest extends TestCase {
         },
         vec!["send"]
     );
+
     let completing = code.replace("'se$0nd'", "'$0'");
     let fixture = mock_fixture(&completing);
     let (offset, text) = lsc_text::testing::cursor(&completing);
+
     let labels: Vec<String> = crate::completion::complete(
         &fixture.index,
         &text,
@@ -452,6 +497,7 @@ final class FooTest extends TestCase {
     .into_iter()
     .map(|item| item.label)
     .collect();
+
     assert_eq!(labels, vec!["count", "name", "reset", "send"]);
 }
 
@@ -469,12 +515,14 @@ final class FooTest extends TestCase {
     }
 }
 "#;
+
     let fixture = Fixture::new(&[("phpunit.php", PHPUNIT), ("Mailer.php", SERVICE), ("FooTest.php", code)]);
     let sources = Files(fixture.sources.clone());
     let current = "<?php\nnamespace App;\n$m = new Mailer();\n$m->cou$0nt();\n";
     let fixture = fixture.with_current(current);
     let (text, root, offset) = split_cursor(current);
     let path = PathBuf::from("/project/current.php");
+
     let done = rename(
         &fixture.index,
         &sources,
@@ -487,6 +535,7 @@ final class FooTest extends TestCase {
         "total",
     )
     .expect("renamed");
+
     let touched: Vec<String> = done
         .files
         .iter()
@@ -496,12 +545,14 @@ final class FooTest extends TestCase {
             } else {
                 fixture.sources[&file.path].clone()
             };
+
             file.edits
                 .iter()
                 .map(|edit| source[usize::from(edit.range.start())..usize::from(edit.range.end())].to_string())
                 .collect::<Vec<_>>()
         })
         .collect();
+
     assert_eq!(touched.iter().filter(|text| *text == "count").count(), 4, "{touched:?}");
 }
 
@@ -517,7 +568,9 @@ final class FooTest extends TestCase {
     }
 }
 "#;
+
     let labels = completions(code);
+
     assert_eq!(
         &labels[..5],
         [
@@ -528,7 +581,9 @@ final class FooTest extends TestCase {
             "assertTrue"
         ]
     );
+
     assert!(labels.contains(&"aaaHelper".to_string()));
+
     let plain = r#"<?php
 namespace Tests;
 final class Plain {
@@ -539,6 +594,7 @@ final class Plain {
     }
 }
 "#;
+
     assert_eq!(completions(plain), vec!["aaaHelper", "assertSomething", "run"]);
 }
 
@@ -550,14 +606,17 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass(Mail$0)]
 final class FooTest {}
 "#;
+
     let fixture = mock_fixture(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     let list = crate::completion::complete(
         &fixture.index,
         &text,
         offset,
         crate::completion::CompletionOptions::default(),
     );
+
     let edits: Vec<&str> = list.items.iter().map(|item| item.edit.new_text.as_str()).collect();
     assert_eq!(edits, vec!["Mailer::class"]);
 }

@@ -4,10 +4,12 @@ use crate::testing::{Fixture, PEST, PHPUNIT};
 fn run(code: &str) -> Vec<(RunnableKind, RunnableScope, String, String, String)> {
     let fixture = Fixture::new(&[("phpunit.php", PHPUNIT), ("pest.php", PEST)]).with_current(code);
     let root = php_syntax::parse(code).syntax();
+
     runnables(&fixture.index, &root)
         .into_iter()
         .map(|runnable| {
             let name = code[usize::from(runnable.range.start())..usize::from(runnable.range.end())].to_string();
+
             (runnable.kind, runnable.scope, runnable.label, name, runnable.filter)
         })
         .collect()
@@ -29,11 +31,14 @@ final class FooTest extends TestCase {
 abstract class BaseTest extends TestCase { public function testIt(): void {} }
 final class Plain { public function testIt(): void {} }
 "#;
+
     let found = run(code);
+
     let labels: Vec<(&str, &str, &str)> = found
         .iter()
         .map(|(_, _, label, name, _)| (label.as_str(), name.as_str(), ""))
         .collect();
+
     assert_eq!(
         labels,
         vec![
@@ -43,11 +48,14 @@ final class Plain { public function testIt(): void {} }
             ("FooTest::documented", "documented", ""),
         ]
     );
+
     assert_eq!(found[0].4, "/^Tests\\\\Unit\\\\FooTest::/");
+
     assert_eq!(
         found[1].4,
         "/^Tests\\\\Unit\\\\FooTest::testPlain( with data set .*)?$/"
     );
+
     assert_eq!(found[1].1, RunnableScope::Method);
 }
 
@@ -67,11 +75,14 @@ arch()->preset()->php();
 it('uses a dataset')->with('names');
 it($dynamic, function () {});
 "#;
+
     let found = run(code);
+
     let shown: Vec<(&str, &str)> = found
         .iter()
         .map(|(_, _, label, _, filter)| (label.as_str(), filter.as_str()))
         .collect();
+
     assert_eq!(
         shown,
         vec![
@@ -95,6 +106,7 @@ it($dynamic, function () {});
             ),
         ]
     );
+
     assert_eq!(found[0].1, RunnableScope::Test);
     assert_eq!(found[2].1, RunnableScope::Describe);
     assert_eq!(found[6].1, RunnableScope::Arch);
@@ -107,6 +119,7 @@ fn descriptions_become_method_names_the_way_pest_writes_them() {
         evaluable("it can use_underscores & more"),
         "__pest_evaluable_it_can_use__underscores___more"
     );
+
     assert_eq!(evaluable("`d` → it x"), "__pest_evaluable__d__→_it_x");
 }
 
@@ -116,6 +129,7 @@ fn console_commands_are_runnable_in_laravel_and_symfony_projects() {
     use php_syntax::parse;
 
     let mut files = php_index::framework::testing::SYMFONY.to_vec();
+
     files.extend_from_slice(&[
         (
             "vendor/symfony/Command.php",
@@ -126,8 +140,10 @@ fn console_commands_are_runnable_in_laravel_and_symfony_projects() {
             "<?php namespace Illuminate\\Console; class Command extends \\Symfony\\Component\\Console\\Command\\Command {}",
         ),
     ]);
+
     let symfony = "<?php namespace App\\Command; use Symfony\\Component\\Console\\Attribute\\AsCommand; use Symfony\\Component\\Console\\Command\\Command;\n#[AsCommand(name: 'app:report')]\nclass ReportCommand extends Command {}\nabstract class Base extends Command {}";
     let laravel = "<?php namespace App\\Console; use Illuminate\\Console\\Command;\nclass SendEmails extends Command { protected $signature = 'mail:send {user} {--queue}'; }";
+
     for (code, flavor, expected) in [(symfony, "symfony", "app:report"), (laravel, "laravel", "mail:send")] {
         let mut project = files.clone();
         project.push(("src/Current.php", code));
@@ -141,6 +157,7 @@ fn console_commands_are_runnable_in_laravel_and_symfony_projects() {
         assert_eq!(found.len(), 1, "{flavor}: {found:?}");
         assert_eq!(found[0].filter, expected);
         assert_eq!(found[0].scope, RunnableScope::Command);
+
         assert_eq!(
             found[0].kind,
             if flavor == "laravel" {

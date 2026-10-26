@@ -18,6 +18,7 @@ pub struct Ability {
     pub name: String,
     pub path: PathBuf,
     pub span: Span,
+
     /// The policy class that declares it, when it is a policy method.
     pub policy: Option<String>,
 }
@@ -37,28 +38,35 @@ impl Section for Abilities {
     fn build(index: &Index) -> Self {
         let mut found = Abilities::default();
         let mut paths: Vec<PathBuf> = Vec::new();
+
         for provider in index.all_subtypes(SERVICE_PROVIDER) {
             if provider.file.origin == Origin::Project && !paths.contains(&provider.file.path) {
                 paths.push(provider.file.path.clone());
             }
         }
+
         for path in paths {
             let Some(tree) = tree_of(index, &path) else {
                 continue;
             };
+
             for call in tree.descendants().filter(|node| node.kind() == CALL_EXPR) {
                 let Some(callee) = call.children().next() else {
                     continue;
                 };
+
                 let method = callee.children().filter(|child| child.kind() == NAME).last();
+
                 if !method.is_some_and(|name| name.text() == "define") {
                     continue;
                 }
+
                 let receiver = callee
                     .children()
                     .next()
                     .map(|node| node.text().to_string())
                     .unwrap_or_default();
+
                 if !(receiver == "Gate"
                     || receiver.ends_with("\\Gate")
                     || receiver.starts_with("$gate")
@@ -66,6 +74,7 @@ impl Section for Abilities {
                 {
                     continue;
                 }
+
                 if let Some(Literal::Text(name, span)) = argument_expressions(&call).first().and_then(literal_of) {
                     found.abilities.push(Ability {
                         name,
@@ -76,13 +85,16 @@ impl Section for Abilities {
                 }
             }
         }
+
         for class in index.class_names() {
             if class.file.origin != Origin::Project || !class.summary.name.ends_with("Policy") {
                 continue;
             }
+
             let Some(loaded) = class.load() else {
                 continue;
             };
+
             for method in &loaded.decl.methods {
                 if method.visibility != Visibility::Public
                     || method.is_static
@@ -91,6 +103,7 @@ impl Section for Abilities {
                 {
                     continue;
                 }
+
                 found.abilities.push(Ability {
                     name: method.name.clone(),
                     path: loaded.file.path.clone(),
@@ -99,6 +112,7 @@ impl Section for Abilities {
                 });
             }
         }
+
         found
     }
 
@@ -128,14 +142,18 @@ mod tests {
                 "<?php namespace App\\Policies; class PostPolicy { public function before() {} public function view($user, $post) {} public function update($user, $post) {} private function hidden() {} }",
             ),
         ]);
+
         let abilities = index.section::<Abilities>();
+
         let mut names: Vec<&str> = abilities
             .abilities
             .iter()
             .map(|ability| ability.name.as_str())
             .collect();
+
         names.sort();
         assert_eq!(names, ["edit-settings", "update", "view"]);
+
         assert_eq!(
             abilities.find_all("update")[0].policy.as_deref(),
             Some("App\\Policies\\PostPolicy")

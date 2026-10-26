@@ -47,6 +47,7 @@ impl Analyzer<'_> {
     /// Everything the targets under an offset stand for, ready to show.
     pub fn describe(&self, target: &Target) -> Vec<Description> {
         let level = self.level();
+
         match target {
             Target::Class(name) => self
                 .index
@@ -79,9 +80,11 @@ impl Analyzer<'_> {
                 .constant(name)
                 .map(|constant| {
                     let mut signature = format!("const {}", crate::short(&constant.decl.name));
+
                     if let Some(value) = &constant.decl.value {
                         signature.push_str(&format!(" = {value}"));
                     }
+
                     Description {
                         title: constant.decl.name.clone(),
                         signature,
@@ -117,6 +120,7 @@ impl Analyzer<'_> {
                 .filter_map(|member| {
                     let found = self.index.find_method(member, name)?;
                     let doc = self.method_doc(&found.class.decl.name, found.member.doc.as_deref(), name);
+
                     Some(Description {
                         title: format!("{}::{}", found.class.decl.name, found.member.name),
                         signature: render::method_signature(&found.member, level),
@@ -130,6 +134,7 @@ impl Analyzer<'_> {
                 .iter()
                 .filter_map(|member| {
                     let found = self.index.find_property(member, name)?;
+
                     Some(Description {
                         title: format!("{}::${}", found.class.decl.name, found.member.name),
                         signature: render::property_signature(&found.member, level),
@@ -143,6 +148,7 @@ impl Analyzer<'_> {
                 .iter()
                 .filter_map(|member| {
                     let found = self.index.find_constant(member, name)?;
+
                     Some(Description {
                         title: format!("{}::{}", found.class.decl.name, found.member.name),
                         signature: render::constant_signature(&found.member, level),
@@ -189,40 +195,50 @@ impl Analyzer<'_> {
 
     fn parameter_type(&self, callee: &Callee, name: &str) -> Option<Type> {
         let level = self.level();
+
         let callable = match callee {
             Callee::Function(function) => self.index.function(function)?.decl.callable.clone(),
             Callee::Method { class, name: method } => self.index.class(class)?.decl.method(method)?.callable.clone(),
         };
+
         let param = callable.params_at(level).find(|param| param.name == name)?;
+
         param.effective_type(level).cloned()
     }
 
     fn describe_parameter(&self, callee: &Callee, name: &str) -> Vec<Description> {
         let level = self.level();
+
         let (file, callable) = match callee {
             Callee::Function(function) => {
                 let Some(found) = self.index.function(function) else {
                     return Vec::new();
                 };
+
                 (found.file, &found.decl.callable)
             }
             Callee::Method { class, name: method } => {
                 let Some(class) = self.index.class(class) else {
                     return Vec::new();
                 };
+
                 let Some(found) = class.decl.method(method) else {
                     return Vec::new();
                 };
+
                 (class.file, &found.callable)
             }
         };
+
         let Some(param) = callable.params_at(level).find(|param| param.name == name) else {
             return Vec::new();
         };
+
         let doc = (!param.description.is_empty()).then(|| Doc {
             summary: param.description.clone(),
             ..Doc::default()
         });
+
         vec![Description {
             title: format!("${name}"),
             signature: render::param_text(param, level),
@@ -238,10 +254,13 @@ impl Analyzer<'_> {
         let Some(own) = own else {
             return self.inherited_method_doc(owner, name);
         };
+
         if !inherits(own) {
             return Some(own.clone());
         }
+
         let parent = self.inherited_method_doc(owner, name).unwrap_or_default();
+
         Some(merge_inherited(own, &parent))
     }
 
@@ -258,21 +277,27 @@ impl Analyzer<'_> {
     pub fn hover(&self, offset: u32) -> Option<HoverResult> {
         let found = self.targets_at(offset);
         let route = crate::frameworks::raxos::route_hover(self, offset);
+
         let range = match (found.first(), &route) {
             (Some(first), _) => first.range,
             (None, Some((_, range))) => *range,
             (None, None) => return None,
         };
+
         let mut sections: Vec<String> = route.into_iter().map(|(markdown, _)| markdown).collect();
+
         for item in &found {
             for description in self.describe(&item.target) {
                 sections.push(hover_markdown(&description));
             }
         }
+
         sections.dedup();
+
         if sections.is_empty() {
             return None;
         }
+
         Some(HoverResult {
             markdown: sections.join("\n\n---\n\n"),
             range,
@@ -281,18 +306,23 @@ impl Analyzer<'_> {
 
     pub fn definitions(&self, offset: u32) -> Vec<Place> {
         let mut places = Vec::new();
+
         for found in self.targets_at(offset) {
             if let Target::Variable { name, .. } = &found.target {
                 if let Some(place) = self.variable_declaration(name, offset) {
                     places.push(place);
                 }
+
                 continue;
             }
+
             for description in self.describe(&found.target) {
                 places.extend(description.place);
             }
         }
+
         places.dedup();
+
         places
     }
 
@@ -300,6 +330,7 @@ impl Analyzer<'_> {
     fn variable_declaration(&self, name: &str, offset: u32) -> Option<Place> {
         let scope = self.scope_at(offset);
         let wanted = format!("${name}");
+
         scope
             .descendants_with_tokens()
             .filter_map(|element| element.into_token())
@@ -315,36 +346,44 @@ impl Analyzer<'_> {
 
     pub fn type_definitions(&self, offset: u32) -> Vec<Place> {
         let mut places = Vec::new();
+
         for found in self.targets_at(offset) {
             let ty = match &found.target {
                 Target::Class(_) => {
                     for description in self.describe(&found.target) {
                         places.extend(description.place);
                     }
+
                     continue;
                 }
                 Target::Variable { ty, .. } => ty.clone(),
                 Target::Property { receiver, name } => self.property_on(receiver, name),
                 Target::Method { receiver, name } => {
                     let level = self.level();
+
                     Type::union(receiver.members().iter().filter_map(|member| {
                         let found = self.index.find_method(member, name)?;
                         let ret = found.member.callable.effective_return(level)?;
+
                         Some(self.bind_static(&found.resolve(ret), member))
                     }))
                 }
                 Target::ClassConst { receiver, name } => {
                     let level = self.level();
+
                     Type::union(receiver.members().iter().filter_map(|member| {
                         let found = self.index.find_constant(member, name)?;
+
                         if found.member.is_case {
                             return Some(member.clone());
                         }
+
                         found.member.effective_type(level).map(|ty| found.resolve(ty))
                     }))
                 }
                 Target::Function(name) => {
                     let level = self.level();
+
                     match self
                         .index
                         .function(name)
@@ -364,29 +403,36 @@ impl Analyzer<'_> {
                     None => continue,
                 },
             };
+
             let receiver = self.receiver_type(&ty);
             let mut names: Vec<String> = receiver.class_names().into_iter().map(str::to_string).collect();
             names.extend(class_names_in_args(&receiver));
+
             for name in names {
                 if let Some(class) = self.index.class(&name) {
                     places.push(class_place(class));
                 }
             }
         }
+
         places.dedup();
+
         places
     }
 
     pub fn implementations(&self, offset: u32) -> Vec<Place> {
         let mut places = Vec::new();
+
         for found in self.targets_at(offset) {
             match &found.target {
                 Target::Class(name) => {
                     places.extend(self.index.all_subtypes(name).into_iter().map(class_place));
+
                     // A message's handlers are what it is carried out by.
                     let handlers = self
                         .index
                         .section::<php_index::framework::symfony::messenger::MessageHandlers>();
+
                     places.extend(handlers.of(name).iter().map(|handler| Place {
                         path: Some(handler.path.clone()),
                         span: handler.name_span,
@@ -397,6 +443,7 @@ impl Analyzer<'_> {
                         let Some(declaring) = self.index.find_method(member, name) else {
                             continue;
                         };
+
                         for subtype in self.index.all_subtypes(&declaring.class.decl.name) {
                             if let Some(method) = subtype.decl.method(name) {
                                 places.push(place_of(subtype.file, method.name_span));
@@ -407,13 +454,16 @@ impl Analyzer<'_> {
                 _ => {}
             }
         }
+
         places.dedup();
+
         places
     }
 }
 
 fn class_names_in_args(ty: &Type) -> Vec<String> {
     let mut out = Vec::new();
+
     for member in ty.members() {
         if let Type::Class { args, .. } = member {
             for arg in args {
@@ -421,6 +471,7 @@ fn class_names_in_args(ty: &Type) -> Vec<String> {
             }
         }
     }
+
     out
 }
 
@@ -429,6 +480,7 @@ const INHERIT_MARKER: &str = "{@inheritdoc}";
 /// Whether a doc hands its text to the method it overrides: it says so, or it says nothing.
 fn inherits(doc: &Doc) -> bool {
     let marked = |text: &str| text.to_ascii_lowercase().contains(INHERIT_MARKER);
+
     marked(&doc.summary)
         || marked(&doc.description)
         || doc.tags.iter().any(|tag| tag.name.eq_ignore_ascii_case("inheritdoc"))
@@ -438,6 +490,7 @@ fn inherits(doc: &Doc) -> bool {
 /// `text` with `{@inheritdoc}`, in any case, replaced by `inherited`.
 fn replace_marker(text: &str, inherited: &str) -> Option<String> {
     let at = text.to_ascii_lowercase().find(INHERIT_MARKER)?;
+
     Some(format!(
         "{}{inherited}{}",
         &text[..at],
@@ -459,56 +512,69 @@ fn merge_inherited(own: &Doc, parent: &Doc) -> Doc {
     let mut doc = parent.clone();
     let summary_marked = replace_marker(&own.summary, &parent.summary);
     let description_marked = replace_marker(&own.description, &parent.description);
+
     doc.summary = match &summary_marked {
         Some(summary) if !summary.trim().is_empty() => summary.trim().to_string(),
         Some(_) => parent.summary.clone(),
         None if own.summary.is_empty() => parent.summary.clone(),
         None => own.summary.clone(),
     };
+
     doc.description = match (&summary_marked, description_marked) {
         (_, Some(description)) => description.trim().to_string(),
         (Some(_), None) => join_prose(&parent.description, &own.description),
         (None, None) if own.description.is_empty() => parent.description.clone(),
         (None, None) => own.description.clone(),
     };
+
     for param in &own.params {
         match doc.params.iter_mut().find(|known| known.name == param.name) {
             Some(known) => *known = param.clone(),
             None => doc.params.push(param.clone()),
         }
     }
+
     if own.ret.is_some() {
         doc.ret = own.ret.clone();
     }
+
     if !own.throws.is_empty() {
         doc.throws = own.throws.clone();
     }
+
     if !own.see.is_empty() {
         doc.see = own.see.clone();
     }
+
     doc.deprecated = own.deprecated.clone();
     doc.since = own.since;
     doc.removed = own.removed;
+
     doc.tags
         .retain(|tag| !own.tags.iter().any(|mine| mine.name.eq_ignore_ascii_case(&tag.name)));
+
     doc.tags.extend(
         own.tags
             .iter()
             .filter(|tag| !tag.name.eq_ignore_ascii_case("inheritdoc"))
             .cloned(),
     );
+
     doc
 }
 
 /// A title line, the signature in a `php` block and the doc.
 pub fn hover_markdown(description: &Description) -> String {
     let mut out = format!("**{}**\n\n```php\n{}\n```", description.title, description.signature);
+
     if let Some(doc) = &description.doc {
         let text = render::doc_markdown(doc);
+
         if !text.is_empty() {
             out.push_str("\n\n");
             out.push_str(&text);
         }
     }
+
     out
 }

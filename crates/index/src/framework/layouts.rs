@@ -30,19 +30,23 @@ impl Section for Layouts {
     fn build(index: &Index) -> Self {
         let mut layouts = Layouts::default();
         let views = index.section::<Views>();
+
         for view in &views.views {
             if !view.path.to_string_lossy().ends_with(".blade.php") {
                 continue;
             }
+
             let Some(text) = index.read_text(&view.path) else {
                 continue;
             };
+
             for (directive, name, span) in directives(&text) {
                 let placed = Placed {
                     name,
                     path: view.path.clone(),
                     span,
                 };
+
                 match directive.as_str() {
                     "yield" => layouts.sections.push(placed),
                     "section" if ends_with_show(&text, span.end as usize) => layouts.sections.push(placed),
@@ -51,6 +55,7 @@ impl Section for Layouts {
                 }
             }
         }
+
         layouts
     }
 
@@ -79,36 +84,47 @@ fn directives(text: &str) -> Vec<(String, String, Span)> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut at = 0;
+
     while let Some(found) = text[at..].find('@') {
         let start = at + found;
         at = start + 1;
+
         if start > 0 && (is_word(bytes[start - 1]) || bytes[start - 1] == b'@') {
             continue;
         }
+
         let name_end = start + 1 + text[start + 1..].bytes().take_while(|byte| is_word(*byte)).count();
+
         let mut position = name_end
             + text[name_end..]
                 .bytes()
                 .take_while(|byte| *byte == b' ' || *byte == b'\t')
                 .count();
+
         if bytes.get(position) != Some(&b'(') {
             continue;
         }
+
         position += 1;
         position += text[position..].bytes().take_while(u8::is_ascii_whitespace).count();
+
         let Some(&quote) = bytes.get(position).filter(|byte| matches!(byte, b'\'' | b'"')) else {
             continue;
         };
+
         let value_start = position + 1;
+
         let Some(length) = text[value_start..]
             .bytes()
             .position(|byte| byte == quote || byte == b'\n')
         else {
             continue;
         };
+
         if bytes[value_start + length] != quote {
             continue;
         }
+
         out.push((
             text[start + 1..name_end].to_ascii_lowercase(),
             text[value_start..value_start + length].to_string(),
@@ -118,6 +134,7 @@ fn directives(text: &str) -> Vec<(String, String, Span)> {
             },
         ));
     }
+
     out
 }
 
@@ -126,6 +143,7 @@ fn directives(text: &str) -> Vec<(String, String, Span)> {
 fn ends_with_show(text: &str, from: usize) -> bool {
     let rest = text[from..].to_ascii_lowercase();
     let ends = ["@show", "@endsection", "@stop", "@append", "@overwrite"];
+
     ends.iter()
         .filter_map(|end| rest.find(end).map(|at| (at, *end)))
         .min_by_key(|(at, _)| *at)
@@ -146,20 +164,25 @@ impl Section for Directives {
         let mut directives = Directives::default();
         let root = index.framework_root();
         let skipped = ["resources/views", "database", "tests", "lang", "config", "storage"];
+
         for file in index.files() {
             if file.origin != crate::index::Origin::Project
                 || skipped.iter().any(|folder| super::is_below(root, &file.path, folder))
             {
                 continue;
             }
+
             let Some(text) = index.read_text(&file.path) else {
                 continue;
             };
+
             if !text.contains("directive(") && !text.contains("::if(") {
                 continue;
             }
+
             directives.scan(&text);
         }
+
         directives
     }
 
@@ -176,21 +199,27 @@ impl Directives {
             ("Blade::if(", true),
         ] {
             let mut rest = text;
+
             while let Some(at) = rest.find(call) {
                 rest = &rest[at + call.len()..];
                 let trimmed = rest.trim_start();
+
                 let Some(quote) = trimmed.chars().next().filter(|quote| matches!(quote, '\'' | '"')) else {
                     continue;
                 };
+
                 let Some(length) = trimmed[1..].find(quote) else {
                     continue;
                 };
+
                 let name = trimmed[1..1 + length].to_string();
+
                 let list = if conditional {
                     &mut self.conditionals
                 } else {
                     &mut self.plain
                 };
+
                 if !name.is_empty() && !list.contains(&name) {
                     list.push(name);
                 }
@@ -202,6 +231,7 @@ impl Directives {
 /// The template of a component: its own file when it is anonymous, else `components.<tag>`.
 pub fn component_template(index: &Index, tag: &str) -> Option<PathBuf> {
     let views = index.section::<Views>();
+
     views
         .components
         .iter()
@@ -215,23 +245,30 @@ pub fn props_of(text: &str) -> Vec<(String, Span)> {
     let Some(at) = text.find("@props") else {
         return Vec::new();
     };
+
     let Some(open) = text[at..].find('(').map(|found| at + found) else {
         return Vec::new();
     };
+
     let Some(close) = closing_paren(text, open) else {
         return Vec::new();
     };
+
     let wrapped = format!("<?php {};", &text[open + 1..close]);
     let shift = |offset: u32| offset - 6 + open as u32 + 1;
     let tree = php_syntax::parse(&wrapped).syntax();
+
     let Some(array) = tree.descendants().find(|node| node.kind() == ARRAY_EXPR) else {
         return Vec::new();
     };
+
     let mut out = Vec::new();
+
     for item in array.children().filter(|node| node.kind() == ARRAY_ITEM) {
         let Some(name) = item.children().next() else {
             continue;
         };
+
         if let Some((value, span)) = crate::test_facts::string_value(&name) {
             out.push((
                 value,
@@ -242,14 +279,17 @@ pub fn props_of(text: &str) -> Vec<(String, Span)> {
             ));
         }
     }
+
     out
 }
 
 fn closing_paren(text: &str, open: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let (mut depth, mut quote, mut position) = (0usize, None::<u8>, open);
+
     while position < bytes.len() {
         let byte = bytes[position];
+
         match quote {
             Some(_) if byte == b'\\' => position += 1,
             Some(mark) if byte == mark => quote = None,
@@ -259,6 +299,7 @@ fn closing_paren(text: &str, open: usize) -> Option<usize> {
                 b'(' => depth += 1,
                 b')' => {
                     depth -= 1;
+
                     if depth == 0 {
                         return Some(position);
                     }
@@ -266,8 +307,10 @@ fn closing_paren(text: &str, open: usize) -> Option<usize> {
                 _ => {}
             },
         }
+
         position += 1;
     }
+
     None
 }
 
@@ -285,20 +328,26 @@ pub fn slots_of(text: &str) -> Vec<(String, Span)> {
         "this",
         "message",
     ];
+
     let bytes = text.as_bytes();
     let mut out: Vec<(String, Span)> = Vec::new();
     let mut at = 0;
+
     while let Some(found) = text[at..].find('$') {
         let start = at + found + 1;
         at = start;
         let length = text[start..].bytes().take_while(|byte| is_word(*byte)).count();
+
         if length == 0 || bytes[start].is_ascii_digit() {
             continue;
         }
+
         let name = &text[start..start + length];
+
         if OWN.contains(&name) || out.iter().any(|(known, _)| known == name) {
             continue;
         }
+
         out.push((
             name.to_string(),
             Span {
@@ -307,6 +356,7 @@ pub fn slots_of(text: &str) -> Vec<(String, Span)> {
             },
         ));
     }
+
     out
 }
 
@@ -314,6 +364,7 @@ pub fn slots_of(text: &str) -> Vec<(String, Span)> {
 pub fn attribute_key(name: &str) -> String {
     let mut out = String::new();
     let mut upper = false;
+
     for character in name.trim_start_matches(':').chars() {
         if character == '-' || character == '_' {
             upper = !out.is_empty();
@@ -324,22 +375,26 @@ pub fn attribute_key(name: &str) -> String {
             out.push(character);
         }
     }
+
     out
 }
 
 /// `showViewCount` is written `show-view-count`.
 pub fn kebab(name: &str) -> String {
     let mut out = String::new();
+
     for character in name.chars() {
         if character.is_uppercase() {
             if !out.is_empty() {
                 out.push('-');
             }
+
             out.extend(character.to_lowercase());
         } else {
             out.push(character);
         }
     }
+
     out
 }
 
@@ -360,6 +415,7 @@ mod tests {
                 "@extends('layouts.app') @section('title', 'Hi')",
             ),
         ]);
+
         let layouts = index.section::<Layouts>();
         let names: Vec<&str> = layouts.sections.iter().map(|placed| placed.name.as_str()).collect();
         assert_eq!(names, ["title", "sidebar"]);
@@ -367,10 +423,12 @@ mod tests {
         assert_eq!(layouts.stacks[0].name, "scripts");
 
         let card = "@props(['title', 'showCount' => false])\n<div>{{ $title }} {{ $footer }} {{ $slot }} {{ $attributes }}</div>";
+
         let props: Vec<String> = props_of(card)
             .into_iter()
             .map(|(name, span)| format!("{name}@{}", &card[span.start as usize..span.end as usize]))
             .collect();
+
         assert_eq!(props, ["title@title", "showCount@showCount"]);
         let slots: Vec<String> = slots_of(card).into_iter().map(|(name, _)| name).collect();
         assert_eq!(slots, ["title", "footer"]);

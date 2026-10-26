@@ -15,6 +15,7 @@ fn resident_mb() -> u64 {
         .args(["-o", "rss=", "-p", &std::process::id().to_string()])
         .output()
         .ok();
+
     output
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .and_then(|text| text.trim().parse::<u64>().ok())
@@ -23,10 +24,12 @@ fn resident_mb() -> u64 {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
     let (Some(project_root), Some(stubs_root)) = (args.first(), args.get(1)) else {
         eprintln!("usage: bench <project> <stubs> [cache]");
         std::process::exit(2);
     };
+
     let cache = args.get(2).map(PathBuf::from);
     let threads = std::thread::available_parallelism().map_or(4, usize::from);
 
@@ -35,6 +38,7 @@ fn main() {
     let stubs = Mutex::new(Vec::new());
     let stub_places = Mutex::new(Vec::new());
     let stub_cache = cache.as_ref().map(|dir| dir.join("stubs.bin"));
+
     indexer::run(
         stub_files,
         stub_cache.as_deref(),
@@ -49,19 +53,24 @@ fn main() {
             _ => {}
         },
     );
+
     let mut stubs = stubs.into_inner().expect("lock");
+
     for (path, source) in stub_places.into_inner().expect("lock") {
         if let Some(stub) = stubs.iter_mut().find(|stub| stub.path == path) {
             stub.source = source;
         }
     }
+
     println!("stubs: {} files in {:?}", stubs.len(), started.elapsed());
 
     let mut project = Project::open(std::path::Path::new(project_root), PhpVersion::V8_4);
+
     println!(
         "level {} (from composer: {})",
         project.level, project.level_from_composer
     );
+
     let started = Instant::now();
     let files = indexer::discover_project(&project.root, project.composer.as_ref(), &[]);
     println!("discovered {} files in {:?}", files.len(), started.elapsed());
@@ -70,20 +79,25 @@ fn main() {
     let persisted = Mutex::new(Vec::new());
     let stats = Mutex::new(None);
     let cache_path = cache.as_ref().map(|dir| project.cache_path(dir));
+
     indexer::run(files, cache_path.as_deref(), None, threads, &|event| match event {
         IndexEvent::Files(batch) => collected.lock().expect("lock").extend(batch),
         IndexEvent::Finished(done) => *stats.lock().expect("lock") = Some(done),
         IndexEvent::Persisted(moved) => persisted.lock().expect("lock").extend(moved),
         IndexEvent::Discovered(_) => {}
     });
+
     let elapsed = started.elapsed();
     let extensions = project.extensions();
     project.apply(collected.into_inner().expect("lock"));
+
     for (path, source) in persisted.into_inner().expect("lock") {
         project.index.move_to_cache(&path, source);
     }
+
     project.index.set_stubs(&stubs, &extensions);
     let stats = stats.into_inner().expect("lock").expect("finished");
+
     println!(
         "indexed in {:?}: {} parsed, {} from cache; {} files, {} classes, {} functions",
         elapsed,
@@ -93,5 +107,6 @@ fn main() {
         project.index.class_count(),
         project.index.function_count()
     );
+
     println!("resident: {} MB", resident_mb());
 }

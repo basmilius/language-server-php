@@ -16,11 +16,15 @@ pub enum Internal {
         event: IndexEvent,
     },
     StubsEvent(IndexEvent),
+
     /// The stubs are on disk at this path and are about to be read.
     StubsLocated(PathBuf),
+
     StubsFailed(String),
+
     /// The `.sql` files of the workspace folders with their text.
     SqlFiles(Vec<(PathBuf, String)>),
+
     /// The database a project's configuration names.
     SqlDialect {
         root: PathBuf,
@@ -40,20 +44,24 @@ pub struct StubNames {
 impl StubNames {
     fn of(stubs: &[StubFile]) -> StubNames {
         let mut names = StubNames::default();
+
         for stub in stubs {
             names
                 .classes
                 .extend(stub.summary.classes.iter().map(|class| class.name.to_ascii_lowercase()));
+
             names.functions.extend(
                 stub.summary
                     .functions
                     .iter()
                     .map(|function| function.name.to_ascii_lowercase()),
             );
+
             names
                 .constants
                 .extend(stub.summary.constants.iter().map(|constant| constant.name.clone()));
         }
+
         names
     }
 
@@ -75,19 +83,24 @@ impl StubNames {
 pub struct FolderChange {
     /// Projects that are new and have to be read.
     pub start: Vec<PathBuf>,
+
     /// Projects that exist and have to be read again.
     pub restart: Vec<PathBuf>,
 }
 
 pub struct Workspace {
     pub projects: Vec<Project>,
+
     /// What belongs to no folder the client opened: the standard library and the document itself.
     pub loose: Project,
+
     pub stubs: Vec<StubFile>,
     pub stubs_loaded: bool,
     pub stub_names: StubNames,
+
     /// The folders whose files have all been read, so that a name the index lacks is missing for real.
     pub indexed: HashSet<PathBuf>,
+
     pub stubs_dir: Option<PathBuf>,
     pub storage: Option<PathBuf>,
     pub stubs_override: Option<PathBuf>,
@@ -126,11 +139,14 @@ impl Workspace {
         let Some(position) = self.project_position(path) else {
             return false;
         };
+
         let project = &self.projects[position];
+
         let packages_missing = project
             .composer
             .as_ref()
             .is_some_and(|composer| composer.requires_packages && composer.packages.is_empty());
+
         self.stubs_loaded && self.indexed.contains(&project.root) && !packages_missing
     }
 
@@ -166,17 +182,21 @@ impl Workspace {
     /// ones whose files changed hands in `restart`.
     pub fn add_folder(&mut self, root: &Path) -> FolderChange {
         let mut change = FolderChange::default();
+
         if let Some(existing) = self.projects.iter_mut().find(|project| project.root == root) {
             if existing.is_nested() {
                 change
                     .restart
                     .push(std::mem::replace(&mut existing.folder, root.to_path_buf()));
             }
+
             return change;
         }
+
         self.insert_project(Project::open(root, self.default_level));
         change.start.push(root.to_path_buf());
         change.start.extend(self.sync_nested(root).start);
+
         change
     }
 
@@ -189,26 +209,35 @@ impl Workspace {
         } else {
             Vec::new()
         };
+
         let before = self.projects.len();
+
         self.projects.retain(|project| {
             let stale = project.is_nested() && project.folder == folder && !found.contains(&project.root);
+
             if stale {
                 self.indexed.remove(&project.root);
             }
+
             !stale
         });
+
         let dropped = before != self.projects.len();
         let mut change = FolderChange::default();
+
         for root in found {
             if self.projects.iter().any(|project| project.root == root) {
                 continue;
             }
+
             self.insert_project(Project::open_in(&root, folder, self.default_level));
             change.start.push(root);
         }
+
         if dropped || !change.start.is_empty() {
             change.restart.push(folder.to_path_buf());
         }
+
         change
     }
 
@@ -217,6 +246,7 @@ impl Workspace {
             let extensions = project.extensions();
             project.index.set_stubs(&self.stubs, &extensions);
         }
+
         self.projects.push(project);
     }
 
@@ -224,9 +254,11 @@ impl Workspace {
     pub fn remove_folder(&mut self, root: &Path) {
         self.projects.retain(|project| {
             let gone = project.folder == root;
+
             if gone {
                 self.indexed.remove(&project.root);
             }
+
             !gone
         });
     }
@@ -234,6 +266,7 @@ impl Workspace {
     /// A new default level reaches every project that did not get its level from `composer.json`.
     pub fn set_default_level(&mut self, level: PhpVersion) {
         self.default_level = level;
+
         for project in self.projects.iter_mut().chain(std::iter::once(&mut self.loose)) {
             if !project.level_from_composer {
                 project.level = level;
@@ -245,10 +278,12 @@ impl Workspace {
     /// Every project takes the stubs its extensions ask for.
     pub fn apply_stubs(&mut self) {
         let stubs = std::mem::take(&mut self.stubs);
+
         for project in self.projects.iter_mut().chain(std::iter::once(&mut self.loose)) {
             let extensions = project.extensions();
             project.index.set_stubs(&stubs, &extensions);
         }
+
         self.stub_names = StubNames::of(&stubs);
         self.stubs = stubs;
         self.stubs_loaded = true;
@@ -258,19 +293,24 @@ impl Workspace {
         let Some(project) = self.projects.iter().find(|project| project.root == root) else {
             return;
         };
+
         let root = project.root.clone();
         let composer = project.composer.clone();
+
         let nested: Vec<PathBuf> = self
             .projects
             .iter()
             .filter(|other| other.is_nested() && other.folder == root)
             .map(|other| other.root.clone())
             .collect();
+
         let cache = self.storage.as_ref().map(|storage| project.cache_path(storage));
         let sender = sender.clone();
+
         std::thread::spawn(move || {
             let files = indexer::discover_project(&root, composer.as_ref(), &nested);
             let threads = std::thread::available_parallelism().map_or(4, usize::from);
+
             indexer::run(files, cache.as_deref(), None, threads, &|event| {
                 let _ = sender.send(Internal::Project {
                     root: root.clone(),
@@ -284,10 +324,13 @@ impl Workspace {
     pub fn start_stubs_job(&self, sender: &Sender<Internal>) {
         let storage = self.storage.clone();
         let override_dir = self.stubs_override.clone();
+
         if storage.is_none() && override_dir.is_none() {
             return;
         }
+
         let sender = sender.clone();
+
         std::thread::spawn(move || {
             let dir = match (&override_dir, &storage) {
                 (Some(dir), _) => dir.clone(),
@@ -297,18 +340,23 @@ impl Workspace {
                         Ok(dir) => dir,
                         Err(error) => {
                             let _ = sender.send(Internal::StubsFailed(error));
+
                             return;
                         }
                     },
                 },
                 (None, None) => return,
             };
+
             let _ = sender.send(Internal::StubsLocated(dir.clone()));
+
             let cache = storage
                 .as_ref()
                 .map(|storage| storage.join("cache").join(format!("stubs-{}.bin", path_key(&dir))));
+
             let files = indexer::discover_stubs(&dir);
             let threads = std::thread::available_parallelism().map_or(4, usize::from);
+
             indexer::run(files, cache.as_deref(), Some(&dir), threads, &|event| {
                 let _ = sender.send(Internal::StubsEvent(event));
             });
@@ -318,6 +366,7 @@ impl Workspace {
     /// The stubs were written to the cache file: read them from there from now on.
     pub fn move_stubs_to_cache(&mut self, moved: Vec<(PathBuf, php_index::SymbolSource)>) {
         let mut sources: std::collections::HashMap<PathBuf, php_index::SymbolSource> = moved.into_iter().collect();
+
         for stub in &mut self.stubs {
             if let Some(source) = sources.remove(&stub.path) {
                 stub.source = source;

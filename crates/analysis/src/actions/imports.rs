@@ -34,14 +34,19 @@ pub fn import_candidates(index: &Index, name: &str, kind: UseKind, namespace: &s
             .map(|constant| constant.summary.name.clone())
             .collect(),
     };
+
     found.sort();
     found.dedup();
     let root = namespace.split('\\').next().unwrap_or("");
+
     found.sort_by_key(|candidate| {
         let shares = !root.is_empty() && candidate.split('\\').next() == Some(root);
+
         (!shares, candidate.clone())
     });
+
     found.truncate(8);
+
     found
 }
 
@@ -77,6 +82,7 @@ impl<'a> ClassWriter<'a> {
     /// The alias a file gives a class in an import of its own, as it is written there.
     fn alias_of(&self, fqn: &str) -> Option<String> {
         let wanted = fqn.trim_start_matches('\\');
+
         self.root
             .descendants()
             .filter(|node| node.kind() == USE_CLAUSE && has_token(node, AS_KW))
@@ -90,6 +96,7 @@ impl<'a> ClassWriter<'a> {
                     .filter_map(php_syntax::SyntaxElement::into_token)
                     .skip_while(|token| token.kind() != AS_KW)
                     .find(|token| token.kind() == IDENT)?;
+
                 Some(after.text().to_string())
             })
             .filter(|alias| {
@@ -103,12 +110,15 @@ impl<'a> ClassWriter<'a> {
         if let Some(alias) = self.alias_of(fqn) {
             return alias;
         }
+
         let plan = plan_import(self.resolver, fqn, UseKind::Class, |name| {
             let own = self.resolver.qualify(name);
+
             self.index
                 .class(&own)
                 .is_some_and(|other| !other.decl.name.eq_ignore_ascii_case(fqn))
         });
+
         match plan {
             ImportPlan::Plain(name) => name,
             ImportPlan::Qualified(name) => format!("\\{name}"),
@@ -118,6 +128,7 @@ impl<'a> ClassWriter<'a> {
                         self.imports.push(edit);
                     }
                 }
+
                 name
             }
         }
@@ -140,22 +151,28 @@ pub fn remove_import(text: &str, root: &SyntaxNode, range: TextRange) -> Option<
         .covering_element(range)
         .ancestors_with_self()
         .find(|candidate| candidate.text_range() == range && matches!(candidate.kind(), USE_STATEMENT | USE_CLAUSE))?;
+
     if node.kind() == USE_STATEMENT {
         return Some(remove_with_lines(text, range));
     }
+
     let siblings: Vec<SyntaxNode> = node
         .parent()?
         .children()
         .filter(|sibling| sibling.kind() == USE_CLAUSE)
         .collect();
+
     let position = siblings.iter().position(|sibling| *sibling == node)?;
+
     if siblings.len() == 1 {
         return Some(remove_with_lines(text, node.parent()?.parent()?.text_range()));
     }
+
     Some(match siblings.get(position + 1) {
         Some(next) => delete(TextRange::new(node.text_range().start(), next.text_range().start())),
         None => {
             let previous = &siblings[position - 1];
+
             delete(TextRange::new(previous.text_range().end(), node.text_range().end()))
         }
     })
@@ -189,6 +206,7 @@ struct Statement {
 pub fn organize_imports(cx: &Cx) -> Vec<TextEdit> {
     let clauses = import_clauses(cx);
     let mut containers: Vec<SyntaxNode> = Vec::new();
+
     for entry in &clauses {
         if let Some(parent) = entry.statement.parent() {
             if !containers.contains(&parent) {
@@ -196,6 +214,7 @@ pub fn organize_imports(cx: &Cx) -> Vec<TextEdit> {
             }
         }
     }
+
     containers
         .iter()
         .filter_map(|container| organize_container(cx, container, &clauses))
@@ -207,6 +226,7 @@ fn organize_container(cx: &Cx, container: &SyntaxNode, clauses: &[ImportClause])
         .children()
         .filter(|child| child.kind() == USE_STATEMENT)
         .collect();
+
     let (first, last) = (statements.first()?, statements.last()?);
     let text = cx.text;
     let region_start = line_start(text, usize::from(first.text_range().start()));
@@ -214,46 +234,60 @@ fn organize_container(cx: &Cx, container: &SyntaxNode, clauses: &[ImportClause])
     // Comments or code among the statements stay where they are.
     let between = &text[usize::from(first.text_range().start())..usize::from(last.text_range().end())];
     let mut inner_text = between.to_string();
+
     for statement in &statements {
         let from = usize::from(statement.text_range().start()) - usize::from(first.text_range().start());
         let to = usize::from(statement.text_range().end()) - usize::from(first.text_range().start());
         inner_text.replace_range(from..to, &" ".repeat(to - from));
     }
+
     if !inner_text.trim().is_empty() {
         return None;
     }
+
     let mut written: Vec<Statement> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+
     for statement in &statements {
         let own: Vec<&ImportClause> = clauses.iter().filter(|entry| entry.statement == *statement).collect();
         let kept: Vec<&ImportClause> = own.iter().copied().filter(|entry| entry.used).collect();
+
         if kept.is_empty() {
             continue;
         }
+
         let rendered = render_statement(statement, &kept)?;
+
         if seen.insert(format!("{}:{}", rendered.kind as u8, rendered.text)) {
             written.push(rendered);
         }
     }
+
     written.sort_by(|left, right| (kind_order(left.kind), &left.key).cmp(&(kind_order(right.kind), &right.key)));
     let mut out = String::new();
     let mut previous: Option<UseKind> = None;
+
     for statement in &written {
         if previous.is_some_and(|kind| kind != statement.kind) {
             out.push('\n');
         }
+
         out.push_str(&statement.text);
         out.push('\n');
         previous = Some(statement.kind);
     }
+
     let original = &text[region_start..region_end];
     let mut normalized = out.clone();
+
     if !original.ends_with('\n') && !original.is_empty() {
         normalized.pop();
     }
+
     if normalized == original {
         return None;
     }
+
     Some(replace(
         TextRange::new((region_start as u32).into(), (region_end as u32).into()),
         normalized,
@@ -270,31 +304,39 @@ fn kind_order(kind: UseKind) -> u8 {
 
 fn render_statement(statement: &SyntaxNode, kept: &[&ImportClause]) -> Option<Statement> {
     let kind = kept[0].kind;
+
     let keyword = match kind {
         UseKind::Class => "use ",
         UseKind::Function => "use function ",
         UseKind::Constant => "use const ",
     };
+
     if let Some(group) = child_of(statement, USE_GROUP) {
         let prefix = child_of(&group, NAME).map(|name| text_of(&name))?;
+
         let mut parts: Vec<(String, String)> = kept
             .iter()
             .map(|entry| {
                 let text = text_of(&entry.clause);
+
                 (text.to_ascii_lowercase(), text)
             })
             .collect();
+
         parts.sort();
         let names: Vec<String> = parts.into_iter().map(|(_, text)| text).collect();
         let prefix = prefix.trim_end_matches('\\').to_string();
+
         return Some(Statement {
             kind,
             key: prefix.trim_start_matches('\\').to_ascii_lowercase(),
             text: format!("{keyword}{prefix}\\{{{}}};", names.join(", ")),
         });
     }
+
     let clauses: Vec<String> = kept.iter().map(|entry| text_of(&entry.clause)).collect();
     let key = kept[0].full.to_ascii_lowercase();
+
     Some(Statement {
         kind,
         key,

@@ -39,9 +39,12 @@ impl Found {
     pub(crate) fn add(&mut self, name: &str, ty: Type) {
         if matches!(ty, Type::Unknown | Type::Mixed) || !is_variable_name(name) {
             self.0.entry(name.to_string()).or_default();
+
             return;
         }
+
         let types = self.0.entry(name.to_string()).or_default();
+
         if !types.contains(&ty) {
             types.push(ty);
         }
@@ -69,8 +72,10 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
     if !index.frameworks().laravel {
         return Vec::new();
     }
+
     let (names, tags): (Vec<String>, Vec<String>) = {
         let views = index.section::<Views>();
+
         (
             views
                 .views
@@ -86,12 +91,15 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
                 .collect(),
         )
     };
+
     let mut found = Found::default();
+
     // A Livewire component without a `render()` of its own renders its view by convention, which
     // no call names.
     if let Some(component) = super::livewire::component_of(index, path).and_then(|class| index.class(&class)) {
         public_properties(&component, &mut found);
     }
+
     for name in &names {
         let query = Query::new(
             index,
@@ -101,14 +109,18 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
                 scope: None,
             },
         );
+
         for file in find_hits(index, sources, None, &query) {
             if file.path == path {
                 continue;
             }
+
             let Some(text) = sources.text(&file.path) else {
                 continue;
             };
+
             let starts: Vec<u32> = file.hits.iter().map(|hit| u32::from(hit.range.start())).collect();
+
             if is_template(&file.path) {
                 if depth < DEPTH {
                     from_template(index, sources, &file.path, &text, &starts, depth, &mut found);
@@ -118,6 +130,7 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
             }
         }
     }
+
     for tag in &tags {
         let query = Query::new(
             index,
@@ -127,17 +140,21 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
                 scope: None,
             },
         );
+
         for file in find_hits(index, sources, None, &query) {
             if file.path == path || !is_template(&file.path) || depth >= DEPTH {
                 continue;
             }
+
             let Some(text) = sources.text(&file.path) else {
                 continue;
             };
+
             let starts: Vec<u32> = file.hits.iter().map(|hit| u32::from(hit.range.start())).collect();
             from_component_tags(index, sources, &file.path, &text, &starts, depth, &mut found);
         }
     }
+
     found.into_given()
 }
 
@@ -145,6 +162,7 @@ fn given_at(index: &Index, sources: &dyn Sources, path: &Path, depth: usize) -> 
 fn type_of(ctx: &FileContext<'_>, node: &SyntaxNode) -> Type {
     let analyzer = ctx.analyzer(node);
     let env = analyzer.env_around(node);
+
     analyzer.type_of(node, &env)
 }
 
@@ -155,6 +173,7 @@ fn data_of(ctx: &FileContext<'_>, expression: &SyntaxNode, found: &mut Found) {
         ARRAY_EXPR => {
             for item in expression.children().filter(|node| node.kind() == ARRAY_ITEM) {
                 let parts: Vec<SyntaxNode> = item.children().collect();
+
                 if let [key, value] = parts.as_slice() {
                     if let Some((name, _)) = php_index::test_facts::string_value(key) {
                         found.add(&name, type_of(ctx, value));
@@ -165,6 +184,7 @@ fn data_of(ctx: &FileContext<'_>, expression: &SyntaxNode, found: &mut Found) {
         CALL_EXPR if callee_name(expression).is_some_and(|name| name.eq_ignore_ascii_case("compact")) => {
             let analyzer = ctx.analyzer(expression);
             let env = analyzer.env_around(expression);
+
             for literal in expression.descendants().filter(|node| node.kind() == LITERAL) {
                 if let Some((name, _)) = php_index::test_facts::string_value(&literal) {
                     if let Some(ty) = env.get(&name) {
@@ -190,10 +210,12 @@ fn data_of(ctx: &FileContext<'_>, expression: &SyntaxNode, found: &mut Found) {
 /// The name a call is made by: the function, or the method after `->` or `::`.
 fn callee_name(call: &SyntaxNode) -> Option<String> {
     let callee = call.children().next()?;
+
     let name = match callee.kind() {
         NAME => callee,
         _ => callee.children().filter(|child| child.kind() == NAME).last()?,
     };
+
     Some(ast::text_of(&name))
 }
 
@@ -202,6 +224,7 @@ fn arguments(owner: &SyntaxNode) -> Vec<(Option<String>, SyntaxNode)> {
     let Some(list) = child_of(owner, ARGUMENT_LIST) else {
         return Vec::new();
     };
+
     list.children()
         .filter(|node| node.kind() == ARGUMENT)
         .filter_map(|argument| {
@@ -216,6 +239,7 @@ fn arguments(owner: &SyntaxNode) -> Vec<(Option<String>, SyntaxNode)> {
                         .map(|token| token.text().to_string())
                 })
                 .flatten();
+
             Some((named, argument.children().last()?))
         })
         .collect()
@@ -227,6 +251,7 @@ fn arguments(owner: &SyntaxNode) -> Vec<(Option<String>, SyntaxNode)> {
 pub(crate) fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Found) {
     let root = parse(text).syntax();
     let ctx = FileContext::new(index, &root);
+
     for start in starts {
         let Some(literal) = ast::node_at(&root, *start)
             .ancestors()
@@ -234,9 +259,11 @@ pub(crate) fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Fo
         else {
             continue;
         };
+
         let Some(argument) = literal.parent().filter(|node| node.kind() == ARGUMENT) else {
             continue;
         };
+
         let Some(owner) = argument
             .parent()
             .and_then(|list| list.parent())
@@ -244,8 +271,10 @@ pub(crate) fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Fo
         else {
             continue;
         };
+
         if owner.kind() == ATTRIBUTE {
             let method = owner.ancestors().find(|node| node.kind() == METHOD_DECLARATION);
+
             for returned in method
                 .iter()
                 .flat_map(|method| method.descendants())
@@ -254,22 +283,29 @@ pub(crate) fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Fo
             {
                 data_of(&ctx, &returned, found);
             }
+
             continue;
         }
+
         let all = arguments(&owner);
+
         let named_data = all
             .iter()
             .find(|(name, _)| matches!(name.as_deref(), Some("with" | "data" | "parameters" | "context")))
             .map(|(_, value)| value.clone());
+
         let data = named_data.or_else(|| {
             let position = all.iter().position(|(_, value)| value == &literal)?;
+
             all.get(position + 1)
                 .filter(|(name, _)| name.is_none())
                 .map(|(_, value)| value.clone())
         });
+
         if let Some(data) = data {
             data_of(&ctx, &data, found);
         }
+
         chained_with(&ctx, &owner, found);
         from_class(index, &owner, found);
     }
@@ -278,15 +314,19 @@ pub(crate) fn from_php(index: &Index, text: &str, starts: &[u32], found: &mut Fo
 /// `->with('user', $user)`, `->with([...])` and `->withUser($user)` after the call.
 fn chained_with(ctx: &FileContext<'_>, call: &SyntaxNode, found: &mut Found) {
     let mut current = call.clone();
+
     while let Some(fetch) = current.parent().filter(|node| node.kind() == PROPERTY_FETCH_EXPR) {
         let Some(next) = fetch.parent().filter(|node| node.kind() == CALL_EXPR) else {
             break;
         };
+
         let Some(method) = fetch.children().filter(|child| child.kind() == NAME).last() else {
             break;
         };
+
         let method = ast::text_of(&method);
         let all = arguments(&next);
+
         if method.eq_ignore_ascii_case("with") {
             match all.as_slice() {
                 [(_, key), (_, value)] => {
@@ -309,6 +349,7 @@ fn chained_with(ctx: &FileContext<'_>, call: &SyntaxNode, found: &mut Found) {
         } else {
             break;
         }
+
         current = next;
     }
 }
@@ -322,18 +363,23 @@ fn from_class(index: &Index, call: &SyntaxNode, found: &mut Found) {
     else {
         return;
     };
+
     let Some(name) = child_of(&class, NAME) else {
         return;
     };
+
     let root = class.ancestors().last().unwrap_or_else(|| class.clone());
     let resolver = php_index::extract::resolver_at(&root, ast::start(&class));
     let qualified = resolver.resolve_class(&ast::text_of(&name));
+
     if !RENDERERS.iter().any(|base| index.is_subclass_of(&qualified, base)) {
         return;
     }
+
     let Some(found_class) = index.class(&qualified) else {
         return;
     };
+
     public_properties(&found_class, found);
 }
 
@@ -343,11 +389,13 @@ fn public_properties(class: &php_index::Class<'_>, found: &mut Found) {
         if property.is_static || property.visibility != php_index::Visibility::Public {
             continue;
         }
+
         let ty = property
             .doc_ty
             .clone()
             .or_else(|| property.ty.clone())
             .unwrap_or(Type::Unknown);
+
         found.add(&property.name, ty);
     }
 }
@@ -366,6 +414,7 @@ fn from_template(
     let template = Template::read(index, Some(path), text, &own);
     let root = template.root();
     let ctx = FileContext::new(index, &root);
+
     for start in starts {
         let Some(directive) = template.nodes.iter().find_map(|node| match node {
             Node::Directive(directive) if directive.args.is_some_and(|(from, to)| from <= *start && *start <= to) => {
@@ -375,34 +424,43 @@ fn from_template(
         }) else {
             continue;
         };
+
         let name = directive.name.to_ascii_lowercase();
+
         if matches!(name.as_str(), "extends" | "extendsfirst") {
             let end = template.virt.text.len() as u32;
             let env = Analyzer::new(index, &root, end).env_at(end);
+
             for (variable, ty) in &env.vars {
                 found.add(variable, ty.clone());
             }
+
             continue;
         }
+
         let Some(at) = template.virt.to_virtual(*start) else {
             continue;
         };
+
         let Some(list) = ast::node_at(&root, at).ancestors().find(|node| {
             node.kind() == ARRAY_EXPR && node.parent().is_some_and(|parent| parent.kind() == EXPR_STATEMENT)
         }) else {
             continue;
         };
+
         let items: Vec<SyntaxNode> = list
             .children()
             .filter(|node| node.kind() == ARRAY_ITEM)
             .filter_map(|item| item.children().last())
             .collect();
+
         let Some(position) = items
             .iter()
             .position(|item| ast::start(item) <= at && at <= ast::end(item))
         else {
             continue;
         };
+
         if name == "each" {
             if let (Some(items_of), Some(variable)) = (items.get(position + 1), items.get(position + 2)) {
                 if let Some((variable, _)) = php_index::test_facts::string_value(variable) {
@@ -411,13 +469,17 @@ fn from_template(
                     found.add(&variable, value);
                 }
             }
+
             continue;
         }
+
         let analyzer = ctx.analyzer(&list);
         let env = analyzer.env_around(&list);
+
         for (variable, ty) in &env.vars {
             found.add(variable, ty.clone());
         }
+
         if let Some(data) = items.get(position + 1) {
             data_of(&ctx, data, found);
         }
@@ -438,6 +500,7 @@ fn from_component_tags(
     let template = Template::read(index, Some(path), text, &own);
     let root = template.root();
     let ctx = FileContext::new(index, &root);
+
     for start in starts {
         let Some(tag) = template.nodes.iter().find_map(|node| match node {
             Node::Tag(tag) if tag.name_start == *start && !tag.closing => Some(tag),
@@ -445,6 +508,7 @@ fn from_component_tags(
         }) else {
             continue;
         };
+
         attributes_of(&ctx, &template, &root, tag, found);
     }
 }
@@ -454,7 +518,9 @@ fn attributes_of(ctx: &FileContext<'_>, template: &Template, root: &SyntaxNode, 
         if attribute.name.contains([':', '.', '@']) || attribute.name.starts_with("x-") {
             continue;
         }
+
         let name = camel(&attribute.name);
+
         if !attribute.bound {
             found.add(
                 &name,
@@ -464,20 +530,25 @@ fn attributes_of(ctx: &FileContext<'_>, template: &Template, root: &SyntaxNode, 
                     Type::Bool
                 },
             );
+
             continue;
         }
+
         let Some((value_start, value_end)) = attribute.value else {
             continue;
         };
+
         let (Some(from), Some(to)) = (
             template.virt.to_virtual(value_start),
             template.virt.to_virtual(value_end),
         ) else {
             continue;
         };
+
         if from >= to {
             continue;
         }
+
         let Some(expression) = ast::node_at(root, from + 1)
             .ancestors()
             .find(|node| node.kind() == ARRAY_ITEM)
@@ -486,6 +557,7 @@ fn attributes_of(ctx: &FileContext<'_>, template: &Template, root: &SyntaxNode, 
         else {
             continue;
         };
+
         found.add(&name, type_of(ctx, &expression));
     }
 }
@@ -494,6 +566,7 @@ fn attributes_of(ctx: &FileContext<'_>, template: &Template, root: &SyntaxNode, 
 fn camel(name: &str) -> String {
     let mut out = String::new();
     let mut upper = false;
+
     for character in name.chars() {
         if character == '-' {
             upper = true;
@@ -504,5 +577,6 @@ fn camel(name: &str) -> String {
             out.push(character);
         }
     }
+
     out
 }

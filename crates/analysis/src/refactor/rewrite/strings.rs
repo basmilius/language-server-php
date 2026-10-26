@@ -14,6 +14,7 @@ use crate::refactor::{Rcx, Refactor};
 /// A piece of a string as it will be written.
 enum Piece {
     Text(String),
+
     /// An expression and the code that writes it.
     Value {
         code: String,
@@ -26,29 +27,37 @@ pub(super) fn offer<'a>(rcx: &'a Rcx<'a>, out: &mut Vec<Refactor<'a>>) {
     let Some(token) = caret(rcx) else {
         return;
     };
+
     let nodes: Vec<SyntaxNode> = around(&token).collect();
+
     if let Some(chain) = nodes.iter().rfind(|node| is_concat(node)) {
         if let Ok(pieces) = pieces_of_concat(rcx, chain) {
             let chain = chain.clone();
+
             if as_interpolation(&pieces).is_ok() {
                 let (id, node) = (format!("rewrite-interpolate@{}", start(&chain)), chain.clone());
+
                 out.push(rewrite(
                     id,
                     "Convert concatenation to an interpolated string",
                     move || replace_with(rcx, &node, as_interpolation(&pieces_of_concat(rcx, &node)?)?),
                 ));
             }
+
             let (id, node) = (format!("rewrite-sprintf@{}", start(&chain)), chain);
+
             out.push(rewrite(id, "Convert concatenation to sprintf", move || {
                 replace_with(rcx, &node, as_sprintf(&pieces_of_concat(rcx, &node)?)?)
             }));
         }
     }
+
     if let Some(string) = nodes.iter().find(|node| node.kind() == INTERPOLATED_STRING) {
         if as_concatenation(&pieces_of_string(rcx, string).unwrap_or_default()).is_ok()
             && pieces_of_string(rcx, string).is_ok()
         {
             let node = string.clone();
+
             out.push(rewrite(
                 format!("rewrite-concatenate@{}", start(string)),
                 "Convert the string to a concatenation",
@@ -56,15 +65,19 @@ pub(super) fn offer<'a>(rcx: &'a Rcx<'a>, out: &mut Vec<Refactor<'a>>) {
             ));
         }
     }
+
     if let Some(call) = nodes.iter().find(|node| is_sprintf(node)) {
         if let Ok(pieces) = pieces_of_sprintf(rcx, call) {
             let call = call.clone();
             let (id, node) = (format!("rewrite-unsprintf@{}", start(&call)), call.clone());
+
             out.push(rewrite(id, "Convert sprintf to a concatenation", move || {
                 replace_with(rcx, &node, as_concatenation(&pieces_of_sprintf(rcx, &node)?)?)
             }));
+
             if as_interpolation(&pieces).is_ok() {
                 let (id, node) = (format!("rewrite-unsprintf-interpolate@{}", start(&call)), call);
+
                 out.push(rewrite(id, "Convert sprintf to an interpolated string", move || {
                     replace_with(rcx, &node, as_interpolation(&pieces_of_sprintf(rcx, &node)?)?)
                 }));
@@ -76,6 +89,7 @@ pub(super) fn offer<'a>(rcx: &'a Rcx<'a>, out: &mut Vec<Refactor<'a>>) {
 fn replace_with(rcx: &Rcx<'_>, node: &SyntaxNode, text: String) -> Result<crate::refactor::Change, String> {
     let mut draft = Draft::new(rcx.renv);
     draft.here(replace(node.text_range(), text));
+
     draft.finish()
 }
 
@@ -99,15 +113,20 @@ fn is_sprintf(node: &SyntaxNode) -> bool {
 fn decode_double(raw: &str) -> Option<String> {
     let mut out = String::new();
     let mut chars = raw.chars().peekable();
+
     while let Some(c) = chars.next() {
         if c != '\\' {
             out.push(c);
+
             continue;
         }
+
         let Some(next) = chars.next() else {
             out.push('\\');
+
             break;
         };
+
         match next {
             'n' => out.push('\n'),
             't' => out.push('\t'),
@@ -120,6 +139,7 @@ fn decode_double(raw: &str) -> Option<String> {
             '"' => out.push('"'),
             '0'..='7' => {
                 let mut value = next.to_digit(8)?;
+
                 for _ in 0..2 {
                     match chars.peek().and_then(|c| c.to_digit(8)) {
                         Some(digit) => {
@@ -129,11 +149,13 @@ fn decode_double(raw: &str) -> Option<String> {
                         None => break,
                     }
                 }
+
                 out.push(char::from_u32(value)?);
             }
             'x' => {
                 let mut value = 0;
                 let mut count = 0;
+
                 while count < 2 {
                     match chars.peek().and_then(|c| c.to_digit(16)) {
                         Some(digit) => {
@@ -144,6 +166,7 @@ fn decode_double(raw: &str) -> Option<String> {
                         None => break,
                     }
                 }
+
                 if count == 0 {
                     out.push_str("\\x");
                 } else {
@@ -153,12 +176,15 @@ fn decode_double(raw: &str) -> Option<String> {
             'u' if chars.peek() == Some(&'{') => {
                 chars.next();
                 let mut digits = String::new();
+
                 for c in chars.by_ref() {
                     if c == '}' {
                         break;
                     }
+
                     digits.push(c);
                 }
+
                 out.push(char::from_u32(u32::from_str_radix(&digits, 16).ok()?)?);
             }
             other => {
@@ -167,12 +193,14 @@ fn decode_double(raw: &str) -> Option<String> {
             }
         }
     }
+
     Some(out)
 }
 
 fn decode_single(raw: &str) -> String {
     let mut out = String::new();
     let mut chars = raw.chars().peekable();
+
     while let Some(c) = chars.next() {
         if c == '\\' && matches!(chars.peek(), Some('\\' | '\'')) {
             out.extend(chars.next());
@@ -180,6 +208,7 @@ fn decode_single(raw: &str) -> String {
             out.push(c);
         }
     }
+
     out
 }
 
@@ -188,9 +217,11 @@ fn literal_text(node: &SyntaxNode) -> Option<String> {
     if node.kind() != LITERAL {
         return None;
     }
+
     let token = tokens(node).find(|token| token.kind() == STRING_LITERAL)?;
     let text = token.text();
     let inner = text.get(1..text.len().checked_sub(1)?)?;
+
     match text.chars().next()? {
         '\'' => Some(decode_single(inner)),
         '"' => decode_double(inner),
@@ -202,13 +233,16 @@ fn number_text(node: &SyntaxNode) -> Option<String> {
     if node.kind() != LITERAL {
         return None;
     }
+
     let token = tokens(node).find(|token| matches!(token.kind(), INT_LITERAL | FLOAT_LITERAL))?;
     let plain = token.text().chars().all(|c| c.is_ascii_digit() || c == '.');
+
     plain.then(|| token.text().to_string())
 }
 
 fn value_piece(rcx: &Rcx<'_>, node: &SyntaxNode) -> Piece {
     let code = text_of_node(rcx.cx.text, node).to_string();
+
     Piece::Value {
         plain_variable: node.kind() == VARIABLE_EXPR,
         starts_with_variable: code.starts_with('$')
@@ -234,16 +268,19 @@ fn pieces_of_concat(rcx: &Rcx<'_>, chain: &SyntaxNode) -> Result<Vec<Piece>, Str
     let mut operands = Vec::new();
     flatten(chain, &mut operands);
     let mut pieces: Vec<Piece> = Vec::new();
+
     for operand in &operands {
         if super::has_comment(operand) {
             return Err("There are comments in it".to_string());
         }
+
         if let Some(text) = literal_text(operand).or_else(|| number_text(operand)) {
             push_text(&mut pieces, text);
         } else {
             pieces.push(value_piece(rcx, operand));
         }
     }
+
     Ok(pieces)
 }
 
@@ -256,6 +293,7 @@ fn push_text(pieces: &mut Vec<Piece>, text: String) {
 
 fn pieces_of_string(rcx: &Rcx<'_>, string: &SyntaxNode) -> Result<Vec<Piece>, String> {
     let mut pieces: Vec<Piece> = Vec::new();
+
     for element in string.children_with_tokens() {
         match element {
             SyntaxElement::Token(token) => match token.kind() {
@@ -271,9 +309,11 @@ fn pieces_of_string(rcx: &Rcx<'_>, string: &SyntaxNode) -> Result<Vec<Piece>, St
                 PROPERTY_FETCH_EXPR => pieces.push(value_piece(rcx, &node)),
                 INDEX_EXPR => {
                     let key = node.children().nth(1).ok_or("No key")?;
+
                     if !matches!(key.kind(), VARIABLE_EXPR) && number_text(&key).is_none() {
                         return Err("A bare key means a string".to_string());
                     }
+
                     pieces.push(value_piece(rcx, &node));
                 }
                 BRACED_INTERPOLATION => {
@@ -284,33 +324,41 @@ fn pieces_of_string(rcx: &Rcx<'_>, string: &SyntaxNode) -> Result<Vec<Piece>, St
             },
         }
     }
+
     Ok(pieces)
 }
 
 fn pieces_of_sprintf(rcx: &Rcx<'_>, call: &SyntaxNode) -> Result<Vec<Piece>, String> {
     let given = arguments_of(call);
+
     if given.iter().any(|arg| arg.spread || arg.name.is_some()) {
         return Err("The call spreads or names its arguments".to_string());
     }
+
     let format = given
         .first()
         .and_then(|arg| arg.value.as_ref())
         .and_then(literal_text)
         .ok_or("The format is not a plain string")?;
+
     let mut values = given.iter().skip(1).filter_map(|arg| arg.value.clone());
     let mut pieces: Vec<Piece> = Vec::new();
     let mut chars = format.chars().peekable();
     let mut used = 0;
+
     while let Some(c) = chars.next() {
         if c != '%' {
             push_text(&mut pieces, c.to_string());
+
             continue;
         }
+
         match chars.next() {
             Some('%') => push_text(&mut pieces, "%".to_string()),
             Some('s') => {
                 let value = values.next().ok_or("A placeholder has no argument")?;
                 used += 1;
+
                 match literal_text(&value) {
                     Some(text) => push_text(&mut pieces, text),
                     None => pieces.push(value_piece(rcx, &value)),
@@ -319,9 +367,11 @@ fn pieces_of_sprintf(rcx: &Rcx<'_>, call: &SyntaxNode) -> Result<Vec<Piece>, Str
             _ => return Err("The format has more than plain %s".to_string()),
         }
     }
+
     if used != given.len().saturating_sub(1) {
         return Err("The arguments and the placeholders do not match".to_string());
     }
+
     Ok(pieces)
 }
 
@@ -337,6 +387,7 @@ fn encode_single(text: &str) -> String {
 
 fn encode_double_body(text: &str) -> String {
     let mut out = String::new();
+
     for c in text.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
@@ -350,6 +401,7 @@ fn encode_double_body(text: &str) -> String {
             c => out.push(c),
         }
     }
+
     out
 }
 
@@ -366,7 +418,9 @@ fn as_interpolation(pieces: &[Piece]) -> Result<String, String> {
     if !pieces.iter().any(|piece| matches!(piece, Piece::Value { .. })) {
         return Err("There is nothing to put in the string".to_string());
     }
+
     let mut out = String::from("\"");
+
     for (position, piece) in pieces.iter().enumerate() {
         match piece {
             Piece::Text(text) => out.push_str(&encode_double_body(text)),
@@ -378,11 +432,14 @@ fn as_interpolation(pieces: &[Piece]) -> Result<String, String> {
                 if !starts_with_variable {
                     return Err("Only variables go inside a string".to_string());
                 }
+
                 let next = pieces.get(position + 1).and_then(|next| match next {
                     Piece::Text(text) => text.chars().next(),
                     Piece::Value { .. } => Some('{'),
                 });
+
                 let clashes = next.is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '[' | '-' | '{' | '\\'));
+
                 if *plain_variable && !clashes {
                     out.push_str(code);
                 } else {
@@ -391,13 +448,16 @@ fn as_interpolation(pieces: &[Piece]) -> Result<String, String> {
             }
         }
     }
+
     out.push('"');
+
     Ok(out)
 }
 
 fn as_sprintf(pieces: &[Piece]) -> Result<String, String> {
     let mut format = String::new();
     let mut arguments: Vec<&str> = Vec::new();
+
     for piece in pieces {
         match piece {
             Piece::Text(text) => format.push_str(&text.replace('%', "%%")),
@@ -407,14 +467,17 @@ fn as_sprintf(pieces: &[Piece]) -> Result<String, String> {
             }
         }
     }
+
     if arguments.is_empty() {
         return Err("There is nothing to put in".to_string());
     }
+
     Ok(format!("sprintf({}, {})", quoted(&format), arguments.join(", ")))
 }
 
 fn as_concatenation(pieces: &[Piece]) -> Result<String, String> {
     let mut parts: Vec<String> = Vec::new();
+
     for piece in pieces {
         match piece {
             Piece::Text(text) if text.is_empty() => {}
@@ -422,6 +485,7 @@ fn as_concatenation(pieces: &[Piece]) -> Result<String, String> {
             Piece::Value { code, .. } => parts.push(code.clone()),
         }
     }
+
     if pieces
         .iter()
         .filter(|piece| matches!(piece, Piece::Value { .. }))
@@ -430,8 +494,10 @@ fn as_concatenation(pieces: &[Piece]) -> Result<String, String> {
     {
         return Err("There is nothing to join".to_string());
     }
+
     if parts.len() < 2 {
         return Err("A single value is not a concatenation".to_string());
     }
+
     Ok(parts.join(" . "))
 }

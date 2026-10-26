@@ -20,6 +20,7 @@ use crate::inspections::{Cx, InspectionEnv};
 /// Brackets around the text that names a new thing, so that the client can start a rename on it
 /// once the formatter has moved everything around it.
 const FOCUS_OPEN: char = '\u{1}';
+
 const FOCUS_CLOSE: char = '\u{2}';
 
 /// The name a refactor writes, marked as the one a person is expected to change.
@@ -76,6 +77,7 @@ impl<'a> Draft<'a> {
         if path == renv.path {
             return Some(renv.env.text.to_string());
         }
+
         renv.sources.text(path)
     }
 
@@ -87,28 +89,35 @@ impl<'a> Draft<'a> {
             moves,
             creates,
         } = self;
+
         let mut files = Vec::new();
         let mut found_focus = None;
+
         for (path, mut edits) in drafted {
             if edits.is_empty() {
                 continue;
             }
+
             let Some(original) = Draft::text_of(renv, &path) else {
                 return Err(format!("{} cannot be read", path.display()));
             };
+
             edits.sort_by_key(|edit| (edit.start, edit.end));
             edits.dedup();
             check_edits(&original, &edits)?;
             let eol = if original.contains("\r\n") { "\r\n" } else { "\n" };
+
             if eol == "\r\n" {
                 for edit in &mut edits {
                     edit.new_text = to_crlf(&edit.new_text);
                 }
             }
+
             let (written, touched, mark) = write(&original, &edits);
             let mut final_text = written.text;
             let mut mark = mark;
             let mut formatted = false;
+
             if !touched.is_empty() {
                 if let Some((laid_out, moved)) = lay_out(&original, &final_text, &touched, &renv.format, mark) {
                     final_text = laid_out;
@@ -116,6 +125,7 @@ impl<'a> Draft<'a> {
                     formatted = true;
                 }
             }
+
             {
                 if let Some((tidied, moved)) = tidy_imports(renv, &original, &final_text, mark) {
                     final_text = tidied;
@@ -123,6 +133,7 @@ impl<'a> Draft<'a> {
                     formatted = true;
                 }
             }
+
             let list: Vec<Edit> = if formatted {
                 hunks(&original, &final_text)
                     .into_iter()
@@ -148,6 +159,7 @@ impl<'a> Draft<'a> {
                     })
                     .collect()
             };
+
             if let Some((start, end)) = mark {
                 found_focus.get_or_insert(Focus {
                     path: path.clone(),
@@ -155,13 +167,16 @@ impl<'a> Draft<'a> {
                     end: end as u32,
                 });
             }
+
             if !list.is_empty() {
                 files.push(FileChange { path, edits: list });
             }
         }
+
         if files.is_empty() && moves.is_empty() && creates.is_empty() {
             return Err("There is nothing to change".to_string());
         }
+
         Ok(Change {
             files,
             moves,
@@ -174,28 +189,36 @@ impl<'a> Draft<'a> {
 fn to_crlf(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut previous = '\0';
+
     for character in text.chars() {
         if character == '\n' && previous != '\r' {
             out.push('\r');
         }
+
         out.push(character);
         previous = character;
     }
+
     out
 }
 
 fn check_edits(text: &str, edits: &[TextEdit]) -> Result<(), String> {
     let mut last_end = 0;
+
     for edit in edits {
         let (start, end) = (edit.start as usize, edit.end as usize);
+
         if start > end || end > text.len() || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
             return Err("The refactor produced an edit outside the file".to_string());
         }
+
         if start < last_end {
             return Err("The refactor produced edits that overlap".to_string());
         }
+
         last_end = end;
     }
+
     Ok(())
 }
 
@@ -211,10 +234,12 @@ fn write(original: &str, edits: &[TextEdit]) -> Laid {
     let mut touched = Vec::new();
     let mut mark: Option<(usize, usize)> = None;
     let mut at = 0;
+
     for edit in edits {
         text.push_str(&original[at..edit.start as usize]);
         let begin = text.len();
         let mut open = None;
+
         for character in edit.new_text.chars() {
             match character {
                 FOCUS_OPEN => open = Some(text.len()),
@@ -226,10 +251,13 @@ fn write(original: &str, edits: &[TextEdit]) -> Laid {
                 other => text.push(other),
             }
         }
+
         touched.push((begin, text.len()));
         at = edit.end as usize;
     }
+
     text.push_str(&original[at..]);
+
     (Written { text }, touched, mark)
 }
 
@@ -244,7 +272,9 @@ fn lay_out(
     if !parse(original).errors().is_empty() {
         return None;
     }
+
     let edits = php_format::edits(text, options)?;
+
     let lines: Vec<(usize, usize)> = touched
         .iter()
         .map(|&(start, end)| {
@@ -254,23 +284,30 @@ fn lay_out(
             )
         })
         .collect();
+
     let wanted: Vec<php_format::Edit> = edits
         .into_iter()
         .filter(|edit| lines.iter().any(|&(from, to)| (from..=to).contains(&edit.end)))
         .collect();
+
     if wanted.is_empty() {
         return None;
     }
+
     let formatted = php_format::apply(text, &wanted);
+
     let moved = |position: usize| {
         let delta: isize = wanted
             .iter()
             .filter(|edit| edit.end <= position)
             .map(|edit| edit.text.len() as isize - (edit.end - edit.start) as isize)
             .sum();
+
         (position as isize + delta) as usize
     };
+
     let mark = mark.map(|(start, end)| (moved(start), moved(end)));
+
     Some((formatted, mark))
 }
 
@@ -285,6 +322,7 @@ pub(crate) fn applied(text: &str, edits: &[Edit]) -> String {
             new_text: edit.text.clone(),
         })
         .collect();
+
     apply(text, &converted)
 }
 
@@ -292,6 +330,7 @@ pub(crate) fn applied(text: &str, edits: &[Edit]) -> String {
 fn unused_clauses(renv: &RefactorEnv<'_>, text: &str) -> Vec<(String, UseKind, TextRange)> {
     let tree = parse(text);
     let root = tree.syntax();
+
     let env = InspectionEnv {
         index: renv.env.index,
         text,
@@ -300,7 +339,9 @@ fn unused_clauses(renv: &RefactorEnv<'_>, text: &str) -> Vec<(String, UseKind, T
         ready: renv.env.ready,
         externals: renv.env.externals,
     };
+
     let cx = Cx::new(&env);
+
     import_clauses(&cx)
         .into_iter()
         .filter(|clause| !clause.used)
@@ -312,11 +353,13 @@ fn unused_clauses(renv: &RefactorEnv<'_>, text: &str) -> Vec<(String, UseKind, T
                     .filter(|child| child.kind() == php_syntax::SyntaxKind::USE_CLAUSE)
                     .count()
                     == 1;
+
             let range = if alone {
                 clause.statement.text_range()
             } else {
                 clause.clause.text_range()
             };
+
             (clause.full.to_ascii_lowercase(), clause.kind, range)
         })
         .collect()
@@ -333,27 +376,35 @@ fn tidy_imports(
     if !original.contains("use ") || !parse(original).errors().is_empty() {
         return None;
     }
+
     let before: Vec<(String, UseKind)> = unused_clauses(renv, original)
         .into_iter()
         .map(|(full, kind, _)| (full, kind))
         .collect();
+
     let mut text = text.to_string();
     let mut mark = mark;
     let mut changed = false;
+
     for _ in 0..8 {
         let found = unused_clauses(renv, &text);
+
         let Some((_, _, range)) = found
             .into_iter()
             .find(|(full, kind, _)| !before.iter().any(|(old, old_kind)| old == full && old_kind == kind))
         else {
             break;
         };
+
         let tree = parse(&text);
+
         let Some(edit) = remove_import(&text, &tree.syntax(), range) else {
             break;
         };
+
         let (from, to) = (edit.start as usize, edit.end as usize);
         let delta = edit.new_text.len() as isize - (to - from) as isize;
+
         mark = mark.map(|(start, end)| {
             if to <= start {
                 ((start as isize + delta) as usize, (end as isize + delta) as usize)
@@ -361,8 +412,10 @@ fn tidy_imports(
                 (start, end)
             }
         });
+
         text.replace_range(from..to, &edit.new_text);
         changed = true;
     }
+
     changed.then_some((text, mark))
 }

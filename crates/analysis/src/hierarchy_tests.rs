@@ -29,18 +29,23 @@ const SHAPES: &str = "<?php\nnamespace App;\n\ninterface Shape {}\ntrait Colored
 fn walks_a_class_up_and_down() {
     let fixture = Fixture::new(&[("shapes.php", SHAPES)]);
     let names = |items: Vec<crate::hierarchy::TypeItem>| items.into_iter().map(|item| item.name).collect::<Vec<_>>();
+
     assert_eq!(
         names(supertypes(&fixture.index, "App\\Base")),
         ["App\\Shape", "App\\Colored"]
     );
+
     assert_eq!(names(supertypes(&fixture.index, "App\\Circle")), ["App\\Base"]);
+
     assert_eq!(
         names(subtypes(&fixture.index, "App\\Base")),
         ["App\\Circle", "App\\Square"]
     );
+
     assert_eq!(names(subtypes(&fixture.index, "App\\Shape")), ["App\\Base"]);
     let (_, root, offset) = split_cursor("<?php\nnamespace App;\n$x = new Cir$0cle();\n");
     let fixture = Fixture::new(&[("shapes.php", SHAPES)]).with_current("<?php\nnamespace App;\n$x = new Circle();\n");
+
     assert_eq!(
         names(prepare_type_hierarchy(&fixture.index, &root, offset)),
         ["App\\Circle"]
@@ -54,6 +59,7 @@ const USER: &str = "<?php\nnamespace App;\n\nclass Notifier {\n    public functi
 fn finds_the_callers_of_a_method_by_function_and_in_top_level_code() {
     let fixture = Fixture::new(&[("service.php", SERVICE), ("user.php", USER)]);
     let sources = Files(fixture.sources.clone());
+
     let calls = incoming_calls(
         &fixture.index,
         &sources,
@@ -62,6 +68,7 @@ fn finds_the_callers_of_a_method_by_function_and_in_top_level_code() {
             name: "send".to_string(),
         },
     );
+
     let summary: Vec<(String, usize)> = calls
         .iter()
         .map(|call| {
@@ -71,9 +78,11 @@ fn finds_the_callers_of_a_method_by_function_and_in_top_level_code() {
                 CallSymbol::File(path) => format!("file {}", path.file_name().unwrap().to_string_lossy()),
                 CallSymbol::Closure { label, .. } => label.clone(),
             };
+
             (name, call.ranges.len())
         })
         .collect();
+
     assert_eq!(
         summary,
         [
@@ -88,6 +97,7 @@ fn finds_the_callers_of_a_method_by_function_and_in_top_level_code() {
 fn constructor_calls_are_found_through_new() {
     let fixture = Fixture::new(&[("service.php", SERVICE), ("user.php", USER)]);
     let sources = Files(fixture.sources.clone());
+
     let calls = incoming_calls(
         &fixture.index,
         &sources,
@@ -96,6 +106,7 @@ fn constructor_calls_are_found_through_new() {
             name: "__construct".to_string(),
         },
     );
+
     let total: usize = calls.iter().map(|call| call.ranges.len()).sum();
     assert_eq!(total, 3, "{calls:?}");
 }
@@ -103,6 +114,7 @@ fn constructor_calls_are_found_through_new() {
 #[test]
 fn lists_what_a_function_calls() {
     let fixture = Fixture::new(&[("service.php", SERVICE), ("user.php", USER)]);
+
     let item = prepare_call_hierarchy(
         &fixture.index,
         &php_syntax::parse(USER).syntax(),
@@ -110,6 +122,7 @@ fn lists_what_a_function_calls() {
     )
     .pop()
     .expect("an item for run");
+
     assert_eq!(
         item.symbol,
         CallSymbol::Method {
@@ -117,7 +130,9 @@ fn lists_what_a_function_calls() {
             name: "run".to_string()
         }
     );
+
     let calls = outgoing_calls(&fixture.index, USER, &item);
+
     let summary: Vec<(String, usize)> = calls
         .iter()
         .map(|call| {
@@ -126,9 +141,11 @@ fn lists_what_a_function_calls() {
                 CallSymbol::Function(name) => name.clone(),
                 CallSymbol::Closure { .. } | CallSymbol::File(_) => String::new(),
             };
+
             (name, call.ranges.len())
         })
         .collect();
+
     assert_eq!(
         summary,
         [
@@ -142,15 +159,18 @@ fn lists_what_a_function_calls() {
 #[test]
 fn prepares_with_the_caret_touching_the_end_of_a_name() {
     let template = "<?php\nnamespace App;\n\nclass Auth {\n    public static function createSession(int $user): void {}\n}\nfunction helper(): void {}\nAuth::createSession(1);\nhelper();\n";
+
     let cases = [
         ("createSession(int", "declaration of a method"),
         ("createSession(1)", "static call"),
         ("helper()", "declaration of a function"),
         ("helper();\n", "call"),
     ];
+
     for (needle, label) in cases {
         let start = template.find(needle).expect(label);
         let name_end = start + needle.find('(').or_else(|| needle.find(';')).expect(label);
+
         for (offset, place) in [(name_end - 2, "inside"), (name_end, "after")] {
             let root = php_syntax::parse(template).syntax();
             let fixture = Fixture::new(&[("auth.php", template)]);
@@ -166,6 +186,7 @@ const PEST: &str = "<?php\nnamespace App;\n\nit('sends a mail.', function (): vo
 fn a_closure_that_belongs_to_no_function_is_a_caller_of_its_own() {
     let fixture = Fixture::new(&[("service.php", SERVICE), ("pest.php", PEST)]);
     let sources = Files(fixture.sources.clone());
+
     let calls = incoming_calls(
         &fixture.index,
         &sources,
@@ -174,6 +195,7 @@ fn a_closure_that_belongs_to_no_function_is_a_caller_of_its_own() {
             name: "send".to_string(),
         },
     );
+
     let summary: Vec<(String, usize)> = calls
         .iter()
         .map(|call| match &call.from.symbol {
@@ -181,11 +203,14 @@ fn a_closure_that_belongs_to_no_function_is_a_caller_of_its_own() {
             other => (format!("{other:?}"), call.ranges.len()),
         })
         .collect();
+
     assert_eq!(
         summary,
         [("it('sends a mail.')".to_string(), 1), ("test('twice')".to_string(), 1)]
     );
+
     let closure = &calls[0].from;
+
     assert_eq!(
         &PEST[closure.span.start as usize..closure.span.end as usize],
         "function (): void {\n    (new Mailer())->send();\n    helper();\n}"
@@ -196,6 +221,7 @@ fn a_closure_that_belongs_to_no_function_is_a_caller_of_its_own() {
 fn lists_what_a_closure_calls() {
     let fixture = Fixture::new(&[("service.php", SERVICE), ("pest.php", PEST)]);
     let sources = Files(fixture.sources.clone());
+
     let calls = incoming_calls(
         &fixture.index,
         &sources,
@@ -204,6 +230,7 @@ fn lists_what_a_closure_calls() {
             name: "send".to_string(),
         },
     );
+
     let symbol = calls[0].from.symbol.clone();
     let item = crate::hierarchy::call_item(&fixture.index, &symbol).expect("item");
     let outgoing = outgoing_calls(&fixture.index, PEST, &item);

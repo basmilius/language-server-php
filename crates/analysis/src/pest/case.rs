@@ -23,6 +23,7 @@ pub struct TestCaseBinding {
 pub struct PestScope {
     pub closure: SyntaxNode,
     pub binding: TestCaseBinding,
+
     /// The closure is the body of a custom expectation, where `$this` is the expectation.
     pub expectation: bool,
 }
@@ -36,11 +37,14 @@ impl PestScope {
                 args: vec![Type::Mixed],
             };
         }
+
         if self.binding.traits.is_empty() {
             return Type::class(self.binding.class.clone());
         }
+
         let mut parts = vec![Type::class(self.binding.class.clone())];
         parts.extend(self.binding.traits.iter().cloned().map(Type::class));
+
         Type::Intersection(parts)
     }
 
@@ -64,8 +68,10 @@ pub fn scope_at(
 ) -> Option<PestScope> {
     let node = crate::ast::node_at(root, offset);
     let closure = enclosing_test_closure(&node)?;
+
     if matches!(closure_owner(&closure), Some((Dsl::ExtendExpectation, _))) {
         let class = index.class("Pest\\Expectation")?.decl.name.clone();
+
         return Some(PestScope {
             closure,
             binding: TestCaseBinding {
@@ -75,15 +81,19 @@ pub fn scope_at(
             expectation: true,
         });
     }
+
     let cached = shared.pest_case.borrow().clone();
+
     let binding = match cached {
         Some(binding) => binding,
         None => {
             let binding = bound_case(index, root, path);
             *shared.pest_case.borrow_mut() = Some(binding.clone());
+
             binding
         }
     }?;
+
     Some(PestScope {
         closure,
         binding,
@@ -97,19 +107,23 @@ pub fn bound_case(index: &Index, root: &SyntaxNode, path: Option<&Path>) -> Opti
     let mut applying: Vec<(usize, Vec<Name>)> = Vec::new();
     let mut own = TestFacts::default();
     let resolver = php_index::extract::resolver_at(root, u32::MAX);
+
     for statement in top_statements(root) {
         read_statement(&statement, &resolver, &mut own);
     }
+
     for binding in &own.bindings {
         if binding.folders.is_empty() || path.is_some_and(|path| matches_folder(binding, path, path)) {
             applying.push((usize::MAX, binding.uses.clone()));
         }
     }
+
     if let Some(path) = path {
         for (file, facts) in index.test_files() {
             let Some(base) = file.path.parent() else {
                 continue;
             };
+
             for binding in facts.bindings.iter().filter(|binding| !binding.folders.is_empty()) {
                 if let Some(depth) = deepest_match(binding, base, path) {
                     applying.push((depth, binding.uses.clone()));
@@ -117,14 +131,17 @@ pub fn bound_case(index: &Index, root: &SyntaxNode, path: Option<&Path>) -> Opti
             }
         }
     }
+
     applying.sort_by_key(|(depth, _)| *depth);
     let mut class = None;
     let mut traits: Vec<Name> = Vec::new();
+
     for (_, names) in &applying {
         for name in names {
             let is_trait = index
                 .class(name)
                 .is_some_and(|found| found.decl.kind == ClassKind::Trait);
+
             if is_trait {
                 if !traits.contains(name) {
                     traits.push(name.clone());
@@ -134,11 +151,13 @@ pub fn bound_case(index: &Index, root: &SyntaxNode, path: Option<&Path>) -> Opti
             }
         }
     }
+
     let class = class.or_else(|| {
         index
             .class(crate::phpunit::TEST_CASE)
             .map(|found| found.decl.name.clone())
     })?;
+
     Some(TestCaseBinding { class, traits })
 }
 
@@ -153,11 +172,13 @@ fn deepest_match(binding: &TestBinding, base: &Path, path: &Path) -> Option<usiz
         .iter()
         .filter_map(|folder| {
             let folder = folder.trim_end_matches(['/', '*']);
+
             let full = if folder == "." || folder.is_empty() {
                 base.to_path_buf()
             } else {
                 base.join(folder)
             };
+
             path.starts_with(&full).then(|| full.components().count())
         })
         .max()
@@ -167,42 +188,53 @@ impl Analyzer<'_> {
     /// The type the properties set on `$this` in the `beforeEach` of a Pest file give `name`.
     pub(crate) fn pest_property(&self, name: &str) -> Option<Type> {
         let scope = self.pest.as_ref()?;
+
         let describing: Vec<u32> = scope
             .closure
             .ancestors()
             .filter(|ancestor| matches!(closure_owner(ancestor), Some((Dsl::Describe, _))))
             .map(|ancestor| crate::ast::start(&ancestor))
             .collect();
+
         let key = (describing, name.to_string());
+
         if let Some(found) = self.shared.pest_types.borrow().get(&key) {
             return (!found.is_unknown()).then(|| found.clone());
         }
+
         self.shared.pest_types.borrow_mut().insert(key.clone(), Type::Unknown);
         let assignments = self.pest_assignments(Some(name));
+
         let types: Vec<Type> = assignments
             .iter()
             .map(|value| {
                 let env = self.env_around(value);
+
                 self.type_of(value, &env)
             })
             .collect();
+
         let result = if types.is_empty() || types.iter().any(Type::is_unknown) {
             Type::Unknown
         } else {
             Type::union(types)
         };
+
         self.shared.pest_types.borrow_mut().insert(key, result.clone());
+
         (!result.is_unknown()).then_some(result)
     }
 
     /// The names `beforeEach` sets on `$this` for the test being read.
     pub(crate) fn pest_property_names(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
+
         for (name, _) in self.pest_assignments_named() {
             if !names.contains(&name) {
                 names.push(name);
             }
         }
+
         names
     }
 
@@ -220,7 +252,9 @@ impl Analyzer<'_> {
         let Some(scope) = &self.pest else {
             return Vec::new();
         };
+
         let mut containers: Vec<SyntaxNode> = vec![self.root.clone()];
+
         for ancestor in scope.closure.ancestors() {
             if let Some((Dsl::Describe, _)) = closure_owner(&ancestor) {
                 if let Some(body) = body_of(&ancestor) {
@@ -228,18 +262,23 @@ impl Analyzer<'_> {
                 }
             }
         }
+
         let mut out = Vec::new();
+
         for container in containers {
             for statement in statements_in(&container) {
                 if statement.dsl != Dsl::BeforeEach {
                     continue;
                 }
+
                 let Some(closure) = statement.closure() else {
                     continue;
                 };
+
                 collect_assignments(&closure, &mut out);
             }
         }
+
         out
     }
 }
@@ -251,23 +290,31 @@ fn collect_assignments(closure: &SyntaxNode, out: &mut Vec<(String, SyntaxNode)>
             .ancestors()
             .skip(1)
             .find(|ancestor| crate::ast::is_function_like(ancestor.kind()));
+
         if owner.as_ref() != Some(closure) {
             continue;
         }
+
         let operands: Vec<SyntaxNode> = node.children().collect();
+
         let [target, value] = operands.as_slice() else {
             continue;
         };
+
         let is_plain = crate::ast::tokens(&node)
             .find(|token| !token.kind().is_trivia())
             .is_some_and(|token| matches!(token.kind(), ASSIGN | COALESCE_ASSIGN));
+
         if target.kind() != PROPERTY_FETCH_EXPR || !is_plain {
             continue;
         }
+
         let mut parts = target.children();
+
         let (Some(object), Some(name)) = (parts.next(), parts.next()) else {
             continue;
         };
+
         if object.kind() == VARIABLE_EXPR && object.text() == "$this" && name.kind() == NAME {
             out.push((name.text().to_string(), value.clone()));
         }

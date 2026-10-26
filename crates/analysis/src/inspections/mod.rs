@@ -407,9 +407,11 @@ impl InspectionSettings {
     /// The severity an inspection reports at, or `None` while it is switched off.
     pub fn severity_of(&self, info: &InspectionInfo) -> Option<DiagnosticSeverity> {
         let choice = self.overrides.get(info.code).copied().unwrap_or_default();
+
         if !choice.enabled.unwrap_or(info.enabled) {
             return None;
         }
+
         Some(choice.severity.unwrap_or(info.severity))
     }
 
@@ -447,9 +449,11 @@ pub struct InspectionEnv<'a> {
     pub text: &'a str,
     pub root: &'a SyntaxNode,
     pub settings: &'a InspectionSettings,
+
     /// The index holds the project and the standard library. Until it does, a name it lacks may
     /// only be one it has not read yet, so nothing is reported as undefined.
     pub ready: bool,
+
     pub externals: &'a Externals<'a>,
 }
 
@@ -457,42 +461,51 @@ pub struct InspectionEnv<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fix {
     None,
+
     /// The name as written, to import from wherever the index holds a class, function or constant of it.
     Import {
         name: String,
         kind: UseKind,
         at: u32,
     },
+
     /// The `use` statement or clause that nothing needs.
     RemoveImport {
         range: TextRange,
     },
+
     /// A declaration to delete with its doc comment.
     RemoveDeclaration {
         range: TextRange,
     },
+
     /// An assignment to a variable nothing reads: the whole statement when `pure`, else only `$x = `.
     RemoveAssignment {
         statement: TextRange,
         prefix: TextRange,
         pure: bool,
     },
+
     /// Statements after a jump.
     RemoveRange {
         range: TextRange,
     },
+
     /// The `=` of a condition that was meant to compare.
     ReplaceAssignment {
         operator: TextRange,
     },
+
     /// A `@param` line for a parameter that is not there.
     RemoveDocLine {
         range: TextRange,
     },
+
     /// A class that must implement more methods; the offset is the start of its declaration.
     ImplementMembers {
         class: u32,
     },
+
     /// A member to create on a class the project owns.
     CreateMember {
         class: String,
@@ -501,8 +514,10 @@ pub enum Fix {
         is_method: bool,
         at: u32,
     },
+
     /// `declare(strict_types=1);` at the top of the file.
     AddStrictTypes,
+
     /// The visibility of a member to widen.
     Visibility {
         member: TextRange,
@@ -542,12 +557,15 @@ impl<'a> Cx<'a> {
             .iter()
             .filter_map(|info| env.settings.severity_of(info).map(|severity| (info.code, severity)))
             .collect();
+
         let nodes: Vec<SyntaxNode> = env.root.descendants().collect();
+
         let error_ranges = nodes
             .iter()
             .filter(|node| node.kind() == SyntaxKind::ERROR)
             .map(|node| node.text_range())
             .collect();
+
         Cx {
             index: env.index,
             text: env.text,
@@ -584,9 +602,11 @@ impl<'a> Cx<'a> {
         let Some(severity) = self.severities.get(code).copied() else {
             return;
         };
+
         if self.in_error(range) {
             return;
         }
+
         self.found.borrow_mut().push(Finding {
             diagnostic: Diagnostic {
                 range,
@@ -609,6 +629,7 @@ pub(crate) fn declares_strict_types(root: &SyntaxNode) -> bool {
         .filter(|directive| directive.kind() == SyntaxKind::DECLARE_DIRECTIVE)
         .any(|directive| {
             let text = directive.text().to_string().replace(char::is_whitespace, "");
+
             text.eq_ignore_ascii_case("strict_types=1")
         })
 }
@@ -629,9 +650,11 @@ pub fn inspect(env: &InspectionEnv) -> Vec<Finding> {
     raxos::run(&cx);
     let mut found = cx.found.into_inner();
     found.sort_by_key(|finding| (finding.diagnostic.range.start(), finding.diagnostic.range.end()));
+
     found.dedup_by(|later, earlier| {
         later.diagnostic.range == earlier.diagnostic.range && later.diagnostic.code == earlier.diagnostic.code
     });
+
     found
 }
 

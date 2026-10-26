@@ -16,6 +16,7 @@ pub struct Fold {
     pub start_line: u32,
     pub end_line: u32,
     pub kind: Option<FoldKind>,
+
     /// Where the visible text of the first line ends and that of the last line starts, for a
     /// client that folds within a line; `None` folds whole lines.
     pub characters: Option<(TextSize, TextSize)>,
@@ -29,15 +30,18 @@ pub struct Fold {
 /// visible when the fold is closed.
 pub fn folding_ranges(root: &SyntaxNode, text: &str, index: &LineIndex) -> Vec<Fold> {
     let mut folds = Vec::new();
+
     let mut walker = Walker {
         text,
         index,
         folds: &mut folds,
     };
+
     walker.walk(root);
     folds.retain(|fold| fold.end_line > fold.start_line);
     folds.sort_by_key(|fold| (fold.start_line, std::cmp::Reverse(fold.end_line)));
     folds.dedup_by_key(|fold| (fold.start_line, fold.end_line, fold.kind));
+
     folds
 }
 
@@ -64,6 +68,7 @@ impl Walker<'_> {
     /// Whether only whitespace precedes the offset on its line.
     fn starts_its_line(&self, offset: u32) -> bool {
         let line_start = self.index.line_start(self.line(offset)) as usize;
+
         self.text[line_start..offset as usize].chars().all(char::is_whitespace)
     }
 
@@ -72,12 +77,15 @@ impl Walker<'_> {
         let (Some(opener), Some(closer)) = (opener, closer) else {
             return;
         };
+
         let start = self.line(opener.text_range().start().into());
         let closer_start: u32 = closer.text_range().start().into();
         let mut end = self.line(closer_start);
+
         if self.starts_its_line(closer_start) {
             end = end.saturating_sub(1);
         }
+
         let _ = node;
         self.push(start, end, None);
     }
@@ -99,6 +107,7 @@ impl Walker<'_> {
         let mut line_comments: Vec<SyntaxToken> = Vec::new();
         let mut regions: Vec<u32> = Vec::new();
         let mut open_tag: Option<SyntaxToken> = None;
+
         for element in root.descendants_with_tokens() {
             match element {
                 SyntaxElement::Token(token) => {
@@ -107,6 +116,7 @@ impl Walker<'_> {
                 SyntaxElement::Node(node) => self.node(&node),
             }
         }
+
         self.flush_comment_run(&mut line_comments);
     }
 
@@ -118,9 +128,11 @@ impl Walker<'_> {
         open_tag: &mut Option<SyntaxToken>,
     ) {
         let kind = token.kind();
+
         if kind != COMMENT && kind != WHITESPACE {
             self.flush_comment_run(run);
         }
+
         match kind {
             DOC_COMMENT | BLOCK_COMMENT => {
                 let range = token.text_range();
@@ -132,10 +144,12 @@ impl Walker<'_> {
                 if let Some(last) = run.last() {
                     let between =
                         &self.text[usize::from(last.text_range().end())..usize::from(token.text_range().start())];
+
                     if between.matches('\n').count() != 1 || !between.trim().is_empty() {
                         self.flush_comment_run(run);
                     }
                 }
+
                 run.push(token.clone());
                 self.region_marker(token, regions);
             }
@@ -156,6 +170,7 @@ impl Walker<'_> {
         let text = token.text().trim_start_matches(['/', '#', '*', ' ', '\t']);
         let lower = text.to_ascii_lowercase();
         let line = self.line(token.text_range().start().into());
+
         if lower.starts_with("endregion") {
             if let Some(start) = regions.pop() {
                 self.push(start, line, Some(FoldKind::Region));
@@ -171,6 +186,7 @@ impl Walker<'_> {
             let end = self.line(last.text_range().start().into());
             self.push(start, end, Some(FoldKind::Comment));
         }
+
         run.clear();
     }
 
@@ -194,6 +210,7 @@ impl Walker<'_> {
                     Self::token_child(node, HASH_BRACKET),
                     Self::last_token_child(node, RBRACKET),
                 );
+
                 self.bracketed(node, open, close);
             }
             HEREDOC => {
@@ -201,6 +218,7 @@ impl Walker<'_> {
                     Self::token_child(node, HEREDOC_START),
                     Self::last_token_child(node, HEREDOC_END),
                 );
+
                 self.bracketed(node, open, close);
             }
             STATEMENT_LIST => self.alternative_body(node),
@@ -215,10 +233,12 @@ impl Walker<'_> {
             while element.kind().is_trivia() {
                 element = element.prev_sibling_or_token()?;
             }
+
             element.into_token().filter(|token| token.kind() == COLON)
         }) else {
             return;
         };
+
         let start = self.line(colon.text_range().start().into());
         let end = self.line(list.text_range().end().into());
         self.push(start, end, None);
@@ -232,18 +252,23 @@ impl Walker<'_> {
         {
             return;
         }
+
         let mut last = statement.clone();
+
         while let Some(next) = last.next_sibling() {
             if next.kind() != USE_STATEMENT {
                 break;
             }
+
             last = next;
         }
+
         let range = TextRange::new(statement.text_range().start(), last.text_range().end());
         let (start, end) = (self.line(range.start().into()), self.line(range.end().into()));
         self.push(start, end, Some(FoldKind::Imports));
         let keyword = Self::token_child(statement, USE_KW);
         let semicolon = Self::last_token_child(&last, SEMICOLON);
+
         if let (Some(fold), Some(keyword), Some(semicolon)) = (self.folds.last_mut(), keyword, semicolon) {
             fold.characters = Some((keyword.text_range().end(), semicolon.text_range().start()));
         }
@@ -260,14 +285,17 @@ mod tests {
         let parsed = parse(text);
         let index = LineIndex::new(text);
         let mut out = String::new();
+
         for fold in folding_ranges(&parsed.syntax(), text, &index) {
             let kind = fold.kind.map_or("", |kind| match kind {
                 FoldKind::Comment => " comment",
                 FoldKind::Imports => " imports",
                 FoldKind::Region => " region",
             });
+
             out.push_str(&format!("{}-{}{kind}\n", fold.start_line, fold.end_line));
         }
+
         expect.assert_eq(&out);
     }
 

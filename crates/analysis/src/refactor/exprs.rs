@@ -26,7 +26,9 @@ fn is_value_name(name: &SyntaxNode) -> bool {
     let Some(parent) = name.parent() else {
         return false;
     };
+
     let first = parent.children().next().as_ref() == Some(name);
+
     match parent.kind() {
         ARGUMENT | ARRAY_ITEM | RETURN_STATEMENT | ECHO_STATEMENT | PREFIX_EXPR | CAST_EXPR | MATCH_ARM
         | MATCH_EXPR | INDEX_EXPR | PAREN_EXPR | PRINT_EXPR | EXPR_STATEMENT | TERNARY_EXPR | THROW_EXPR
@@ -40,25 +42,31 @@ fn is_value_name(name: &SyntaxNode) -> bool {
 
 pub(crate) fn trim_range(text: &str, range: TextRange) -> TextRange {
     let (mut from, mut to) = (usize::from(range.start()), usize::from(range.end()));
+
     while from < to && text[from..].starts_with(char::is_whitespace) {
         from += text[from..].chars().next().map_or(1, char::len_utf8);
     }
+
     while to > from && text[..to].ends_with(char::is_whitespace) {
         to -= text[..to].chars().next_back().map_or(1, char::len_utf8);
     }
+
     range_of(from as u32, to as u32)
 }
 
 /// The expression a selection spans exactly.
 pub(crate) fn expression_of_selection(root: &SyntaxNode, text: &str, range: TextRange) -> Option<SyntaxNode> {
     let range = trim_range(text, range);
+
     if range.is_empty() {
         return None;
     }
+
     let covering = match root.covering_element(range) {
         SyntaxElement::Node(node) => node,
         SyntaxElement::Token(token) => token.parent()?,
     };
+
     covering
         .ancestors()
         .take_while(|node| node.text_range().contains_range(range))
@@ -72,8 +80,10 @@ pub(crate) fn expressions_at(root: &SyntaxNode, offset: u32) -> Vec<SyntaxNode> 
     let Some(token) = token_near(root, offset) else {
         return Vec::new();
     };
+
     let mut out: Vec<SyntaxNode> = Vec::new();
     let mut current = token.parent();
+
     while let Some(node) = current {
         if is_expression(&node) {
             if node.kind() != NAME || out.is_empty() {
@@ -85,14 +95,17 @@ pub(crate) fn expressions_at(root: &SyntaxNode, offset: u32) -> Vec<SyntaxNode> 
         ) {
             break;
         }
+
         current = node.parent();
     }
+
     out
 }
 
 /// The token a position is on, preferring the one it starts over the one it ends.
 pub(crate) fn token_near(root: &SyntaxNode, offset: u32) -> Option<SyntaxToken> {
     let usable = |token: &SyntaxToken| !token.kind().is_trivia();
+
     match root.token_at_offset(TextSize::from(offset.min(end(root)))) {
         php_syntax::TokenAtOffset::None => None,
         php_syntax::TokenAtOffset::Single(token) => usable(&token).then_some(token),
@@ -168,16 +181,20 @@ pub(crate) fn token_text(node: &SyntaxNode) -> String {
 /// creates included when they come from the outside.
 pub(crate) fn variables_in(node: &SyntaxNode) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
+
     for token in node.descendants_with_tokens().filter_map(SyntaxElement::into_token) {
         if token.kind() != VARIABLE {
             continue;
         }
+
         let Some(parent) = token.parent() else {
             continue;
         };
+
         if !matches!(parent.kind(), VARIABLE_EXPR | CLOSURE_USE_VARIABLE) {
             continue;
         }
+
         if parent.kind() == VARIABLE_EXPR
             && parent.parent().is_some_and(|grand| {
                 grand.kind() == STATIC_PROPERTY_EXPR && grand.children().next().as_ref() != Some(&parent)
@@ -185,11 +202,14 @@ pub(crate) fn variables_in(node: &SyntaxNode) -> Vec<String> {
         {
             continue;
         }
+
         let name = token.text().trim_start_matches('$').to_string();
+
         if !out.contains(&name) {
             out.push(name);
         }
     }
+
     out
 }
 
@@ -217,10 +237,12 @@ pub(crate) struct HoistSite {
 /// Whether evaluating `expr` before its statement runs is the same as evaluating it where it is.
 pub(crate) fn hoist_site(expr: &SyntaxNode) -> Result<HoistSite, String> {
     let mut child = expr.clone();
+
     let site = loop {
         let Some(parent) = child.parent() else {
             return Err("There is no statement around this expression".to_string());
         };
+
         match parent.kind() {
             IF_STATEMENT | ELSE_CLAUSE | ELSEIF_CLAUSE | WHILE_STATEMENT | DO_WHILE_STATEMENT | FOR_STATEMENT
             | FOREACH_STATEMENT
@@ -236,9 +258,11 @@ pub(crate) fn hoist_site(expr: &SyntaxNode) -> Result<HoistSite, String> {
             BINARY_EXPR => {
                 let operator = binary_operator(&parent);
                 let second = parent.children().nth(1).as_ref() == Some(&child);
+
                 if matches!(operator, Some(AND_AND | OR_OR | AND_KW | OR_KW | COALESCE)) && second {
                     return Err("The expression only runs when the left side allows it".to_string());
                 }
+
                 if operator == Some(COALESCE) && !second && in_chain(expr, &child) {
                     return Err("The left side of ?? may be undefined, which a variable would report".to_string());
                 }
@@ -285,6 +309,7 @@ pub(crate) fn hoist_site(expr: &SyntaxNode) -> Result<HoistSite, String> {
             }
             _ => {}
         }
+
         if matches!(
             parent.kind(),
             BLOCK | STATEMENT_LIST | SOURCE_FILE | CASE_CLAUSE | DEFAULT_CLAUSE
@@ -296,8 +321,10 @@ pub(crate) fn hoist_site(expr: &SyntaxNode) -> Result<HoistSite, String> {
                 container: parent,
             };
         }
+
         child = parent;
     };
+
     if !matches!(
         site.statement.kind(),
         EXPR_STATEMENT
@@ -312,9 +339,11 @@ pub(crate) fn hoist_site(expr: &SyntaxNode) -> Result<HoistSite, String> {
     ) {
         return Err("A variable cannot be put in front of this statement".to_string());
     }
+
     if conflicting_effects_before(expr, &site.statement) {
         return Err("Moving the expression out would change the order things run in".to_string());
     }
+
     Ok(site)
 }
 
@@ -324,6 +353,7 @@ fn is_statement_node(node: &SyntaxNode) -> bool {
 
 fn in_for_init(statement: &SyntaxNode, child: &SyntaxNode) -> bool {
     let first_semicolon = tokens(statement).find(|token| token.kind() == SEMICOLON);
+
     first_semicolon.is_some_and(|semicolon| child.text_range().end() <= semicolon.text_range().start())
 }
 
@@ -331,18 +361,22 @@ fn in_for_init(statement: &SyntaxNode, child: &SyntaxNode) -> bool {
 /// part is not reported.
 fn in_chain(inner: &SyntaxNode, outer: &SyntaxNode) -> bool {
     let mut current = inner.clone();
+
     while current != *outer {
         let Some(parent) = current.parent() else {
             return false;
         };
+
         if !matches!(
             parent.kind(),
             INDEX_EXPR | PROPERTY_FETCH_EXPR | STATIC_PROPERTY_EXPR | SCOPED_ACCESS_EXPR
         ) {
             return false;
         }
+
         current = parent;
     }
+
     true
 }
 
@@ -378,13 +412,16 @@ fn conflicting_effects_before(expr: &SyntaxNode, statement: &SyntaxNode) -> bool
     if is_constant_like(expr) {
         return false;
     }
+
     let from = start(expr);
     let local = is_local_pure(expr);
     let reads = variables_in(expr);
+
     statement.descendants().any(|node| {
         if node == *statement || end(&node) > from || node.ancestors().any(|ancestor| ancestor == *expr) {
             return false;
         }
+
         is_effect(&node) && (!local || variables_in(&node).iter().any(|name| reads.contains(name)))
     })
 }
@@ -401,6 +438,7 @@ pub(crate) fn insertion_before(text: &str, statement: &SyntaxNode, code: &str) -
     let line = crate::actions::edits::line_start(text, at);
     let prefix = &text[line..at];
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+
     if prefix.trim().is_empty() {
         Insertion {
             offset: line as u32,
@@ -433,9 +471,11 @@ pub(crate) fn replaceable(expr: &SyntaxNode) -> Result<(), String> {
     if is_write_target(expr) {
         return Err("The expression is written to".to_string());
     }
+
     if matches!(expr.kind(), THROW_EXPR | EXIT_EXPR | YIELD_EXPR | YIELD_FROM_EXPR) {
         return Err("The expression leaves or hands back, which a value cannot".to_string());
     }
+
     if let Some(parent) = expr.parent() {
         if expr.kind() == VARIABLE_EXPR
             && parent.kind() == STATIC_PROPERTY_EXPR
@@ -444,9 +484,12 @@ pub(crate) fn replaceable(expr: &SyntaxNode) -> Result<(), String> {
             return Err("The expression is the name of a static property".to_string());
         }
     }
+
     let mut child = expr.clone();
+
     while let Some(parent) = child.parent() {
         let first = parent.children().next().as_ref() == Some(&child);
+
         match parent.kind() {
             CALL_EXPR if first && child == *expr => return Err("The expression is what is called".to_string()),
             PREFIX_EXPR if has_token(&parent, AMP) => return Err("The expression is taken by reference".to_string()),
@@ -484,8 +527,10 @@ pub(crate) fn replaceable(expr: &SyntaxNode) -> Result<(), String> {
             BLOCK | STATEMENT_LIST | SOURCE_FILE => break,
             _ => {}
         }
+
         child = parent;
     }
+
     Ok(())
 }
 
@@ -496,6 +541,7 @@ pub(crate) fn remove_member(text: &str, range: TextRange) -> crate::completion::
     let before = text[..edit.start as usize].trim_end_matches([' ', '\t']);
     let opens_body = before.ends_with("{\n") || before.ends_with("{\r\n");
     let rest = &text[edit.end as usize..];
+
     if opens_body {
         if rest.starts_with("\r\n") {
             edit.end += 2;
@@ -503,5 +549,6 @@ pub(crate) fn remove_member(text: &str, range: TextRange) -> crate::completion::
             edit.end += 1;
         }
     }
+
     edit
 }

@@ -36,6 +36,7 @@ impl Virtual {
         let at = self
             .segments
             .partition_point(|segment| segment.virt + segment.len < virt);
+
         self.segments[at..]
             .iter()
             .take_while(|segment| segment.virt <= virt)
@@ -46,10 +47,12 @@ impl Virtual {
     /// A range of the document as a range of the template, when all of it was copied in one run.
     pub fn range_to_source(&self, range: TextRange) -> Option<TextRange> {
         let (start, end) = (u32::from(range.start()), u32::from(range.end()));
+
         let segment = self
             .segments
             .iter()
             .find(|segment| segment.virt <= start && end <= segment.virt + segment.len)?;
+
         Some(TextRange::new(
             (segment.source + (start - segment.virt)).into(),
             (segment.source + (end - segment.virt)).into(),
@@ -69,6 +72,7 @@ pub struct Open {
     closers: Vec<String>,
     pub at: u32,
     pub end: u32,
+
     /// A `@forelse` that reached its `@empty`.
     pub emptied: bool,
 }
@@ -88,9 +92,11 @@ pub struct Builder<'a> {
     body_segments: Vec<Segment>,
     stack: Vec<Open>,
     imbalances: Vec<Imbalance>,
+
     /// Directives the compiler does not know that the template closes with `@end<name>`, which a
     /// project or a package registers as a conditional (`Blade::if`) or a block of its own.
     custom: std::collections::HashSet<String>,
+
     /// The directives the project registers itself, as written, which replace the compiler's own.
     registered: Vec<String>,
 }
@@ -99,10 +105,13 @@ pub struct Builder<'a> {
 enum Role {
     /// Opens a block that the named directives close.
     Opens(&'static [&'static str]),
+
     /// Opens a block of a directive the template closes with `@end<name>`.
     OpensCustom,
+
     /// Goes on with a block another directive opened.
     Continues(&'static [&'static str]),
+
     Closes,
     Alone,
 }
@@ -224,8 +233,10 @@ pub fn top_level_commas(args: &str) -> usize {
     let mut count = 0;
     let bytes = args.as_bytes();
     let mut position = 0;
+
     while position < bytes.len() {
         let byte = bytes[position];
+
         match quote {
             Some(mark) => {
                 if byte == b'\\' {
@@ -242,8 +253,10 @@ pub fn top_level_commas(args: &str) -> usize {
                 _ => {}
             },
         }
+
         position += 1;
     }
+
     count
 }
 
@@ -256,8 +269,10 @@ impl<'a> Builder<'a> {
                 _ => None,
             })
             .collect();
+
         let mut custom: std::collections::HashSet<String> =
             conditionals.iter().map(|name| name.to_ascii_lowercase()).collect();
+
         custom.extend(
             names
                 .iter()
@@ -265,6 +280,7 @@ impl<'a> Builder<'a> {
                 .filter(|name| !matches!(*name, "" | "php" | "verbatim") && !is_known(name))
                 .map(str::to_string),
         );
+
         Builder {
             source,
             head: String::from("<?php\n"),
@@ -281,9 +297,11 @@ impl<'a> Builder<'a> {
     /// How a directive takes part in blocks, with the blocks the template makes of its own.
     fn role_of(&self, name: &str, args: Option<&str>) -> Role {
         let known = role(name, args);
+
         if !matches!(known, Role::Alone) {
             return known;
         }
+
         if self.custom.contains(name)
             || name
                 .strip_prefix("unless")
@@ -291,12 +309,15 @@ impl<'a> Builder<'a> {
         {
             return Role::OpensCustom;
         }
+
         if name.strip_prefix("else").is_some_and(|rest| self.custom.contains(rest)) {
             return Role::Continues(&[]);
         }
+
         if name.strip_prefix("end").is_some_and(|rest| self.custom.contains(rest)) {
             return Role::Closes;
         }
+
         Role::Alone
     }
 
@@ -310,11 +331,13 @@ impl<'a> Builder<'a> {
         let Some(text) = self.source.get(start as usize..end as usize) else {
             return;
         };
+
         self.head_segments.push(Segment {
             virt: self.head.len() as u32,
             source: start,
             len: end - start,
         });
+
         self.head.push_str(text);
     }
 
@@ -326,16 +349,19 @@ impl<'a> Builder<'a> {
         let Some(text) = self.source.get(start as usize..end as usize) else {
             return;
         };
+
         self.body_segments.push(Segment {
             virt: self.body.len() as u32,
             source: start,
             len: end - start,
         });
+
         self.body.push_str(text);
     }
 
     fn args_text(&self, directive: &Directive) -> Option<&'a str> {
         let (start, end) = directive.args?;
+
         self.source.get(start as usize..end as usize)
     }
 
@@ -353,9 +379,11 @@ impl<'a> Builder<'a> {
     /// `[args]`, which is PHP for any list of arguments.
     fn emit_list(&mut self, directive: &Directive) {
         self.emit("[");
+
         if let Some((start, end)) = directive.args {
             self.copy(start, end);
         }
+
         self.emit("]");
     }
 
@@ -399,8 +427,10 @@ impl<'a> Builder<'a> {
         if self.registered.contains(&directive.name) {
             return;
         }
+
         let name = directive.name.to_ascii_lowercase();
         let args = self.args_text(directive);
+
         match self.role_of(&name, args) {
             Role::Opens(closers) => {
                 self.stack.push(Open {
@@ -410,6 +440,7 @@ impl<'a> Builder<'a> {
                     end: directive.end,
                     emptied: false,
                 });
+
                 self.open_block(&name, directive);
             }
             Role::OpensCustom => {
@@ -418,6 +449,7 @@ impl<'a> Builder<'a> {
                     .filter(|rest| self.custom.contains(*rest))
                     .unwrap_or(&name)
                     .to_string();
+
                 self.stack.push(Open {
                     closers: vec![format!("end{base}")],
                     name: base,
@@ -425,6 +457,7 @@ impl<'a> Builder<'a> {
                     end: directive.end,
                     emptied: false,
                 });
+
                 self.emit("if (");
                 self.emit_list(directive);
                 self.emit("):\n");
@@ -437,26 +470,32 @@ impl<'a> Builder<'a> {
                         openers.contains(&open.name.as_str())
                     }
                 });
+
                 if !fits {
                     self.imbalances.push(Imbalance::Unopened {
                         name: directive.name.clone(),
                         at: directive.at,
                         end: directive.end,
                     });
+
                     return;
                 }
+
                 self.continue_block(&name, directive);
             }
             Role::Closes => {
                 let fits = self.stack.last().is_some_and(|open| open.closers.contains(&name));
+
                 if !fits {
                     self.imbalances.push(Imbalance::Unopened {
                         name: directive.name.clone(),
                         at: directive.at,
                         end: directive.end,
                     });
+
                     return;
                 }
+
                 let open = self.stack.pop().expect("a block is open");
                 self.close_block(&open);
             }
@@ -537,6 +576,7 @@ impl<'a> Builder<'a> {
                 if let Some(open) = self.stack.last_mut() {
                     open.emptied = true;
                 }
+
                 self.emit("endforeach;\nif (true):\n");
             }
             "case" => {
@@ -585,6 +625,7 @@ impl<'a> Builder<'a> {
                     self.emit_args(directive);
                     self.emit(" ");
                 }
+
                 self.emit(name);
                 self.emit(";\n");
             }
@@ -601,16 +642,21 @@ impl<'a> Builder<'a> {
         let Some((start, end)) = directive.args else {
             return;
         };
+
         let strings = string_contents(self.source, start, end);
+
         let Some(&(class_start, class_end)) = strings.first() else {
             return;
         };
+
         self.head("use ");
         self.head_copy(class_start, class_end);
+
         if let Some(&(alias_start, alias_end)) = strings.get(1) {
             self.head(" as ");
             self.head_copy(alias_start, alias_end);
         }
+
         self.head(";\n");
     }
 
@@ -619,14 +665,19 @@ impl<'a> Builder<'a> {
         let Some((start, end)) = directive.args else {
             return;
         };
+
         let strings = string_contents(self.source, start, end);
+
         let (Some(&(name_start, name_end)), Some(&(class_start, class_end))) = (strings.first(), strings.get(1)) else {
             return;
         };
+
         let name = self.source[name_start as usize..name_end as usize].to_string();
+
         if !name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
             return;
         }
+
         self.emit("$");
         self.emit(&name);
         self.emit(" = new \\");
@@ -638,20 +689,25 @@ impl<'a> Builder<'a> {
     pub fn finish(mut self) -> (Virtual, Vec<Imbalance>) {
         while let Some(open) = self.stack.pop() {
             self.close_block(&open);
+
             self.imbalances.push(Imbalance::Unclosed {
                 name: open.name.clone(),
                 at: open.at,
                 end: open.end,
             });
         }
+
         let shift = self.head.len() as u32;
         let mut segments = self.head_segments;
+
         segments.extend(self.body_segments.into_iter().map(|segment| Segment {
             virt: segment.virt + shift,
             ..segment
         }));
+
         let mut text = self.head;
         text.push_str(&self.body);
+
         (Virtual { text, segments }, self.imbalances)
     }
 }
@@ -664,19 +720,24 @@ fn string_contents(source: &str, start: u32, end: u32) -> Vec<(u32, u32)> {
     let bytes = source.as_bytes();
     let mut out = Vec::new();
     let mut position = start as usize;
+
     while position < end as usize {
         let byte = bytes[position];
+
         if byte == b'\'' || byte == b'"' {
             let inner = position + 1;
+
             let close = source[inner..end as usize]
                 .bytes()
                 .position(|found| found == byte)
                 .map_or(end as usize, |found| inner + found);
+
             out.push((inner as u32, close as u32));
             position = close + 1;
         } else {
             position += 1;
         }
     }
+
     out
 }

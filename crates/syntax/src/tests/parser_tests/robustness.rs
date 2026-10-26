@@ -73,15 +73,20 @@ fn single_edits_round_trip() {
     let strays = [
         "}", ")", "(", "{", "$", "'", "\"", "<<<", "?>", "<?php", "/*", "#[", "->", "::", "=>", "function",
     ];
+
     let chars: Vec<(usize, char)> = SAMPLE.char_indices().collect();
+
     for (index, (offset, character)) in chars.iter().enumerate() {
         if index % 3 != 0 {
             continue;
         }
+
         let deleted = format!("{}{}", &SAMPLE[..*offset], &SAMPLE[offset + character.len_utf8()..]);
         assert_eq!(parse(&deleted).syntax().text().to_string(), deleted);
+
         for stray in strays {
             let inserted = format!("{}{stray}{}", &SAMPLE[..*offset], &SAMPLE[*offset..]);
+
             assert_eq!(
                 parse(&inserted).syntax().text().to_string(),
                 inserted,

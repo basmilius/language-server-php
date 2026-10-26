@@ -30,24 +30,29 @@ pub enum ModelPropertyKind {
         key: String,
         computed: bool,
     },
+
     /// The model it points at is the one the attribute names for a to-many relation, else the
     /// type of the property.
     Relation {
         target: Option<Name>,
         many: bool,
     },
+
     /// Filled by the static method `#[Macro(Foo::bar(...))]` names, when it can be read.
     Macro {
         method: Option<(Name, String)>,
     },
+
     Embedded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelProperty {
     pub name: String,
+
     /// The other name `#[Alias]` gives it, which is also its key in JSON.
     pub alias: Option<String>,
+
     pub kind: ModelPropertyKind,
     pub name_span: Span,
 }
@@ -59,6 +64,7 @@ impl ModelProperty {
             ModelPropertyKind::Column { key, .. } => Some(key.as_str()),
             _ => None,
         };
+
         std::iter::once(self.name.as_str())
             .chain(self.alias.as_deref())
             .chain(key)
@@ -84,8 +90,10 @@ impl ModelProperty {
 pub struct ModelInfo {
     pub class: Name,
     pub path: std::path::PathBuf,
+
     /// What `#[Table]` names.
     pub table: Option<String>,
+
     pub properties: Vec<ModelProperty>,
 }
 
@@ -104,25 +112,31 @@ impl Models {
 impl Section for Models {
     fn build(index: &Index) -> Self {
         let mut found = Models::default();
+
         for class in index.class_names() {
             if class.file.origin != Origin::Project {
                 continue;
             }
+
             let Some(loaded) = class.load() else {
                 continue;
             };
+
             let properties: Vec<ModelProperty> = loaded
                 .decl
                 .properties
                 .iter()
                 .filter_map(|property| read_property(index, loaded, property))
                 .collect();
+
             let table = attribute(&loaded.decl.attributes, "Table")
                 .and_then(|table| positional_or_named(table, "name"))
                 .and_then(|value| unquote(&value));
+
             if properties.is_empty() && table.is_none() {
                 continue;
             }
+
             found.by_class.insert(
                 loaded.decl.name.to_ascii_lowercase(),
                 ModelInfo {
@@ -133,6 +147,7 @@ impl Section for Models {
                 },
             );
         }
+
         found
     }
 
@@ -146,17 +161,21 @@ pub fn properties_of(index: &Index, class: &str) -> Vec<(Arc<str>, ModelProperty
     let models = index.section::<Models>();
     let mut seen = HashSet::new();
     let mut out = Vec::new();
+
     for ancestor in index.ancestors(&Type::class(class.to_string())) {
         let Some(info) = models.get(&ancestor.class.decl.name) else {
             continue;
         };
+
         let declaring: Arc<str> = Arc::from(info.class.as_str());
+
         for property in &info.properties {
             if seen.insert(property.name.clone()) {
                 out.push((declaring.clone(), property.clone()));
             }
         }
     }
+
     out
 }
 
@@ -167,27 +186,33 @@ pub fn model_of(index: &Index, ty: &Type) -> Option<Name> {
         let Type::Class { name, args } = member else {
             return None;
         };
+
         let generic = [MODEL_ARRAY_LIST, QUERY]
             .iter()
             .any(|holder| name.eq_ignore_ascii_case(holder) || index.is_subclass_of(name, holder));
+
         if generic {
             return args.last().and_then(|arg| model_of(index, arg));
         }
+
         index.is_subclass_of(name, MODEL).then(|| name.clone())
     })
 }
 
 fn read_property(index: &Index, class: crate::index::Class<'_>, property: &Property) -> Option<ModelProperty> {
     let alias = attribute(&property.attributes, "Alias");
+
     let explicit_alias = alias
         .and_then(|alias| positional_or_named(alias, "alias"))
         .and_then(|value| unquote(&value));
+
     let kind = if let Some((name, relation)) = TO_MANY
         .iter()
         .chain(TO_ONE.iter())
         .find_map(|name| attribute(&property.attributes, name).map(|found| (*name, found)))
     {
         let many = TO_MANY.contains(&name);
+
         let target = if many {
             positional_or_named(relation, "referenceModel").and_then(|value| class_in_attribute(index, class, &value))
         } else {
@@ -195,6 +220,7 @@ fn read_property(index: &Index, class: crate::index::Class<'_>, property: &Prope
                 .effective_type(index.level)
                 .and_then(|ty| ty.class_names().first().map(|name| name.to_string()))
         };
+
         ModelPropertyKind::Relation { target, many }
     } else if let Some(macro_attribute) = attribute(&property.attributes, "Macro") {
         ModelPropertyKind::Macro {
@@ -205,20 +231,24 @@ fn read_property(index: &Index, class: crate::index::Class<'_>, property: &Prope
         ModelPropertyKind::Embedded
     } else {
         let column = COLUMNS.iter().find_map(|name| attribute(&property.attributes, name))?;
+
         let key = positional_or_named(column, "key")
             .and_then(|value| unquote(&value))
             .unwrap_or_else(|| property.name.clone());
+
         ModelPropertyKind::Column {
             key,
             computed: attribute(&property.attributes, "Computed").is_some(),
         }
     };
+
     // An `#[Alias]` without a name makes a column known by its key, the way the generator does.
     let alias = match (&kind, alias, explicit_alias) {
         (_, _, Some(alias)) => Some(alias),
         (ModelPropertyKind::Column { key, .. }, Some(_), None) => Some(key.clone()),
         _ => None,
     };
+
     Some(ModelProperty {
         name: property.name.clone(),
         alias,
@@ -248,23 +278,29 @@ fn positional_or_named(attribute: &Attribute, name: &str) -> Option<String> {
 
 fn unquote(text: &str) -> Option<String> {
     let text = text.trim();
+
     let quoted = text.len() >= 2
         && (text.starts_with('\'') && text.ends_with('\'') || text.starts_with('"') && text.ends_with('"'));
+
     quoted.then(|| text[1..text.len() - 1].to_string())
 }
 
 pub(crate) fn extend_properties<'a>(index: &'a Index, only: Option<&str>, out: &mut [Found<'a, Property>]) {
     let models = index.section::<Models>();
+
     for found in out.iter_mut() {
         if only.is_some_and(|only| found.member.name != only) {
             continue;
         }
+
         if let Some(documented) = macro_return(index, &models, found) {
             let mut refined = found.member.clone().into_owned();
             refined.doc_ty = Some(documented);
             found.member = Cow::Owned(refined);
+
             continue;
         }
+
         let Some(target) = models.get(&found.class.decl.name).and_then(|info| {
             info.properties
                 .iter()
@@ -274,19 +310,24 @@ pub(crate) fn extend_properties<'a>(index: &'a Index, only: Option<&str>, out: &
         }) else {
             continue;
         };
+
         let Some(Type::Class { name, args }) = found.member.effective_type(index.level) else {
             continue;
         };
+
         if !args.is_empty()
             || !name.eq_ignore_ascii_case(MODEL_ARRAY_LIST) && !index.is_subclass_of(name, MODEL_ARRAY_LIST)
         {
             continue;
         }
+
         let mut refined = found.member.clone().into_owned();
+
         refined.doc_ty = Some(Type::Class {
             name: name.clone(),
             args: vec![Type::Int, Type::class(target.clone())],
         });
+
         found.member = Cow::Owned(refined);
     }
 }
@@ -297,19 +338,23 @@ fn macro_return(index: &Index, models: &Models, found: &Found<'_, Property>) -> 
     if found.member.doc_ty.is_some() {
         return None;
     }
+
     let property = models
         .get(&found.class.decl.name)?
         .properties
         .iter()
         .find(|property| property.name == found.member.name)?;
+
     let ModelPropertyKind::Macro {
         method: Some((class, name)),
     } = &property.kind
     else {
         return None;
     };
+
     let method = index.find_method(&Type::class(class.clone()), name)?;
     let documented = method.member.callable.doc_ret.as_ref()?;
+
     Some(method.resolve(documented))
 }
 
@@ -322,19 +367,23 @@ pub(crate) fn extend_methods<'a>(
     names: &mut HashSet<String>,
 ) {
     let models = index.section::<Models>();
+
     for ancestor in ancestors {
         let Some(info) = models.get(&ancestor.class.decl.name) else {
             continue;
         };
+
         for property in &info.properties {
             let Some(target) = property.relation_target() else {
                 continue;
             };
+
             if only.is_some_and(|only| !only.eq_ignore_ascii_case(&property.name))
                 || !names.insert(property.name.to_ascii_lowercase())
             {
                 continue;
             }
+
             let span = ancestor
                 .class
                 .decl
@@ -342,6 +391,7 @@ pub(crate) fn extend_methods<'a>(
                 .iter()
                 .find(|declared| declared.name == property.name)
                 .map_or(property.name_span, |declared| declared.span);
+
             out.push(Found {
                 class: ancestor.class,
                 member: Cow::Owned(relation_method(property, target, span)),
@@ -391,6 +441,7 @@ mod tests {
 
     fn with_models() -> Index {
         let mut files = RAXOS.to_vec();
+
         files.extend_from_slice(&[
             (
                 "src/AppTeam.php",
@@ -406,6 +457,7 @@ mod tests {
                 "<?php namespace App;\nuse Raxos\\Database\\Orm\\Attribute\\Column;\nclass SpecialTeam extends AppTeam {\n    #[Column] public string $badge;\n}",
             ),
         ]);
+
         project(&files)
     }
 
@@ -442,18 +494,22 @@ mod tests {
     #[test]
     fn a_relation_is_a_method_that_gives_its_query() {
         let index = with_models();
+
         assert_eq!(
             method_return(&index, "App\\AppTeam", "scans").as_deref(),
             Some("QueryInterface<Scan>")
         );
+
         assert_eq!(
             method_return(&index, "App\\AppTeam", "event").as_deref(),
             Some("QueryInterface<Event>")
         );
+
         assert_eq!(
             method_return(&index, "App\\SpecialTeam", "products").as_deref(),
             Some("QueryInterface<Product>")
         );
+
         assert_eq!(method_return(&index, "App\\AppTeam", "name"), None);
         assert_eq!(method_return(&index, "App\\AppTeam", "label"), None);
     }
@@ -462,6 +518,7 @@ mod tests {
     fn columns_are_known_by_name_alias_and_key() {
         let index = with_models();
         let properties = properties_of(&index, "App\\SpecialTeam");
+
         let names = |name: &str| -> Vec<String> {
             properties
                 .iter()
@@ -469,19 +526,24 @@ mod tests {
                 .map(|(_, property)| property.names().map(str::to_string).collect())
                 .unwrap_or_default()
         };
+
         assert_eq!(names("id"), ["id", "id", "id"]);
         assert_eq!(names("createdOn"), ["createdOn", "createdOn", "created_on"]);
         assert_eq!(names("badge"), ["badge", "badge"]);
+
         assert!(
             properties
                 .iter()
                 .any(|(declaring, property)| property.name == "scans" && &**declaring == "App\\AppTeam")
         );
+
         let models = index.section::<Models>();
+
         assert_eq!(
             models.get("App\\AppTeam").and_then(|info| info.table.as_deref()),
             Some("app_team")
         );
+
         assert_eq!(
             model_of(
                 &index,

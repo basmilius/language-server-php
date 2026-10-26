@@ -16,8 +16,10 @@ use crate::phpunit::{ATTRIBUTES, is_test_class};
 pub enum RunnableKind {
     PhpUnit,
     Pest,
+
     /// A command of `php artisan`.
     Artisan,
+
     /// A command of `bin/console`.
     Console,
 }
@@ -38,8 +40,10 @@ pub struct Runnable {
     pub kind: RunnableKind,
     pub scope: RunnableScope,
     pub label: String,
+
     /// The name of the class or method, or the Pest function that declares the test.
     pub range: TextRange,
+
     /// The regular expression `--filter` takes, with its delimiters.
     pub filter: String,
 }
@@ -52,6 +56,7 @@ pub fn runnables(index: &Index, root: &SyntaxNode) -> Vec<Runnable> {
     pest_runnables(root, &[], &mut out);
     command_runnables(&ctx, &mut out);
     out.sort_by_key(|runnable| runnable.range.start());
+
     out
 }
 
@@ -62,27 +67,36 @@ const SYMFONY_COMMAND: &str = "Symfony\\Component\\Console\\Command\\Command";
 /// `$signature` or its `$name`.
 fn command_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
     let frameworks = ctx.index.frameworks();
+
     if !(frameworks.laravel || frameworks.symfony) {
         return;
     }
+
     for class in ctx.root.descendants().filter(|node| node.kind() == CLASS_DECLARATION) {
         let analyzer = ctx.analyzer(&class);
+
         let Some(context) = &analyzer.class else {
             continue;
         };
+
         let is_abstract = child_of(&class, MODIFIER_LIST).is_some_and(|list| has_token(&list, ABSTRACT_KW));
+
         let (kind, base) = if frameworks.laravel {
             (RunnableKind::Artisan, LARAVEL_COMMAND)
         } else {
             (RunnableKind::Console, SYMFONY_COMMAND)
         };
+
         if is_abstract || !ctx.index.is_subclass_of(&context.name, base) || context.name.eq_ignore_ascii_case(base) {
             continue;
         }
+
         let (Some(found), Some(name)) = (ctx.index.class(&context.name), child_of(&class, NAME)) else {
             continue;
         };
+
         let unquote = |text: &str| text.trim().trim_matches(['\'', '"']).to_string();
+
         let from_attribute = found.decl.attributes.iter().find_map(|attribute| {
             attribute.name.ends_with("\\AsCommand").then(|| {
                 attribute
@@ -93,6 +107,7 @@ fn command_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
                     .map(|arg| unquote(&arg.value))
             })?
         });
+
         let from_property = |property: &str| {
             found
                 .decl
@@ -100,6 +115,7 @@ fn command_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
                 .and_then(|found| found.default.as_ref())
                 .map(|default| unquote(default))
         };
+
         let command = from_attribute
             .or_else(|| {
                 from_property("signature").and_then(|signature| signature.split_whitespace().next().map(str::to_string))
@@ -107,6 +123,7 @@ fn command_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
             .or_else(|| from_property("name"))
             .or_else(|| from_property("defaultName"))
             .filter(|command| !command.is_empty());
+
         if let Some(command) = command {
             out.push(Runnable {
                 kind,
@@ -122,17 +139,23 @@ fn command_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
 fn phpunit_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
     for class in ctx.root.descendants().filter(|node| node.kind() == CLASS_DECLARATION) {
         let analyzer = ctx.analyzer(&class);
+
         let Some(context) = &analyzer.class else {
             continue;
         };
+
         let is_abstract = child_of(&class, MODIFIER_LIST).is_some_and(|list| has_token(&list, ABSTRACT_KW));
+
         if is_abstract || !is_test_class(ctx.index, &context.name) {
             continue;
         }
+
         let Some(name) = child_of(&class, NAME) else {
             continue;
         };
+
         let qualified = regex_escape(&context.name);
+
         out.push(Runnable {
             kind: RunnableKind::PhpUnit,
             scope: RunnableScope::Class,
@@ -140,17 +163,22 @@ fn phpunit_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
             range: name.text_range(),
             filter: format!("/^{qualified}::/"),
         });
+
         let Some(body) = child_of(&class, CLASS_BODY) else {
             continue;
         };
+
         for method in body.children().filter(|node| node.kind() == METHOD_DECLARATION) {
             let Some(name) = child_of(&method, NAME) else {
                 continue;
             };
+
             let written = name.text().to_string();
+
             if !is_test_method_node(&method, &written, &analyzer.resolver) {
                 continue;
             }
+
             out.push(Runnable {
                 kind: RunnableKind::PhpUnit,
                 scope: RunnableScope::Method,
@@ -166,12 +194,15 @@ fn phpunit_runnables(ctx: &FileContext<'_>, out: &mut Vec<Runnable>) {
 fn is_test_method_node(method: &SyntaxNode, name: &str, resolver: &php_index::NameResolver) -> bool {
     let modifiers = child_of(method, MODIFIER_LIST);
     let has = |kind| modifiers.as_ref().is_some_and(|list| has_token(list, kind));
+
     if has(PRIVATE_KW) || has(PROTECTED_KW) || has(STATIC_KW) || has(ABSTRACT_KW) {
         return false;
     }
+
     if name.starts_with("test") {
         return true;
     }
+
     let marked = method
         .children()
         .filter(|node| node.kind() == ATTRIBUTE_LIST)
@@ -184,6 +215,7 @@ fn is_test_method_node(method: &SyntaxNode, name: &str, resolver: &php_index::Na
                 .strip_prefix(ATTRIBUTES)
                 .is_some_and(|short| short.eq_ignore_ascii_case("Test"))
         });
+
     marked
         || method
             .children_with_tokens()
@@ -197,6 +229,7 @@ fn doc_has_tag(text: &str, tag: &str) -> bool {
         let line = line.strip_prefix("/**").unwrap_or(line);
         let line = line.strip_suffix("*/").unwrap_or(line);
         let line = line.trim().trim_start_matches('*').trim();
+
         line == tag
             || line
                 .strip_prefix(tag)
@@ -212,8 +245,10 @@ fn pest_runnables(container: &SyntaxNode, describing: &[String], out: &mut Vec<R
                 let Some(description) = statement.description() else {
                     continue;
                 };
+
                 let mut inner = describing.to_vec();
                 inner.push(description);
+
                 out.push(Runnable {
                     kind: RunnableKind::Pest,
                     scope: RunnableScope::Describe,
@@ -221,6 +256,7 @@ fn pest_runnables(container: &SyntaxNode, describing: &[String], out: &mut Vec<R
                     range: call_name_range(&statement),
                     filter: format!("/::{}/", evaluable(&format!("{} → ", describe_prefix(&inner)))),
                 });
+
                 if let Some(body) = statement.closure().as_ref().and_then(body_of) {
                     pest_runnables(&body, &inner, out);
                 }
@@ -241,7 +277,9 @@ fn pest_test(statement: &Statement, describing: &[String], out: &mut Vec<Runnabl
             let Some(first) = statement.chain.get(1) else {
                 return;
             };
+
             let prefix = evaluable(&first.name);
+
             out.push(Runnable {
                 kind: RunnableKind::Pest,
                 scope: RunnableScope::Arch,
@@ -249,17 +287,21 @@ fn pest_test(statement: &Statement, describing: &[String], out: &mut Vec<Runnabl
                 range: call_name_range(statement),
                 filter: format!("/::{}/", prefix_describing(describing, &prefix)),
             });
+
             return;
         }
         _ => return,
     };
+
     let full = if describing.is_empty() {
         description.clone()
     } else {
         format!("{} → {description}", describe_prefix(describing))
     };
+
     let mut label = describing.to_vec();
     label.push(description);
+
     out.push(Runnable {
         kind: RunnableKind::Pest,
         scope,
@@ -282,6 +324,7 @@ fn prefix_describing(describing: &[String], evaluable_name: &str) -> String {
     if describing.is_empty() {
         return evaluable_name.to_string();
     }
+
     evaluable(&format!("{} → ", describe_prefix(describing)))
 }
 
@@ -298,6 +341,7 @@ fn call_name_range(statement: &Statement) -> TextRange {
 /// an underscore becomes an underscore, and an underscore itself is doubled.
 pub fn evaluable(description: &str) -> String {
     let mut name = String::from("__pest_evaluable_");
+
     for c in description.chars() {
         match c {
             '_' => name.push_str("__"),
@@ -305,6 +349,7 @@ pub fn evaluable(description: &str) -> String {
             _ => name.push('_'),
         }
     }
+
     name
 }
 

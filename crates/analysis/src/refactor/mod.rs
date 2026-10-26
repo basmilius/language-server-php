@@ -18,6 +18,7 @@ mod pull_push;
 mod rewrite;
 mod scope;
 mod signature;
+
 #[cfg(test)]
 mod tests;
 
@@ -59,6 +60,7 @@ pub struct Edit {
     pub start: u32,
     pub end: u32,
     pub text: String,
+
     /// Where `text` starts in the file once every edit is applied.
     pub new_start: u32,
 }
@@ -66,6 +68,7 @@ pub struct Edit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileChange {
     pub path: PathBuf,
+
     /// In the order of the file, none overlapping.
     pub edits: Vec<Edit>,
 }
@@ -97,8 +100,10 @@ pub struct Focus {
 pub struct Change {
     pub files: Vec<FileChange>,
     pub moves: Vec<FileMove>,
+
     /// Made before the edits of the other files are applied.
     pub creates: Vec<FileCreate>,
+
     pub focus: Option<Focus>,
 }
 
@@ -115,10 +120,13 @@ pub struct RefactorEnv<'a> {
 pub struct Refactor<'a> {
     /// Stable for the same text and range, so a client can ask for the edits of one later.
     pub id: String,
+
     pub title: String,
     pub kind: RefactorKind,
+
     /// Working out the edits costs enough that they are best left until the client asks.
     pub expensive: bool,
+
     run: Box<dyn Fn() -> Result<Change, String> + 'a>,
 }
 
@@ -168,5 +176,6 @@ pub fn with_refactors<R>(renv: &RefactorEnv<'_>, range: TextRange, run: impl FnO
     move_class::offer(&rcx, &mut out);
     pull_push::offer(&rcx, &mut out);
     rewrite::offer(&rcx, &mut out);
+
     run(out)
 }

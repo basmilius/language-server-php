@@ -23,6 +23,7 @@ impl Translations {
     pub fn find(&self, key: &str) -> Vec<&KeyEntry> {
         let mut found = self.tree.find_all(key);
         found.extend(self.json.iter().filter(|entry| entry.key == key));
+
         found
     }
 
@@ -38,7 +39,9 @@ impl Translations {
         if key.contains("::") || key.contains(char::is_whitespace) || !key.contains('.') {
             return false;
         }
+
         let group = key.split('.').next().unwrap_or("");
+
         self.tree.has_root(group) && !self.json_keys.contains(key) && self.tree.is_missing(key)
     }
 }
@@ -47,27 +50,33 @@ impl Section for Translations {
     fn build(index: &Index) -> Self {
         let mut translations = Translations::default();
         let root = index.framework_root();
+
         for dir in [root.join("lang"), root.join("resources").join("lang")] {
             for path in index.files_below(&dir) {
                 let Ok(relative) = path.strip_prefix(&dir) else {
                     continue;
                 };
+
                 let parts: Vec<String> = relative
                     .iter()
                     .map(|part| part.to_string_lossy().into_owned())
                     .collect();
+
                 if parts.first().is_none_or(|first| first == "vendor") {
                     continue;
                 }
+
                 let Some(text) = index.read_text(&path) else {
                     continue;
                 };
+
                 match (parts.len(), path.extension().and_then(|ext| ext.to_str())) {
                     (1, Some("json")) => {
                         let locale = path
                             .file_stem()
                             .map(|stem| stem.to_string_lossy().into_owned())
                             .unwrap_or_default();
+
                         for entry in json_entries(&path, &text, &locale) {
                             translations.json_keys.insert(entry.key.clone());
                             translations.json.push(entry);
@@ -82,6 +91,7 @@ impl Section for Translations {
                 }
             }
         }
+
         translations
     }
 
@@ -94,9 +104,11 @@ fn json_entries(path: &Path, text: &str, locale: &str) -> Vec<KeyEntry> {
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(text) else {
         return Vec::new();
     };
+
     map.iter()
         .map(|(key, value)| {
             let start = text.find(&format!("\"{key}\"")).map_or(0, |at| at + 1) as u32;
+
             KeyEntry {
                 key: key.clone(),
                 group: false,
@@ -154,10 +166,12 @@ mod tests {
         assert!(translations.is_missing("messages.welcom"));
         assert!(translations.is_missing("messages.nested.nope"));
         assert!(!translations.is_missing("messages.welcome"));
+
         assert!(
             !translations.is_missing("Welcome back."),
             "words are their own translation"
         );
+
         assert!(!translations.is_missing("Hello. How are you?"));
         assert!(!translations.is_missing("other.key"), "no such group file");
         assert!(!translations.is_missing("auth.custom"), "a json key may hold dots");

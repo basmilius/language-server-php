@@ -41,8 +41,10 @@ pub enum ItemKind {
 pub enum CallInsert {
     /// The name, as typed text.
     None,
+
     /// The name with parentheses as a snippet, for a callable without parameters.
     Snippet,
+
     /// The same for a callable with parameters, so the client may open the parameter hints.
     SnippetWithParameters,
 }
@@ -59,17 +61,22 @@ pub struct TextEdit {
 pub struct CompletionItem {
     pub label: String,
     pub kind: ItemKind,
+
     /// The signature.
     pub detail: Option<String>,
+
     /// The namespace, or the class a member is from.
     pub description: Option<String>,
+
     pub edit: TextEdit,
     pub additional_edits: Vec<TextEdit>,
     pub sort_text: String,
     pub filter_text: Option<String>,
     pub deprecated: bool,
+
     /// What `completionItem/resolve` needs to find the documentation again.
     pub data: Option<String>,
+
     /// Whether `edit` is a snippet that writes the call's arguments too.
     pub call: CallInsert,
 }
@@ -77,6 +84,7 @@ pub struct CompletionItem {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CompletionList {
     pub items: Vec<CompletionItem>,
+
     /// More items match than were returned; ask again as the word grows.
     pub incomplete: bool,
 }
@@ -84,6 +92,7 @@ pub struct CompletionList {
 #[derive(Clone, Copy, Debug)]
 pub struct CompletionOptions {
     pub limit: usize,
+
     /// Insert a function, method or constructor with its parentheses and required arguments as a
     /// snippet. Only a client that takes snippets in completion items may ask for it.
     pub call_snippets: bool,
@@ -123,10 +132,12 @@ enum Context {
         is_return: bool,
     },
     ClassBody,
+
     /// The name of a method being declared: `function ` and a word.
     MethodName {
         declaration: SyntaxNode,
     },
+
     Expression {
         statement_start: bool,
     },
@@ -140,20 +151,25 @@ struct Word {
 fn word_before(text: &str, offset: usize) -> Word {
     let bytes = text.as_bytes();
     let mut start = offset;
+
     while start > 0 {
         let byte = bytes[start - 1];
+
         if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'\\' || byte >= 0x80 {
             start -= 1;
         } else {
             break;
         }
     }
+
     while start < offset && !text.is_char_boundary(start) {
         start += 1;
     }
+
     if start > 0 && bytes[start - 1] == b'$' && !text[start..offset].contains('\\') {
         start -= 1;
     }
+
     Word {
         start,
         text: text[start..offset].to_string(),
@@ -163,6 +179,7 @@ fn word_before(text: &str, offset: usize) -> Word {
 /// Whether the cursor is somewhere that takes no completion: a comment, a string or markup.
 fn in_dead_zone(root: &SyntaxNode, offset: u32) -> bool {
     use php_syntax::TextSize;
+
     let token = match root.token_at_offset(TextSize::from(offset)) {
         php_syntax::TokenAtOffset::None => return false,
         php_syntax::TokenAtOffset::Single(token) => token,
@@ -174,8 +191,10 @@ fn in_dead_zone(root: &SyntaxNode, offset: u32) -> bool {
             }
         }
     };
+
     let range = token.text_range();
     let inside = u32::from(range.start()) < offset && offset <= u32::from(range.end());
+
     match token.kind() {
         COMMENT => inside || offset == u32::from(range.end()) && !token.text().ends_with('\n'),
         BLOCK_COMMENT | DOC_COMMENT => u32::from(range.start()) < offset && offset < u32::from(range.end()),
@@ -201,50 +220,64 @@ pub fn complete_in(
 ) -> CompletionList {
     let offset = (offset as usize).min(text.len());
     let real = parse(text).syntax();
+
     let flagged = |mut list: CompletionList| {
         if let Some(root) = test_root {
             demote_test_declarations(index, root, &mut list);
         }
+
         list
     };
+
     if let Some(list) = crate::phpunit::complete::complete_string(index, &real, text, offset as u32, options) {
         return flagged(list);
     }
+
     if let Some(list) = crate::frameworks::complete_key(index, &real, text, offset as u32, options) {
         return flagged(list);
     }
+
     if let Some(list) = crate::class_strings::complete(index, &real, offset as u32, options) {
         return flagged(list);
     }
+
     if let Some(list) = shape_keys::complete_quoted(index, &real, text, offset as u32, options) {
         return flagged(list);
     }
+
     if in_dead_zone(&real, offset as u32) {
         return CompletionList::default();
     }
+
     let word = word_before(text, offset);
     let is_variable = word.text.starts_with('$');
+
     let placeholder = if is_variable {
         format!("${PLACEHOLDER}")
     } else {
         PLACEHOLDER.to_string()
     };
+
     let mut probe = String::with_capacity(text.len() + placeholder.len());
     probe.push_str(&text[..word.start]);
     probe.push_str(&placeholder);
     probe.push_str(&text[offset..]);
     let root = parse(&probe).syntax();
     let word_start = word.start as u32;
+
     let Some(token) = placeholder_token(&root, word_start, is_variable) else {
         return CompletionList::default();
     };
+
     let options = CompletionOptions {
         call_snippets: options.call_snippets && !in_simple_interpolation(&token),
         ..options
     };
+
     let analyzer = Analyzer::new(index, &root, word_start);
     let context = classify(&token, is_variable);
     let env = analyzer.env_at(word_start);
+
     let mut builder = Builder {
         analyzer: &analyzer,
         index,
@@ -258,8 +291,10 @@ pub fn complete_in(
         options,
         test_root,
     };
+
     builder.run(&context, &token);
     let mut list = builder.finish();
+
     if let Some(base) = crate::frameworks::keys::class_argument_base(&analyzer, &token) {
         list.items.retain(|item| {
             matches!(item.kind, ItemKind::Class)
@@ -275,10 +310,12 @@ pub fn complete_in(
                     })
                     .is_some_and(|name| index.is_subclass_of(&name, &base) && !name.eq_ignore_ascii_case(&base))
         });
+
         for item in &mut list.items {
             item.edit.new_text.push_str("::class");
         }
     }
+
     if crate::phpunit::complete::in_class_argument(&analyzer, &token) {
         list.items.retain(|item| {
             matches!(
@@ -286,15 +323,18 @@ pub fn complete_in(
                 ItemKind::Class | ItemKind::Interface | ItemKind::Trait | ItemKind::Enum
             )
         });
+
         for item in &mut list.items {
             item.edit.new_text.push_str("::class");
         }
     }
+
     list
 }
 
 fn placeholder_token(root: &SyntaxNode, start: u32, is_variable: bool) -> Option<SyntaxToken> {
     let probe_offset = start + if is_variable { 2 } else { 1 };
+
     let token = match root.token_at_offset(php_syntax::TextSize::from(probe_offset)) {
         php_syntax::TokenAtOffset::None => return None,
         php_syntax::TokenAtOffset::Single(token) => token,
@@ -306,6 +346,7 @@ fn placeholder_token(root: &SyntaxNode, start: u32, is_variable: bool) -> Option
             }
         }
     };
+
     token.text().contains(PLACEHOLDER).then_some(token)
 }
 
@@ -327,6 +368,7 @@ fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
     let Some(parent) = token.parent() else {
         return Context::Nothing;
     };
+
     if is_variable || token.kind() == VARIABLE {
         return match parent.kind() {
             VARIABLE_EXPR => match parent.parent() {
@@ -344,20 +386,25 @@ fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
             _ => Context::Variable,
         };
     }
+
     let name_node = if parent.kind() == NAME {
         parent.clone()
     } else {
         token.parent().unwrap_or(parent.clone())
     };
+
     let owner = if parent.kind() == NAME {
         parent.parent()
     } else {
         Some(parent.clone())
     };
+
     let Some(owner) = owner else {
         return Context::Nothing;
     };
+
     let is_first = owner.children().next().as_ref() == Some(&name_node);
+
     match owner.kind() {
         PROPERTY_FETCH_EXPR if !is_first => match owner.children().next() {
             Some(object) => Context::Member { object },
@@ -372,6 +419,7 @@ fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
         ATTRIBUTE => Context::Attribute,
         USE_CLAUSE | USE_GROUP => {
             let statement = owner.ancestors().find(|node| node.kind() == USE_STATEMENT);
+
             let kind_of = |node: &SyntaxNode| {
                 if has_token(node, FUNCTION_KW) {
                     Some(UseKind::Function)
@@ -381,6 +429,7 @@ fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
                     None
                 }
             };
+
             Context::Use(
                 kind_of(&owner)
                     .or_else(|| statement.as_ref().and_then(kind_of))
@@ -422,6 +471,7 @@ fn in_error(node: &SyntaxNode) -> Context {
             _ => {}
         }
     }
+
     Context::Expression { statement_start: true }
 }
 
@@ -432,6 +482,7 @@ fn classify_type(named: &SyntaxNode) -> Context {
                 let interface = ancestor
                     .parent()
                     .is_some_and(|parent| parent.kind() == INTERFACE_DECLARATION);
+
                 return Context::Extends { interface };
             }
             IMPLEMENTS_CLAUSE => return Context::Implements,
@@ -443,6 +494,7 @@ fn classify_type(named: &SyntaxNode) -> Context {
                     .children()
                     .filter(|child| child.kind() == PROPERTY_ELEMENT)
                     .any(|element| crate::ast::has_token(&element, VARIABLE));
+
                 return if has_variable {
                     Context::Type { is_return: false }
                 } else {
@@ -455,6 +507,7 @@ fn classify_type(named: &SyntaxNode) -> Context {
             _ => {}
         }
     }
+
     Context::Type { is_return: false }
 }
 
@@ -467,8 +520,10 @@ struct Builder<'a> {
     offset: u32,
     env: &'a Env,
     items: Vec<(u8, CompletionItem)>,
+
     /// The keywords the position expects, which come before the other keywords.
     preferred_keywords: Vec<&'static str>,
+
     options: CompletionOptions,
     test_root: Option<&'a std::path::Path>,
 }
@@ -478,17 +533,22 @@ pub(crate) fn match_score(candidate: &str, typed: &str) -> Option<u8> {
     if typed.is_empty() {
         return Some(0);
     }
+
     if candidate.starts_with(typed) {
         return Some(0);
     }
+
     let candidate_lower = candidate.to_ascii_lowercase();
     let typed_lower = typed.to_ascii_lowercase();
+
     if candidate_lower.starts_with(&typed_lower) {
         return Some(1);
     }
+
     if typed.len() >= 2 {
         let mut initials = String::new();
         let mut previous_lower = false;
+
         for (position, c) in candidate.chars().enumerate() {
             if position == 0 || (c.is_ascii_uppercase() && previous_lower) || c == '_' {
                 if c != '_' {
@@ -497,15 +557,19 @@ pub(crate) fn match_score(candidate: &str, typed: &str) -> Option<u8> {
             } else if previous_underscore(candidate, position) {
                 initials.push(c.to_ascii_lowercase());
             }
+
             previous_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
         }
+
         if initials.starts_with(&typed_lower) {
             return Some(2);
         }
     }
+
     if typed.len() >= 3 && candidate_lower.contains(&typed_lower) {
         return Some(3);
     }
+
     None
 }
 
@@ -550,34 +614,43 @@ impl Builder<'_> {
     fn call_text(&self, name: &str, callable: Option<&Callable>) -> (String, CallInsert) {
         let rest = self.text.get(self.offset as usize..).unwrap_or_default();
         let continues_word = rest.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+
         if !self.options.call_snippets || continues_word || rest.trim_start().starts_with('(') {
             return (name.to_string(), CallInsert::None);
         }
+
         let params: Vec<&Param> = callable
             .map(|callable| callable.params_at(self.index.level).collect())
             .unwrap_or_default();
+
         let required: Vec<&&Param> = params.iter().filter(|param| !param.is_optional()).collect();
         let mut text = escape_snippet(name);
         text.push('(');
+
         if required.is_empty() && !params.is_empty() {
             text.push_str("$1");
         }
+
         for (position, param) in required.iter().enumerate() {
             if position > 0 {
                 text.push_str(", ");
             }
+
             text.push_str(&format!(
                 "${{{}:{}}}",
                 position + 1,
                 escape_snippet(&format!("${}", param.name))
             ));
         }
+
         text.push_str(")$0");
+
         let call = if params.is_empty() {
             CallInsert::Snippet
         } else {
             CallInsert::SnippetWithParameters
         };
+
         (text, call)
     }
 
@@ -591,10 +664,13 @@ impl Builder<'_> {
                 flag_sort_text(self.index, root, item);
             }
         }
+
         self.items
             .sort_by(|a, b| (a.0, &a.1.sort_text, &a.1.label).cmp(&(b.0, &b.1.sort_text, &b.1.label)));
+
         let incomplete = self.items.len() > self.options.limit;
         self.items.truncate(self.options.limit);
+
         CompletionList {
             items: self.items.into_iter().map(|(_, item)| item).collect(),
             incomplete,
@@ -633,6 +709,7 @@ impl Builder<'_> {
             Context::MethodName { declaration } => self.overridable_methods(declaration),
             Context::ClassBody => {
                 self.class_body_keywords();
+
                 if !self.typed().is_empty() {
                     self.classes(ClassFilter::Any, false);
                     self.type_keywords(false);
@@ -644,6 +721,7 @@ impl Builder<'_> {
                 self.named_arguments(token);
                 self.variables_if_dollar();
                 self.keywords(*statement_start, token);
+
                 if !self.typed().is_empty() {
                     self.classes(ClassFilter::Any, false);
                     self.functions();
@@ -672,14 +750,18 @@ impl Builder<'_> {
         let mut seen: HashSet<String> = HashSet::new();
         // In a test the assertions are what `$this->` is for, so they come before everything else.
         let assertions_first = text_of(object) == "$this" && self.in_test();
+
         for (member_index, member) in receiver.members().iter().enumerate() {
             if !matches!(member, Type::Class { .. } | Type::Intersection(_)) {
                 continue;
             }
+
             let depth = self.depths(member);
+
             for found in self.index.methods(member) {
                 let name = &found.member.name;
                 let assertion = assertions_first && name.starts_with("assert");
+
                 if (found.member.is_static && !assertion)
                     || !self
                         .index
@@ -689,11 +771,14 @@ impl Builder<'_> {
                 {
                     continue;
                 }
+
                 let Some(score) = match_score(name, &typed) else {
                     continue;
                 };
+
                 let rank = depth_of(&depth, &found.class.decl.name);
                 let (insert, call) = self.call_text(name, Some(&found.member.callable));
+
                 let item = CompletionItem {
                     label: name.clone(),
                     kind: ItemKind::Method,
@@ -718,10 +803,13 @@ impl Builder<'_> {
                     call,
                     data: Some(format!("method:{}::{}", found.class.decl.name, name)),
                 };
+
                 self.push(score, item);
             }
+
             for found in self.index.properties(member) {
                 let property = &found.member;
+
                 if property.is_static
                     || !self
                         .index
@@ -730,11 +818,14 @@ impl Builder<'_> {
                 {
                     continue;
                 }
+
                 let Some(score) = match_score(&property.name, &typed) else {
                     continue;
                 };
+
                 let rank = depth_of(&depth, &found.class.decl.name);
                 let ty = property.effective_type(level).map(|ty| found.resolve(ty).display(true));
+
                 let item = CompletionItem {
                     label: property.name.clone(),
                     kind: ItemKind::Property,
@@ -748,6 +839,7 @@ impl Builder<'_> {
                     call: CallInsert::None,
                     data: Some(format!("property:{}::{}", found.class.decl.name, property.name)),
                 };
+
                 self.push(score, item);
             }
         }
@@ -756,15 +848,20 @@ impl Builder<'_> {
     /// The expectations the project adds with `extend()`, after `expect(...)->`.
     fn custom_expectations(&mut self, object: &SyntaxNode) {
         let ty = self.analyzer.type_of(object, self.env);
+
         if !crate::pest::is_expectation(&ty) {
             return;
         }
+
         let typed = self.typed().to_string();
+
         for expectation in crate::pest::custom_expectations(self.index, &self.analyzer.root) {
             let Some(score) = match_score(&expectation.name, &typed) else {
                 continue;
             };
+
             let name = expectation.name;
+
             let item = CompletionItem {
                 label: name.clone(),
                 kind: ItemKind::Method,
@@ -778,6 +875,7 @@ impl Builder<'_> {
                 call: CallInsert::None,
                 data: None,
             };
+
             self.push(score, item);
         }
     }
@@ -797,12 +895,16 @@ impl Builder<'_> {
         if text_of(object) != "$this" || self.analyzer.pest.is_none() {
             return;
         }
+
         let typed = self.typed().to_string();
+
         for name in self.analyzer.pest_property_names() {
             let Some(score) = match_score(&name, &typed) else {
                 continue;
             };
+
             let ty = self.analyzer.pest_property(&name).map(|ty| ty.display(true));
+
             let item = CompletionItem {
                 label: name.clone(),
                 kind: ItemKind::Property,
@@ -816,6 +918,7 @@ impl Builder<'_> {
                 call: CallInsert::None,
                 data: None,
             };
+
             self.push(score, item);
         }
     }
@@ -830,31 +933,38 @@ impl Builder<'_> {
 
     fn static_members(&mut self, qualifier: &SyntaxNode) {
         let ty = self.analyzer.qualifier_type(qualifier, self.env);
+
         let relative = qualifier.kind() == NAME
             && matches!(
                 text_of(qualifier).to_ascii_lowercase().as_str(),
                 "self" | "static" | "parent"
             );
+
         let receiver = self.analyzer.receiver_type(&ty);
         let context = self.context_class();
         let wants_properties_only = self.typed().starts_with('$');
         let typed = self.typed().trim_start_matches('$').to_string();
         let level = self.index.level;
         let mut seen: HashSet<String> = HashSet::new();
+
         for member in receiver.members() {
             if !matches!(member, Type::Class { .. }) {
                 continue;
             }
+
             let depth = self.depths(member);
+
             let related = relative
                 || context.as_ref().is_some_and(|context| {
                     member.class_names().iter().any(|name| {
                         self.index.is_subclass_of(context, name) || self.index.is_subclass_of(name, context)
                     })
                 });
+
             if !wants_properties_only {
                 for found in self.index.methods(member) {
                     let method = &found.member;
+
                     if (!method.is_static && !related)
                         || !self
                             .index
@@ -863,10 +973,13 @@ impl Builder<'_> {
                     {
                         continue;
                     }
+
                     let Some(score) = match_score(&method.name, &typed) else {
                         continue;
                     };
+
                     let (insert, call) = self.call_text(&method.name, Some(&method.callable));
+
                     let item = CompletionItem {
                         label: method.name.clone(),
                         kind: ItemKind::Method,
@@ -885,10 +998,13 @@ impl Builder<'_> {
                         call,
                         data: Some(format!("method:{}::{}", found.class.decl.name, method.name)),
                     };
+
                     self.push(score, item);
                 }
+
                 for found in self.index.constants_of(member) {
                     let constant = &found.member;
+
                     if !self
                         .index
                         .is_accessible(constant.visibility, &found.self_name, context.as_deref())
@@ -896,14 +1012,17 @@ impl Builder<'_> {
                     {
                         continue;
                     }
+
                     let Some(score) = match_score(&constant.name, &typed) else {
                         continue;
                     };
+
                     let detail = if constant.is_case {
                         constant.value.clone().map(|value| format!("= {value}"))
                     } else {
                         constant.effective_type(level).map(|ty| found.resolve(ty).display(true))
                     };
+
                     let item = CompletionItem {
                         label: constant.name.clone(),
                         kind: if constant.is_case {
@@ -926,8 +1045,10 @@ impl Builder<'_> {
                         call: CallInsert::None,
                         data: Some(format!("const:{}::{}", found.class.decl.name, constant.name)),
                     };
+
                     self.push(score, item);
                 }
+
                 if let Some(score) = match_score("class", &typed) {
                     self.push(
                         score,
@@ -947,8 +1068,10 @@ impl Builder<'_> {
                     );
                 }
             }
+
             for found in self.index.properties(member) {
                 let property = &found.member;
+
                 if !property.is_static
                     || !self
                         .index
@@ -957,10 +1080,13 @@ impl Builder<'_> {
                 {
                     continue;
                 }
+
                 let Some(score) = match_score(&property.name, &typed) else {
                     continue;
                 };
+
                 let label = format!("${}", property.name);
+
                 let item = CompletionItem {
                     label: label.clone(),
                     kind: ItemKind::Property,
@@ -978,6 +1104,7 @@ impl Builder<'_> {
                     call: CallInsert::None,
                     data: Some(format!("property:{}::{}", found.class.decl.name, property.name)),
                 };
+
                 self.push(score, item);
             }
         }
@@ -993,15 +1120,18 @@ impl Builder<'_> {
 
     fn variables(&mut self) {
         let typed = self.typed().trim_start_matches('$').to_string();
+
         let mut names: Vec<(String, Type)> = self
             .env
             .vars
             .iter()
             .map(|(name, ty)| (name.clone(), ty.clone()))
             .collect();
+
         if self.analyzer.class.is_some() && !names.iter().any(|(name, _)| name == "this") {
             names.push(("this".to_string(), Type::Static));
         }
+
         for superglobal in [
             "_GET", "_POST", "_SERVER", "_SESSION", "_COOKIE", "_FILES", "_ENV", "_REQUEST", "GLOBALS",
         ] {
@@ -1009,16 +1139,20 @@ impl Builder<'_> {
                 names.push((superglobal.to_string(), Type::plain_array()));
             }
         }
+
         for (name, ty) in names {
             if name == PLACEHOLDER {
                 continue;
             }
+
             let Some(score) = match_score(&name, &typed) else {
                 continue;
             };
+
             let ty = if name == "this" { self.analyzer.this_type() } else { ty };
             let label = format!("${name}");
             let is_superglobal = name.starts_with('_') || name == "GLOBALS";
+
             self.push(
                 score,
                 CompletionItem {
@@ -1042,46 +1176,60 @@ impl Builder<'_> {
 
     fn classes(&mut self, filter: ClassFilter, with_constructor: bool) {
         let typed = self.typed().to_string();
+
         if let Some(rest) = typed.strip_prefix('\\') {
             return self.qualified_classes(filter, rest, true, with_constructor);
         }
+
         if typed.contains('\\') {
             return self.qualified_classes(filter, &typed, false, with_constructor);
         }
+
         let mut candidates: Vec<(u8, Class<'_>)> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
+
         for name in self.index.class_names() {
             let short = crate::short(&name.summary.name);
+
             let Some(score) = match_score(short, &typed) else {
                 continue;
             };
+
             let Some(class) = name.load() else {
                 continue;
             };
+
             if !filter.accepts(self.index, class) {
                 continue;
             }
+
             if !seen.insert(class.decl.name.to_ascii_lowercase()) {
                 continue;
             }
+
             candidates.push((score, class));
         }
+
         for (score, class) in candidates {
             let fqn = &class.decl.name;
             let short = crate::short(fqn);
             let (insert, additional) = self.class_reference(fqn);
             let namespace = php_index::types::namespace_of(fqn);
+
             let constructor = with_constructor
                 .then(|| self.index.find_method(&Type::class(fqn.clone()), "__construct"))
                 .flatten();
+
             let detail = constructor
                 .as_ref()
                 .map(|found| render::callable_text(&found.member.callable, self.index.level));
+
             let (insert, call) = if with_constructor {
                 self.call_text(&insert, constructor.as_ref().map(|found| &found.member.callable))
             } else {
                 (insert, CallInsert::None)
             };
+
             self.push(
                 score,
                 CompletionItem {
@@ -1105,15 +1253,18 @@ impl Builder<'_> {
     fn class_reference(&self, fqn: &str) -> (String, Vec<TextEdit>) {
         let plan = plan_import(&self.analyzer.resolver, fqn, UseKind::Class, |name| {
             let own = self.analyzer.resolver.qualify(name);
+
             self.index
                 .class(&own)
                 .is_some_and(|other| !other.decl.name.eq_ignore_ascii_case(fqn))
         });
+
         match plan {
             ImportPlan::Plain(name) => (name, Vec::new()),
             ImportPlan::Qualified(name) => (format!("\\{name}"), Vec::new()),
             ImportPlan::Import(name) => {
                 let edit = import_edit(self.text, self.real, self.offset, fqn, UseKind::Class);
+
                 (name, edit.into_iter().collect())
             }
         }
@@ -1126,35 +1277,46 @@ impl Builder<'_> {
         } else {
             self.analyzer.resolver.resolve_class(typed)
         };
+
         let expected_lower = expected.to_ascii_lowercase();
+
         let written = if absolute {
             format!("\\{typed}")
         } else {
             typed.to_string()
         };
+
         let mut found: Vec<(Class<'_>, String)> = Vec::new();
+
         for name in self.index.class_names() {
             if !name.summary.name.to_ascii_lowercase().starts_with(&expected_lower) {
                 continue;
             }
+
             let Some(class) = name.load() else {
                 continue;
             };
+
             if !filter.accepts(self.index, class) {
                 continue;
             }
+
             let insert = format!("{written}{}", &class.decl.name[expected.len()..]);
             found.push((class, insert));
         }
+
         for (class, insert) in found {
             let fqn = &class.decl.name;
             let namespace = php_index::types::namespace_of(fqn);
+
             let (edit_text, call) = if with_constructor {
                 let constructor = self.index.find_method(&Type::class(fqn.clone()), "__construct");
+
                 self.call_text(&insert, constructor.as_ref().map(|found| &found.member.callable))
             } else {
                 (insert.clone(), CallInsert::None)
             };
+
             self.push(
                 0,
                 CompletionItem {
@@ -1178,6 +1340,7 @@ impl Builder<'_> {
         let typed = self.typed().trim_start_matches('\\').to_string();
         let typed_lower = typed.to_ascii_lowercase();
         let mut names: Vec<(String, ItemKind, u8, String)> = Vec::new();
+
         match kind {
             UseKind::Class => {
                 for class in self.index.class_names() {
@@ -1210,14 +1373,18 @@ impl Builder<'_> {
                 }
             }
         }
+
         let prefix_end = typed.rfind('\\').map_or(0, |position| position + 1);
         let mut segments: HashSet<String> = HashSet::new();
         let mut matched: Vec<(String, ItemKind, u8, String)> = Vec::new();
+
         for (name, item_kind, rank, data) in names {
             if !name.to_ascii_lowercase().starts_with(&typed_lower) {
                 continue;
             }
+
             let rest = &name[prefix_end.min(name.len())..];
+
             match rest.split_once('\\') {
                 Some((segment, _)) => {
                     segments.insert(segment.to_string());
@@ -1225,8 +1392,10 @@ impl Builder<'_> {
                 None => matched.push((name, item_kind, rank, data)),
             }
         }
+
         for segment in segments {
             let insert = format!("{}{segment}\\", &typed[..prefix_end]);
+
             self.push(
                 0,
                 CompletionItem {
@@ -1244,8 +1413,10 @@ impl Builder<'_> {
                 },
             );
         }
+
         for (name, item_kind, rank, data) in matched {
             let short = crate::short(&name).to_string();
+
             self.push(
                 0,
                 CompletionItem {
@@ -1267,38 +1438,49 @@ impl Builder<'_> {
 
     fn functions(&mut self) {
         let typed = self.typed().to_string();
+
         if typed.contains('\\') {
             return;
         }
+
         let level = self.index.level;
         let mut seen: HashSet<String> = HashSet::new();
         let mut found = Vec::new();
+
         for name in self.index.function_names() {
             let short = crate::short(&name.summary.name);
+
             let Some(score) = match_score(short, &typed) else {
                 continue;
             };
+
             if !seen.insert(name.summary.name.to_ascii_lowercase()) {
                 continue;
             }
+
             if let Some(function) = name.load_function() {
                 found.push((score, function));
             }
         }
+
         for (score, function) in found {
             let fqn = &function.decl.name;
             let short = crate::short(fqn);
             let plan = plan_import(&self.analyzer.resolver, fqn, UseKind::Function, |_| false);
+
             let (insert, additional) = match plan {
                 ImportPlan::Plain(name) => (name, Vec::new()),
                 ImportPlan::Qualified(name) => (format!("\\{name}"), Vec::new()),
                 ImportPlan::Import(name) => {
                     let edit = import_edit(self.text, self.real, self.offset, fqn, UseKind::Function);
+
                     (name, edit.into_iter().collect())
                 }
             };
+
             let namespace = php_index::types::namespace_of(fqn);
             let (insert, call) = self.call_text(&insert, Some(&function.decl.callable));
+
             self.push(
                 score,
                 CompletionItem {
@@ -1320,36 +1502,47 @@ impl Builder<'_> {
 
     fn constants(&mut self) {
         let typed = self.typed().to_string();
+
         if typed.contains('\\') || typed.len() < 2 {
             return;
         }
+
         let mut seen: HashSet<String> = HashSet::new();
         let mut found = Vec::new();
+
         for name in self.index.constant_names() {
             let short = crate::short(&name.summary.name);
+
             let Some(score) = match_score(short, &typed) else {
                 continue;
             };
+
             if !seen.insert(name.summary.name.clone()) {
                 continue;
             }
+
             if let Some(constant) = name.load_constant() {
                 found.push((score, constant));
             }
         }
+
         for (score, constant) in found {
             let fqn = &constant.decl.name;
             let short = crate::short(fqn);
             let plan = plan_import(&self.analyzer.resolver, fqn, UseKind::Constant, |_| false);
+
             let (insert, additional) = match plan {
                 ImportPlan::Plain(name) => (name, Vec::new()),
                 ImportPlan::Qualified(name) => (format!("\\{name}"), Vec::new()),
                 ImportPlan::Import(name) => {
                     let edit = import_edit(self.text, self.real, self.offset, fqn, UseKind::Constant);
+
                     (name, edit.into_iter().collect())
                 }
             };
+
             let namespace = php_index::types::namespace_of(fqn);
+
             self.push(
                 score,
                 CompletionItem {
@@ -1375,6 +1568,7 @@ impl Builder<'_> {
         if self.typed().starts_with('$') {
             return;
         }
+
         let Some(argument) = token
             .parent()
             .into_iter()
@@ -1383,21 +1577,28 @@ impl Builder<'_> {
         else {
             return;
         };
+
         if crate::ast::has_token(&argument, COLON) {
             return;
         }
+
         let Some(list) = argument.parent().filter(|parent| parent.kind() == ARGUMENT_LIST) else {
             return;
         };
+
         let Some(call) = list.parent() else {
             return;
         };
+
         let callees = self.analyzer.callees(&call, self.env);
+
         let Some(callee) = callees.first() else {
             return;
         };
+
         let arguments: Vec<_> = list.children().filter(|node| node.kind() == ARGUMENT).collect();
         let position = arguments.iter().position(|node| node == &argument).unwrap_or(0);
+
         let named: Vec<String> = arguments
             .iter()
             .filter(|node| has_token(node, COLON))
@@ -1407,15 +1608,19 @@ impl Builder<'_> {
                     .map(|token| token.text().to_string())
             })
             .collect();
+
         let level = self.index.level;
         let typed = self.typed().to_string();
+
         for (index, param) in callee.callable.params_at(level).enumerate() {
             if index < position && !param.variadic || named.contains(&param.name) || param.variadic {
                 continue;
             }
+
             let Some(score) = match_score(&param.name, &typed) else {
                 continue;
             };
+
             self.push(
                 score,
                 CompletionItem {
@@ -1441,6 +1646,7 @@ impl Builder<'_> {
         let Some(score) = match_score(keyword, self.typed()) else {
             return;
         };
+
         let item = CompletionItem {
             label: keyword.to_string(),
             kind: ItemKind::Keyword,
@@ -1458,6 +1664,7 @@ impl Builder<'_> {
             call: CallInsert::None,
             data: None,
         };
+
         self.push(score, item);
     }
 
@@ -1465,6 +1672,7 @@ impl Builder<'_> {
         let ancestors: Vec<SyntaxNode> = token.parent().into_iter().flat_map(|node| node.ancestors()).collect();
         let in_function = ancestors.iter().any(|node| crate::ast::is_function_like(node.kind()));
         let in_class = self.analyzer.class.is_some();
+
         let mut words: Vec<&str> = vec![
             "new",
             "clone",
@@ -1488,14 +1696,17 @@ impl Builder<'_> {
             "throw",
             "exit",
         ];
+
         if in_class {
             words.extend(["self", "parent"]);
         }
+
         if statement_start {
             words.extend([
                 "if", "else", "elseif", "foreach", "for", "while", "do", "switch", "return", "echo", "try", "global",
                 "unset", "break", "continue",
             ]);
+
             if !in_function {
                 words.extend([
                     "namespace",
@@ -1512,6 +1723,7 @@ impl Builder<'_> {
                 ]);
             }
         }
+
         for word in words {
             self.keyword_item(word, 4);
         }
@@ -1522,9 +1734,11 @@ impl Builder<'_> {
             "int", "string", "bool", "float", "array", "callable", "iterable", "object", "mixed", "null", "false",
             "true", "self", "parent",
         ];
+
         if is_return {
             words.extend(["void", "never", "static"]);
         }
+
         for word in words {
             self.keyword_item(word, 4);
         }
@@ -1536,6 +1750,7 @@ impl Builder<'_> {
             .class
             .as_ref()
             .is_some_and(|class| class.kind == ClassKind::Enum);
+
         let mut words = vec![
             "public",
             "protected",
@@ -1549,9 +1764,11 @@ impl Builder<'_> {
             "use",
             "var",
         ];
+
         if is_enum {
             words.push("case");
         }
+
         for word in words {
             self.keyword_item(word, 0);
         }
@@ -1561,12 +1778,15 @@ impl Builder<'_> {
 /// `$`, `}` and `\` carry meaning in the snippet grammar and are escaped with a backslash.
 pub(crate) fn escape_snippet(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+
     for character in text.chars() {
         if matches!(character, '$' | '}' | '\\') {
             out.push('\\');
         }
+
         out.push(character);
     }
+
     out
 }
 
@@ -1593,6 +1813,7 @@ enum ClassFilter {
 impl ClassFilter {
     fn accepts(self, index: &Index, class: Class<'_>) -> bool {
         let decl = class.decl;
+
         match self {
             ClassFilter::Any => true,
             ClassFilter::Instantiable => decl.is_instantiable(),
@@ -1625,6 +1846,7 @@ fn flag_sort_text(index: &Index, root: &std::path::Path, item: &mut CompletionIt
         .as_deref()
         .and_then(|data| declaring_path(index, data))
         .is_some_and(|path| php_index::test_paths::is_test_file(path, root));
+
     let digits = item.sort_text.bytes().take_while(u8::is_ascii_digit).count();
     item.sort_text.insert(digits, if from_test { '1' } else { '0' });
 }
@@ -1632,6 +1854,7 @@ fn flag_sort_text(index: &Index, root: &std::path::Path, item: &mut CompletionIt
 /// The file a completion item's `data` points at.
 fn declaring_path<'a>(index: &'a Index, data: &str) -> Option<&'a std::path::Path> {
     let (kind, rest) = data.split_once(':')?;
+
     let file = match kind {
         "class" => index.class(rest)?.file,
         "function" => index.function(rest)?.file,
@@ -1639,15 +1862,18 @@ fn declaring_path<'a>(index: &'a Index, data: &str) -> Option<&'a std::path::Pat
         "method" | "property" | "const" => index.class(rest.split_once("::")?.0)?.file,
         _ => return None,
     };
+
     Some(&file.path)
 }
 
 /// The documentation for an item, from the `data` its completion carried.
 pub fn resolve_documentation(index: &Index, data: &str) -> Option<String> {
     use crate::target::Target;
+
     let (kind, rest) = data.split_once(':')?;
     let tree = parse("<?php").syntax();
     let analyzer = Analyzer::new(index, &tree, 0);
+
     let target = match kind {
         "class" => Target::Class(rest.to_string()),
         "function" => Target::Function(rest.to_string()),
@@ -1655,6 +1881,7 @@ pub fn resolve_documentation(index: &Index, data: &str) -> Option<String> {
         "method" | "property" | "const" => {
             let (class, member) = rest.split_once("::")?;
             let receiver = Type::class(class);
+
             match kind {
                 "method" => Target::Method {
                     receiver,
@@ -1672,6 +1899,8 @@ pub fn resolve_documentation(index: &Index, data: &str) -> Option<String> {
         }
         _ => return None,
     };
+
     let description = analyzer.describe(&target).into_iter().next()?;
+
     Some(crate::nav::hover_markdown(&description))
 }

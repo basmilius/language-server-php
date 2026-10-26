@@ -70,10 +70,12 @@ pub(super) fn unit(rcx: &Rcx<'_>) -> String {
         .text
         .lines()
         .find(|line| line.starts_with(' ') || line.starts_with('\t') && !line.trim().is_empty());
+
     match found {
         Some(line) if line.starts_with('\t') => "\t".to_string(),
         Some(line) => {
             let width = line.len() - line.trim_start_matches(' ').len();
+
             " ".repeat(if width % 4 == 0 { 4 } else { width.clamp(1, 8) })
         }
         None => rcx.renv.format.indent.unit(),

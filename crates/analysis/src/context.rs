@@ -33,16 +33,20 @@ impl<'a> FileContext<'a> {
     /// only changes from one top-level statement or class to the next.
     pub fn analyzer(&self, node: &SyntaxNode) -> Rc<Analyzer<'a>> {
         let key = context_key(node);
+
         if let Some(found) = self.analyzers.borrow().get(&key) {
             return found.clone();
         }
+
         let analyzer = Rc::new(Analyzer::with_shared(
             self.index,
             &self.root,
             start(node) + 1,
             Rc::clone(&self.shared),
         ));
+
         self.analyzers.borrow_mut().insert(key, analyzer.clone());
+
         analyzer
     }
 }
@@ -53,13 +57,16 @@ fn context_key(node: &SyntaxNode) -> (u32, u32, u32) {
     let pest = crate::pest::calls::enclosing_test_closure(node).map_or(0, |closure| start(&closure) + 1);
     let mut top = 0;
     let mut class = 0;
+
     for ancestor in node.ancestors() {
         if class == 0 && is_class_like(ancestor.kind()) {
             class = start(&ancestor) + 1;
         }
+
         let Some(parent) = ancestor.parent() else {
             continue;
         };
+
         let at_top = match parent.kind() {
             SOURCE_FILE => true,
             STATEMENT_LIST | BLOCK => parent
@@ -67,9 +74,11 @@ fn context_key(node: &SyntaxNode) -> (u32, u32, u32) {
                 .is_some_and(|grand| grand.kind() == NAMESPACE_DECLARATION),
             _ => false,
         };
+
         if at_top && top == 0 {
             top = start(&ancestor) + 1;
         }
     }
+
     (top, class, pest)
 }

@@ -20,6 +20,7 @@ use crate::index::Index;
 /// directly in `config/` and everything below it, YAML and PHP.
 pub(crate) fn config_files(index: &Index, extensions: &[&str]) -> Vec<PathBuf> {
     let dir = index.framework_root().join("config");
+
     index
         .files_below(&dir)
         .into_iter()
@@ -35,6 +36,7 @@ pub(crate) fn config_files(index: &Index, extensions: &[&str]) -> Vec<PathBuf> {
 pub(crate) fn yaml_of(index: &Index, path: &Path) -> Option<(std::sync::Arc<str>, Node)> {
     let text = index.read_text(path)?;
     let node = parse(&text)?;
+
     Some((text, node))
 }
 

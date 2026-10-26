@@ -65,10 +65,13 @@ pub struct SharedCache {
     trees: RefCell<HashMap<PathBuf, Option<SyntaxNode>>>,
     in_progress: RefCell<HashSet<(PathBuf, u32)>>,
     depth: Cell<u32>,
+
     /// The test case bound to the file being read, worked out once.
     pub(crate) pest_case: RefCell<Option<Option<crate::pest::case::TestCaseBinding>>>,
+
     /// What `beforeEach` gives a property, by the describe blocks around the test and the name.
     pub(crate) pest_types: RefCell<HashMap<(Vec<u32>, String), Type>>,
+
     /// The expectations the project adds, for the tree they were read with.
     pub(crate) expectations: RefCell<Option<(SyntaxNode, Rc<Vec<crate::pest::CustomExpectation>>)>>,
 }
@@ -76,17 +79,24 @@ pub struct SharedCache {
 pub struct Analyzer<'a> {
     pub index: &'a Index,
     pub root: SyntaxNode,
+
     /// The namespace and imports at the offset the analyzer was made for.
     pub resolver: NameResolver,
+
     pub class: Option<ClassContext>,
     depth: Cell<u32>,
+
     /// The variables at the start of a statement, by the offset of that start.
     envs: RefCell<HashMap<u32, Rc<Env>>>,
+
     /// The parameter types a call gives a closure, by the start of the closure.
     hints: RefCell<HashMap<u32, Vec<Type>>>,
+
     /// What a closure without a declared return type returns, by the start of the closure.
     closure_returns: RefCell<HashMap<u32, Type>>,
+
     pub(crate) shared: Rc<SharedCache>,
+
     /// Set inside the closure of a Pest test or hook, where `$this` is a test case.
     pub(crate) pest: Option<crate::pest::case::PestScope>,
 }
@@ -102,8 +112,10 @@ impl<'a> Analyzer<'a> {
         let resolver = resolver_at(root, offset);
         let path = crate::document::current();
         let pest = crate::pest::case::scope_at(index, root, offset, path.as_deref(), &shared);
+
         let class = class_context(root, offset, &resolver)
             .or_else(|| pest.as_ref().map(crate::pest::case::PestScope::class_context));
+
         Analyzer {
             index,
             root: root.clone(),
@@ -123,22 +135,29 @@ impl<'a> Analyzer<'a> {
     pub fn env_around(&self, node: &SyntaxNode) -> Rc<Env> {
         let anchor = ast::statement_anchor(node);
         let cached = self.envs.borrow().get(&anchor).cloned();
+
         let base = match cached {
             Some(env) => env,
             None => {
                 let env = Rc::new(self.env_at(anchor));
                 self.envs.borrow_mut().insert(anchor, env.clone());
+
                 env
             }
         };
+
         let conditions = short_circuit_conditions(node);
+
         if conditions.is_empty() {
             return base;
         }
+
         let mut env = (*base).clone();
+
         for (condition, truth) in conditions.into_iter().rev() {
             self.narrow(&condition, truth, &mut env);
         }
+
         Rc::new(env)
     }
 
@@ -151,9 +170,11 @@ impl<'a> Analyzer<'a> {
         if self.depth.get() >= MAX_DEPTH {
             return fallback;
         }
+
         self.depth.set(self.depth.get() + 1);
         let result = step();
         self.depth.set(self.depth.get() - 1);
+
         result
     }
 
@@ -180,6 +201,7 @@ impl<'a> Analyzer<'a> {
         if let Some(scope) = &self.pest {
             return scope.this_type();
         }
+
         match &self.class {
             Some(class) if class.anonymous => class.parent.clone().map_or(Type::Unknown, Type::class),
             Some(class) => Type::class(class.name.clone()),
@@ -195,17 +217,20 @@ impl<'a> Analyzer<'a> {
     /// The function-like node around an offset, or the file.
     pub fn scope_at(&self, offset: u32) -> SyntaxNode {
         let node = node_at(&self.root, offset);
+
         for ancestor in node.ancestors() {
             if ast::is_function_like(ancestor.kind()) {
                 return ancestor;
             }
         }
+
         self.root.clone()
     }
 }
 
 fn class_context(root: &SyntaxNode, offset: u32, resolver: &NameResolver) -> Option<ClassContext> {
     let node = node_at(root, offset);
+
     for ancestor in node.ancestors() {
         let kind = match ancestor.kind() {
             CLASS_DECLARATION => ClassKind::Class,
@@ -215,7 +240,9 @@ fn class_context(root: &SyntaxNode, offset: u32, resolver: &NameResolver) -> Opt
             ANONYMOUS_CLASS => ClassKind::Class,
             _ => continue,
         };
+
         let anonymous = ancestor.kind() == ANONYMOUS_CLASS;
+
         let parent = child_of(&ancestor, EXTENDS_CLAUSE)
             .and_then(|clause| clause.descendants().find(|node| node.kind() == NAME))
             .map(|name| resolver.resolve_class(&text_of(&name)))
@@ -228,11 +255,13 @@ fn class_context(root: &SyntaxNode, offset: u32, resolver: &NameResolver) -> Opt
                     })
                     .flatten()
             });
+
         let name = if anonymous {
             "class@anonymous".to_string()
         } else {
             child_of(&ancestor, NAME).map(|name| resolver.qualify(&text_of(&name)))?
         };
+
         return Some(ClassContext {
             name,
             parent,
@@ -240,6 +269,7 @@ fn class_context(root: &SyntaxNode, offset: u32, resolver: &NameResolver) -> Opt
             anonymous,
         });
     }
+
     None
 }
 
@@ -252,14 +282,17 @@ mod tests;
 fn short_circuit_conditions(node: &SyntaxNode) -> Vec<(SyntaxNode, bool)> {
     let mut out = Vec::new();
     let mut child = node.clone();
+
     while let Some(parent) = child.parent() {
         match parent.kind() {
             BINARY_EXPR => {
                 let operands: Vec<SyntaxNode> = parent.children().collect();
+
                 if operands.len() == 2 && operands[1] == child {
                     let operator = ast::tokens(&parent)
                         .find(|token| !token.kind().is_trivia())
                         .map(|token| token.kind());
+
                     match operator {
                         Some(AND_AND | AND_KW) => out.push((operands[0].clone(), true)),
                         Some(OR_OR | OR_KW) => out.push((operands[0].clone(), false)),
@@ -269,6 +302,7 @@ fn short_circuit_conditions(node: &SyntaxNode) -> Vec<(SyntaxNode, bool)> {
             }
             TERNARY_EXPR => {
                 let operands: Vec<SyntaxNode> = parent.children().collect();
+
                 match operands.as_slice() {
                     [condition, then, _] if *then == child => out.push((condition.clone(), true)),
                     [condition, .., otherwise] if *otherwise == child && operands.len() >= 2 => {
@@ -281,7 +315,9 @@ fn short_circuit_conditions(node: &SyntaxNode) -> Vec<(SyntaxNode, bool)> {
             | STATEMENT_LIST | SOURCE_FILE => break,
             _ => {}
         }
+
         child = parent;
     }
+
     out
 }

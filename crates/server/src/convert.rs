@@ -28,17 +28,21 @@ pub fn diagnostic(mapper: &Mapper, found: &php_analysis::Diagnostic) -> Diagnost
 
 fn diagnostic_tags(found: &php_analysis::Diagnostic) -> Option<Vec<DiagnosticTag>> {
     let mut tags = Vec::new();
+
     if found.deprecated {
         tags.push(DiagnosticTag::DEPRECATED);
     }
+
     if found.unnecessary {
         tags.push(DiagnosticTag::UNNECESSARY);
     }
+
     (!tags.is_empty()).then_some(tags)
 }
 
 fn symbol_kind(kind: php_analysis::SymbolKind) -> SymbolKind {
     use php_analysis::SymbolKind as Kind;
+
     match kind {
         Kind::Namespace => SymbolKind::NAMESPACE,
         Kind::Class | Kind::Trait => SymbolKind::CLASS,
@@ -95,6 +99,7 @@ pub fn flat_symbols(
             location: Location::new(uri.clone(), mapper.range(symbol.range)),
             container_name: container.map(str::to_string),
         });
+
         flat_symbols(mapper, uri, &symbol.children, Some(&symbol.name), out);
     }
 }
@@ -105,6 +110,7 @@ pub fn folding_range(mapper: Option<&Mapper>, fold: &Fold) -> FoldingRange {
     let characters = mapper
         .zip(fold.characters)
         .map(|(mapper, (start, end))| (mapper.position(start).character, mapper.position(end).character));
+
     FoldingRange {
         start_line: fold.start_line,
         start_character: characters.map(|(start, _)| start),
@@ -122,12 +128,14 @@ pub fn folding_range(mapper: Option<&Mapper>, fold: &Fold) -> FoldingRange {
 /// A chain from the smallest range to the largest, as LSP nests it: each one's parent is the next.
 pub fn selection_chain(mapper: &Mapper, ranges: &[TextRange]) -> SelectionRange {
     let mut parent: Option<Box<SelectionRange>> = None;
+
     for range in ranges.iter().rev() {
         parent = Some(Box::new(SelectionRange {
             range: mapper.range(*range),
             parent,
         }));
     }
+
     match parent {
         Some(chain) => *chain,
         None => SelectionRange {

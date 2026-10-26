@@ -17,13 +17,16 @@ use crate::infer::Analyzer;
 pub fn model_of(analyzer: &Analyzer<'_>, receiver: &Type) -> Option<String> {
     let index = analyzer.index;
     let receiver = analyzer.receiver_type(receiver);
+
     for member in receiver.members() {
         let Type::Class { name, args } = member else {
             continue;
         };
+
         if relations(index, name).is_some() {
             return Some(name.clone());
         }
+
         for arg in args {
             if let Type::Class { name, .. } = arg {
                 if relations(index, name).is_some() {
@@ -32,6 +35,7 @@ pub fn model_of(analyzer: &Analyzer<'_>, receiver: &Type) -> Option<String> {
             }
         }
     }
+
     None
 }
 
@@ -40,8 +44,10 @@ pub fn model_of(analyzer: &Analyzer<'_>, receiver: &Type) -> Option<String> {
 pub struct Segment {
     pub name: String,
     pub range: TextRange,
+
     /// The model the segment is a relation of.
     pub model: String,
+
     pub relation: Option<RelationInfo>,
 }
 
@@ -51,32 +57,40 @@ pub fn segments(index: &Index, key: &KeyString) -> Vec<Segment> {
     if key.kind != KeyKind::Relation {
         return Vec::new();
     }
+
     let Some(mut model) = key.scope.clone() else {
         return Vec::new();
     };
+
     // `posts:id,title` selects columns, `posts as published` names a count.
     let name_end = key.value.find([':', ' ']).unwrap_or(key.value.len());
     let start = u32::from(key.range.start());
     let mut out = Vec::new();
     let mut offset = 0usize;
+
     for name in key.value[..name_end].split('.') {
         let found = relations(index, &model)
             .unwrap_or_default()
             .into_iter()
             .find(|relation| relation.name == name);
+
         let next = found.as_ref().and_then(|relation| relation.related.clone());
+
         out.push(Segment {
             name: name.to_string(),
             range: range_of(start + offset as u32, start + (offset + name.len()) as u32),
             model: model.clone(),
             relation: found,
         });
+
         offset += name.len() + 1;
+
         match next {
             Some(next) => model = next,
             None => break,
         }
     }
+
     out
 }
 

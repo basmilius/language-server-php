@@ -17,8 +17,10 @@ pub struct KeyString {
     pub kind: KeyKind,
     pub value: String,
     pub range: TextRange,
+
     /// The class the call is made on, for the kinds that depend on it.
     pub scope: Option<String>,
+
     /// The code expects the name to be missing: it asks whether it exists or gives a default.
     pub guarded: bool,
 }
@@ -37,8 +39,10 @@ pub(crate) struct Callee {
 enum Place {
     /// It is the argument.
     Argument,
+
     /// It is the key of an item of the array the argument is.
     Key,
+
     /// It is an item of the list the argument is.
     Item,
 }
@@ -47,29 +51,37 @@ enum Place {
 /// below the argument's own, outermost first: `['buyer' => ['id']]` puts `id` below `buyer`.
 fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place, Vec<String>)> {
     let parent = literal.parent()?;
+
     match parent.kind() {
         ARGUMENT => Some((parent, Place::Argument, Vec::new())),
         ARRAY_ITEM => {
             let children: Vec<SyntaxNode> = parent.children().collect();
+
             let place = match children.as_slice() {
                 [key, _] if key == literal => Place::Key,
                 [only] if only == literal => Place::Item,
                 _ => return None,
             };
+
             let mut path = Vec::new();
             let mut array = parent.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
+
             loop {
                 let above = array.parent()?;
+
                 match above.kind() {
                     ARGUMENT => {
                         path.reverse();
+
                         return Some((above, place, path));
                     }
                     ARRAY_ITEM => {
                         let [key, value] = above.children().collect::<Vec<_>>().try_into().ok()?;
+
                         if value != array || key.kind() != LITERAL {
                             return None;
                         }
+
                         path.push(php_index::test_facts::string_value(&key)?.0);
                         array = above.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
                     }
@@ -83,18 +95,23 @@ fn argument_of(literal: &SyntaxNode) -> Option<(SyntaxNode, Place, Vec<String>)>
 
 pub(crate) fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Callee> {
     let level = analyzer.index.level;
+
     match owner.kind() {
         CALL_EXPR => {
             let Some(callee) = owner.children().next() else {
                 return Vec::new();
             };
+
             let Some(name) = callee.descendants().filter(|node| node.kind() == NAME).last() else {
                 return Vec::new();
             };
+
             if !is_marked(analyzer.index, &name.text().to_string()) {
                 return Vec::new();
             }
+
             let env = analyzer.env_around(owner);
+
             analyzer
                 .callees(owner, &env)
                 .into_iter()
@@ -103,6 +120,7 @@ pub(crate) fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Cal
                         Some((class, method)) => (Some(class.to_string()), method.to_string()),
                         None => (None, resolved.name.clone()),
                     };
+
                     Callee {
                         declaring,
                         receiver: resolved
@@ -124,10 +142,13 @@ pub(crate) fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Cal
             if !is_marked(analyzer.index, "__construct") {
                 return Vec::new();
             }
+
             let Some(name) = owner.children().find(|child| child.kind() == NAME) else {
                 return Vec::new();
             };
+
             let class = analyzer.resolver.resolve_class(&name.text().to_string());
+
             let params = analyzer
                 .index
                 .find_declared_method(&php_index::Type::class(class.clone()), "__construct")
@@ -140,6 +161,7 @@ pub(crate) fn callees_of(analyzer: &Analyzer<'_>, owner: &SyntaxNode) -> Vec<Cal
                         .collect()
                 })
                 .unwrap_or_default();
+
             vec![Callee {
                 declaring: Some(class.clone()),
                 receiver_type: Some(php_index::Type::class(class.clone())),
@@ -158,16 +180,21 @@ pub fn key_of_literal(analyzer: &Analyzer<'_>, literal: &SyntaxNode, at: Option<
     if !analyzer.index.frameworks().any() {
         return None;
     }
+
     let (value, span) = php_index::test_facts::string_value(literal)?;
+
     let fallback = || {
         event_key(analyzer, literal, &value, span)
             .or_else(|| super::casts::cast_key(analyzer, literal, &value, span))
             .or_else(|| context_group(analyzer, literal, &value, span))
     };
+
     let Some((argument, place, path)) = argument_of(literal) else {
         return fallback();
     };
+
     let found = argument_key(analyzer, &value, span, at, &argument, place, &path);
+
     // A string deeper in an array that names nothing of a call may still be a context group.
     if path.is_empty() {
         found
@@ -187,6 +214,7 @@ fn argument_key(
     path: &[String],
 ) -> Option<KeyString> {
     let value = value.to_string();
+
     let named = argument
         .children_with_tokens()
         .any(|element| element.kind() == COLON)
@@ -198,30 +226,39 @@ fn argument_key(
                 .map(|token| token.text().to_string())
         })
         .flatten();
+
     let list = argument.parent().filter(|list| list.kind() == ARGUMENT_LIST)?;
+
     let owner = list
         .parent()
         .filter(|owner| matches!(owner.kind(), CALL_EXPR | NEW_EXPR | ATTRIBUTE))?;
+
     let position = list
         .children()
         .filter(|child| child.kind() == ARGUMENT)
         .position(|child| &child == argument)?;
+
     let argument_count = list.children().filter(|child| child.kind() == ARGUMENT).count();
+
     for callee in callees_of(analyzer, &owner) {
         let index_of = match &named {
             Some(name) => callee.params.iter().position(|param| param == name),
             None => Some(position),
         };
+
         let Some(index_of) = index_of else {
             continue;
         };
+
         let param_name = callee.params.get(index_of);
+
         let markers = markers_for(
             analyzer.index,
             callee.declaring.as_deref(),
             callee.receiver.as_deref(),
             &callee.method,
         );
+
         for marker in markers {
             let Marker::Key {
                 kind,
@@ -231,23 +268,30 @@ fn argument_key(
             else {
                 continue;
             };
+
             let matches = match &name {
                 Some(name) => param_name == Some(name),
                 None => wanted == index_of || wanted == php_index::framework::overlay::ANY_POSITION,
             };
+
             if !matches {
                 continue;
             }
+
             let range = range_of(span.start, span.end);
+
             if kind == "expression" {
                 return placeholder_at(&value, span.start, at?);
             }
+
             if kind == "filament-field" && place == Place::Argument {
                 return filament_field(analyzer, &value, span);
             }
+
             let Some(kind) = KeyKind::parse(&kind) else {
                 continue;
             };
+
             let fits = match kind {
                 KeyKind::ModelProperty => true,
                 _ if !path.is_empty() => false,
@@ -259,14 +303,18 @@ fn argument_key(
                 | KeyKind::ModelRelation => true,
                 _ => place == Place::Argument,
             };
+
             if !fits {
                 continue;
             }
+
             let asks_existence = matches!(callee.method.to_ascii_lowercase().as_str(), "has" | "exists");
             let has_default = kind == KeyKind::Config && argument_count > 1;
+
             if kind == KeyKind::Column {
                 return column_key(analyzer, &callee, &value, span);
             }
+
             let scope = match kind {
                 KeyKind::EntityField => callee.receiver.as_ref().and_then(|receiver| {
                     php_index::framework::symfony::doctrine::entity_of_repository(
@@ -283,6 +331,7 @@ fn argument_key(
                 }
                 _ => callee.receiver.clone(),
             };
+
             return Some(KeyString {
                 kind,
                 value,
@@ -292,6 +341,7 @@ fn argument_key(
             });
         }
     }
+
     None
 }
 
@@ -300,17 +350,21 @@ fn argument_key(
 /// there, a raw expression or `*`, names no column.
 fn column_key(analyzer: &Analyzer<'_>, callee: &Callee, value: &str, span: php_index::Span) -> Option<KeyString> {
     let column = value.split_once("->").map_or(value, |(column, _)| column);
+
     let column = match column.to_ascii_lowercase().find(" as ") {
         Some(at) => &column[..at],
         None => column,
     };
+
     let (table, column, skipped) = match column.split_once('.') {
         Some((table, column)) => (Some(table.to_string()), column, table.len() + 1),
         None => (None, column, 0),
     };
+
     if !column.chars().all(|char| char.is_ascii_alphanumeric() || char == '_') {
         return None;
     }
+
     let table = match table {
         Some(table) => table,
         None => {
@@ -318,10 +372,13 @@ fn column_key(analyzer: &Analyzer<'_>, callee: &Callee, value: &str, span: php_i
                 .receiver_type
                 .as_ref()
                 .and_then(|receiver| super::relations::model_of(analyzer, receiver))?;
+
             php_index::framework::eloquent::table(analyzer.index, &model)?
         }
     };
+
     let start = span.start + skipped as u32;
+
     Some(KeyString {
         kind: KeyKind::Column,
         value: column.to_string(),
@@ -335,25 +392,33 @@ fn column_key(analyzer: &Analyzer<'_>, callee: &Callee, value: &str, span: php_i
 /// on, `author.name` one of the model `author` leads to. Only the last segment is a column.
 fn filament_field(analyzer: &Analyzer<'_>, value: &str, span: php_index::Span) -> Option<KeyString> {
     let class = analyzer.class.as_ref()?;
+
     let models = analyzer
         .index
         .section::<php_index::framework::filament::FilamentModels>();
+
     let mut model = models.model_of(&class.name)?.clone();
     let mut at = span.start;
     let segments: Vec<&str> = value.split('.').collect();
     let (last, path) = segments.split_last()?;
+
     for segment in path {
         let relations = php_index::framework::eloquent::relations(analyzer.index, &model)?;
+
         model = relations
             .into_iter()
             .find(|relation| relation.name == *segment)?
             .related?;
+
         at += segment.len() as u32 + 1;
     }
+
     if !last.chars().all(|char| char.is_ascii_alphanumeric() || char == '_') {
         return None;
     }
+
     let table = php_index::framework::eloquent::table(analyzer.index, &model)?;
+
     Some(KeyString {
         kind: KeyKind::Column,
         value: last.to_string(),
@@ -368,15 +433,18 @@ pub(crate) fn is_rules_argument(analyzer: &Analyzer<'_>, array: &SyntaxNode) -> 
     let Some(argument) = array.parent().filter(|node| node.kind() == ARGUMENT) else {
         return false;
     };
+
     let Some(list) = argument.parent().filter(|node| node.kind() == ARGUMENT_LIST) else {
         return false;
     };
+
     let Some(owner) = list
         .parent()
         .filter(|owner| matches!(owner.kind(), CALL_EXPR | NEW_EXPR))
     else {
         return false;
     };
+
     let Some(position) = list
         .children()
         .filter(|child| child.kind() == ARGUMENT)
@@ -384,6 +452,7 @@ pub(crate) fn is_rules_argument(analyzer: &Analyzer<'_>, array: &SyntaxNode) -> 
     else {
         return false;
     };
+
     let named = argument
         .children_with_tokens()
         .any(|element| element.kind() == COLON)
@@ -395,11 +464,13 @@ pub(crate) fn is_rules_argument(analyzer: &Analyzer<'_>, array: &SyntaxNode) -> 
                 .map(|token| token.text().to_string())
         })
         .flatten();
+
     callees_of(analyzer, &owner).into_iter().any(|callee| {
         let index_of = match &named {
             Some(name) => callee.params.iter().position(|param| param == name),
             None => Some(position),
         };
+
         markers_for(
             analyzer.index,
             callee.declaring.as_deref(),
@@ -424,7 +495,9 @@ fn context_group(
     if !analyzer.index.frameworks().symfony {
         return None;
     }
+
     let item = literal.parent().filter(|node| node.kind() == ARRAY_ITEM)?;
+
     // Either a group of a list under the key, or the one group the key holds.
     let keyed = match item.children().collect::<Vec<_>>().as_slice() {
         [only] if only == literal => item
@@ -435,7 +508,9 @@ fn context_group(
         [_, value_node] if value_node == literal => item.clone(),
         _ => return None,
     };
+
     let key = keyed.children().next()?;
+
     let is_groups_key = key.kind() == SCOPED_ACCESS_EXPR
         && key
             .children()
@@ -443,14 +518,17 @@ fn context_group(
             .last()
             .is_some_and(|name| name.text() == "GROUPS")
         || php_index::test_facts::string_value(&key).is_some_and(|(text, _)| text == "groups");
+
     if !is_groups_key {
         return None;
     }
+
     let argument = keyed
         .parent()
         .filter(|node| node.kind() == ARRAY_EXPR)?
         .parent()
         .filter(|node| node.kind() == ARGUMENT)?;
+
     let named = argument
         .children_with_tokens()
         .any(|element| element.kind() == COLON)
@@ -462,6 +540,7 @@ fn context_group(
                 .map(|token| token.text().to_string())
         })
         .flatten();
+
     let serializes = match named.as_deref() {
         Some(name) => matches!(
             name,
@@ -480,9 +559,11 @@ fn context_group(
                 )
             }),
     };
+
     if !serializes {
         return None;
     }
+
     Some(KeyString {
         kind: KeyKind::SerializerGroup,
         value: value.to_string(),
@@ -495,17 +576,22 @@ fn context_group(
 /// A key of the array a subscriber returns, which names the event it listens to.
 fn event_key(analyzer: &Analyzer<'_>, literal: &SyntaxNode, value: &str, span: php_index::Span) -> Option<KeyString> {
     let item = literal.parent().filter(|node| node.kind() == ARRAY_ITEM)?;
+
     if item.children().next().as_ref() != Some(literal) || item.children().count() != 2 {
         return None;
     }
+
     let array = item.parent().filter(|node| node.kind() == ARRAY_EXPR)?;
     array.parent().filter(|node| node.kind() == RETURN_STATEMENT)?;
     let method = array.ancestors().find(|node| node.kind() == METHOD_DECLARATION)?;
     let name = method.children().find(|child| child.kind() == NAME)?.text().to_string();
+
     if !is_marked(analyzer.index, &name) {
         return None;
     }
+
     let class = analyzer.class.as_ref()?.name.clone();
+
     markers_for(analyzer.index, Some(&class), Some(&class), &name)
         .into_iter()
         .find_map(|marker| match marker {
@@ -526,13 +612,16 @@ pub fn class_argument_base(analyzer: &Analyzer<'_>, token: &php_syntax::SyntaxTo
     if !analyzer.index.frameworks().any() {
         return None;
     }
+
     let argument = token.parent_ancestors().find(|node| node.kind() == ARGUMENT)?;
     let list = argument.parent().filter(|list| list.kind() == ARGUMENT_LIST)?;
     let owner = list.parent().filter(|owner| owner.kind() == CALL_EXPR)?;
+
     let position = list
         .children()
         .filter(|child| child.kind() == ARGUMENT)
         .position(|child| child == argument)?;
+
     for callee in callees_of(analyzer, &owner) {
         for marker in markers_for(
             analyzer.index,
@@ -547,33 +636,43 @@ pub fn class_argument_base(analyzer: &Analyzer<'_>, token: &php_syntax::SyntaxTo
             }
         }
     }
+
     None
 }
 
 /// The `%name%` or `%env(NAME)%` of a string that the offset is in.
 fn placeholder_at(value: &str, start: u32, at: u32) -> Option<KeyString> {
     let mut from = 0;
+
     while let Some(open) = value[from..].find('%') {
         let begin = from + open;
+
         if value[begin + 1..].starts_with('%') {
             from = begin + 2;
+
             continue;
         }
+
         let Some(length) = value[begin + 1..].find('%') else {
             break;
         };
+
         let inner_start = begin + 1;
         let inner = &value[inner_start..inner_start + length];
         let end = inner_start + length;
         from = end + 1;
+
         let (kind, name_start, name) = match inner.strip_prefix("env(").and_then(|rest| rest.strip_suffix(')')) {
             Some(env) => {
                 let skipped = env.rfind(':').map_or(0, |colon| colon + 1);
+
                 (KeyKind::Env, inner_start + 4 + skipped, &env[skipped..])
             }
             None => (KeyKind::Parameter, inner_start, inner),
         };
+
         let (name_from, name_to) = (start + name_start as u32, start + (name_start + name.len()) as u32);
+
         if name_from <= at && at <= name_to + 1 {
             return Some(KeyString {
                 kind,
@@ -584,6 +683,7 @@ fn placeholder_at(value: &str, start: u32, at: u32) -> Option<KeyString> {
             });
         }
     }
+
     None
 }
 
@@ -594,20 +694,25 @@ pub fn key_at(analyzer: &Analyzer<'_>, offset: u32) -> Option<KeyString> {
         php_syntax::TokenAtOffset::Single(token) => vec![token],
         php_syntax::TokenAtOffset::Between(left, right) => vec![right, left],
     };
+
     for token in tokens {
         if token.kind() != STRING_LITERAL {
             continue;
         }
+
         let Some(literal) = token.parent() else {
             continue;
         };
+
         if let Some(found) = key_of_literal(analyzer, &literal, Some(offset)) {
             let (start, end) = (u32::from(found.range.start()), u32::from(found.range.end()));
+
             if start <= offset && offset <= end {
                 return Some(found);
             }
         }
     }
+
     None
 }
 
@@ -616,14 +721,18 @@ pub fn keys_in(ctx: &FileContext<'_>) -> Vec<KeyString> {
     if !ctx.index.frameworks().any() {
         return Vec::new();
     }
+
     let mut out = Vec::new();
+
     for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
         if argument_of(&node).is_none() && node.parent().is_none_or(|parent| parent.kind() != ARRAY_ITEM) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&node);
         out.extend(key_of_literal(&analyzer, &node, None));
     }
+
     out
 }
 
@@ -636,6 +745,7 @@ pub fn describe(
 ) -> Vec<crate::nav::Description> {
     let definitions = php_index::framework::keys::definitions(index, kind, name, scope);
     let title = format!("{} '{name}'", kind.label());
+
     if definitions.is_empty() {
         return vec![crate::nav::Description {
             title,
@@ -644,6 +754,7 @@ pub fn describe(
             place: None,
         }];
     }
+
     definitions
         .into_iter()
         .map(|definition| crate::nav::Description {

@@ -49,6 +49,7 @@ pub fn diagnostics(
     ready: bool,
 ) -> Vec<Diagnostic> {
     let template = Template::read(index, path, text);
+
     let mut out: Vec<Diagnostic> = template
         .errors
         .iter()
@@ -61,6 +62,7 @@ pub fn diagnostics(
             )
         })
         .collect();
+
     // What an unclosed delimiter holds runs into the markup after it; the delimiter is the error.
     let unclosed: Vec<u32> = template
         .errors
@@ -68,6 +70,7 @@ pub fn diagnostics(
         .filter(|(_, _, message)| message.ends_with("is not closed"))
         .map(|(start, ..)| *start)
         .collect();
+
     for item in &template.items {
         match item {
             Item::Output { start, .. } if unclosed.contains(start) => {}
@@ -81,13 +84,17 @@ pub fn diagnostics(
             Item::Tag(_) => {}
         }
     }
+
     if let Some(severity) = severity(settings, "unbalanced-directive") {
         balance(text, &template, severity, &mut out);
     }
+
     if ready {
         unknown(index, &template, settings, &mut out);
     }
+
     out.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
+
     out
 }
 
@@ -119,6 +126,7 @@ fn missing(expr: &Expr, out: &mut Vec<Diagnostic>) {
             Expr::Test { name, start, .. } if name.is_empty() => Some((*start, "A test name is expected")),
             _ => None,
         };
+
         if let Some((at, message)) = found {
             out.push(diagnostic(
                 range_of(at, at),
@@ -140,6 +148,7 @@ fn balance(text: &str, template: &Template, severity: DiagnosticSeverity, out: &
             _ => None,
         })
         .collect();
+
     let closer_of = |tag: &super::Tag| -> Option<String> {
         if let Some((_, closer)) = BLOCKS.iter().find(|(opener, _)| *opener == tag.name) {
             let opens = match &tag.body {
@@ -147,25 +156,33 @@ fn balance(text: &str, template: &Template, severity: DiagnosticSeverity, out: &
                 TagBody::Set { values, .. } => values.is_empty(),
                 _ => true,
             };
+
             return opens.then(|| closer.to_string());
         }
+
         // A tag of an extension that the template closes with `end<name>` is a block.
         (!tag.name.starts_with("end") && ends.contains(tag.name.as_str())).then(|| format!("end{}", tag.name))
     };
+
     let mut stack: Vec<(&super::Tag, String)> = Vec::new();
+
     for item in &template.items {
         let Item::Tag(tag) = item else {
             continue;
         };
+
         if let Some(closer) = closer_of(tag) {
             stack.push((tag, closer));
+
             continue;
         }
+
         let continues = match tag.name.as_str() {
             "else" => Some(&["if", "for"][..]),
             "elseif" => Some(&["if"][..]),
             _ => None,
         };
+
         if let Some(openers) = continues {
             if !stack
                 .last()
@@ -178,8 +195,10 @@ fn balance(text: &str, template: &Template, severity: DiagnosticSeverity, out: &
                     "unbalanced-directive",
                 ));
             }
+
             continue;
         }
+
         if tag.name.starts_with("end")
             && (BLOCKS.iter().any(|(_, closer)| *closer == tag.name) || ends.contains(&tag.name[3..]))
         {
@@ -195,8 +214,10 @@ fn balance(text: &str, template: &Template, severity: DiagnosticSeverity, out: &
             }
         }
     }
+
     for (tag, _) in stack {
         let written = &text[tag.start as usize..tag.end as usize];
+
         out.push(diagnostic(
             range_of(tag.start, tag.end),
             format!("'{written}' is never closed"),
@@ -213,24 +234,31 @@ fn unknown(index: &Index, template: &Template, settings: &InspectionSettings, ou
         let Some(code) = name.kind.inspection() else {
             continue;
         };
+
         let Some(severity) = severity(settings, code) else {
             continue;
         };
+
         if name.value.is_empty() || !is_missing(index, name.kind, &name.value) {
             continue;
         }
+
         let message = match name.kind {
             KeyKind::Template => format!("The template '{}' does not exist", name.value),
             KeyKind::Route => format!("No route is named '{}'", name.value),
             _ => format!("The translation '{}' is not in the language files", name.value),
         };
+
         out.push(diagnostic(range_of(name.start, name.end), message, severity, code));
     }
+
     let extensions = index.section::<TwigExtensions>();
+
     // Without Twig's own extension the packages were not read, and nothing is certain.
     if extensions.find(TwigKind::Filter, "upper").is_none() {
         return;
     }
+
     let macros: Vec<&str> = template
         .items
         .iter()
@@ -244,23 +272,28 @@ fn unknown(index: &Index, template: &Template, settings: &InspectionSettings, ou
         })
         .flatten()
         .collect();
+
     for call in &template.calls {
         if call.name.is_empty() || extensions.find(call.kind, &call.name).is_some() {
             continue;
         }
+
         let (code, what) = match call.kind {
             TwigKind::Function => {
                 if PARSED.contains(&call.name.as_str()) || macros.contains(&call.name.as_str()) {
                     continue;
                 }
+
                 ("unknown-twig-function", "function")
             }
             TwigKind::Filter => ("unknown-twig-filter", "filter"),
             TwigKind::Test => ("unknown-twig-test", "test"),
         };
+
         let Some(severity) = severity(settings, code) else {
             continue;
         };
+
         out.push(diagnostic(
             range_of(call.start, call.end),
             format!("No Twig extension declares the {what} '{}'", call.name),

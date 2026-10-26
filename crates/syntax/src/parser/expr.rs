@@ -65,7 +65,9 @@ pub(crate) fn expr_required(p: &mut Parser) -> bool {
     if expr(p).is_some() {
         return true;
     }
+
     p.error_expected("Expression");
+
     false
 }
 
@@ -110,11 +112,14 @@ fn is_assign_op(kind: SyntaxKind) -> bool {
 
 /// Binding power of the operand of `!`: below `instanceof`, above arithmetic.
 const BANG_BP: u8 = 19;
+
 /// Binding power of the operand of `-`, `+`, `~`, `@`, a cast or `++`: above `instanceof`, below `**`.
 const UNARY_BP: u8 = 21;
+
 const ASSIGN_BP: u8 = 4;
 const TERNARY_BP: u8 = 5;
 const INSTANCEOF_BP: u8 = 20;
+
 /// The operand of `clone` is a primary with its postfix chain and nothing looser.
 const CLONE_BP: u8 = 24;
 
@@ -146,19 +151,24 @@ pub(crate) fn expr_bp(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
     if !p.enter() {
         return None;
     }
+
     let result = expr_bp_inner(p, min_bp);
     p.leave();
+
     result
 }
 
 fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
     let checkpoint = p.checkpoint();
     let mut lhs = unary_or_primary(p, checkpoint)?;
+
     loop {
         let op = p.current();
+
         if is_assign_op(op) && is_assignable(lhs) {
             p.start_at(checkpoint, ASSIGN_EXPR);
             p.bump();
+
             if op == ASSIGN && p.eat(AMP) {
                 match expr_bp(p, CLONE_BP) {
                     Some(kind) if is_assignable(kind) || kind == CALL_EXPR => {}
@@ -168,55 +178,71 @@ fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
             } else {
                 expr_required_bp(p, ASSIGN_BP);
             }
+
             p.finish_node();
             lhs = ASSIGN_EXPR;
+
             continue;
         }
+
         if matches!(op, INC | DEC) && is_assignable(lhs) {
             p.start_at(checkpoint, POSTFIX_EXPR);
             p.bump();
             p.finish_node();
             lhs = POSTFIX_EXPR;
+
             continue;
         }
+
         if op == QUESTION {
             if TERNARY_BP < min_bp {
                 break;
             }
+
             p.start_at(checkpoint, TERNARY_EXPR);
             p.bump();
+
             if !p.at(COLON) {
                 expr_required_bp(p, 0);
             }
+
             p.expect(COLON, "':'");
             expr_required_bp(p, TERNARY_BP + 1);
             p.finish_node();
             lhs = TERNARY_EXPR;
+
             continue;
         }
+
         if op == INSTANCEOF_KW {
             if INSTANCEOF_BP < min_bp {
                 break;
             }
+
             p.start_at(checkpoint, BINARY_EXPR);
             p.bump();
             class_reference_for_instanceof(p);
             p.finish_node();
             lhs = BINARY_EXPR;
+
             continue;
         }
+
         let Some((left_bp, right_bp)) = infix(op) else {
             break;
         };
+
         if left_bp < min_bp {
             break;
         }
+
         p.start_at(checkpoint, BINARY_EXPR);
         p.bump();
         expr_required_bp(p, right_bp);
         p.finish_node();
         lhs = BINARY_EXPR;
     }
+
     Some(lhs)
 }
 
@@ -233,6 +259,7 @@ fn class_name_reference(p: &mut Parser) {
         kind if is_name_token(kind) || kind == STATIC_KW => {
             let checkpoint = p.checkpoint();
             name(p);
+
             if p.at(DOUBLE_COLON) && matches!(p.nth(1), VARIABLE | DOLLAR) {
                 p.start_at(checkpoint, STATIC_PROPERTY_EXPR);
                 p.bump();
@@ -271,13 +298,16 @@ fn unary_or_primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind
                 .current_text()
                 .trim_matches(['(', ')', ' ', '\t'])
                 .eq_ignore_ascii_case("void");
+
             if is_void && !std::mem::take(&mut p.void_cast_allowed) {
                 p.error_here("'(void)' cast is only allowed as a statement");
             }
+
             p.start_at(checkpoint, CAST_EXPR);
             p.bump();
             expr_required_bp(p, UNARY_BP);
             p.finish_node();
+
             Some(CAST_EXPR)
         }
         PRINT_KW => Some(keyword_operand(p, checkpoint, PRINT_EXPR, ASSIGN_BP)),
@@ -296,6 +326,7 @@ fn prefix(p: &mut Parser, checkpoint: Checkpoint, bp: u8) -> SyntaxKind {
     p.bump();
     expr_required_bp(p, bp);
     p.finish_node();
+
     PREFIX_EXPR
 }
 
@@ -304,6 +335,7 @@ fn keyword_operand(p: &mut Parser, checkpoint: Checkpoint, kind: SyntaxKind, bp:
     p.bump();
     expr_required_bp(p, bp);
     p.finish_node();
+
     kind
 }
 
@@ -314,29 +346,38 @@ fn yield_expr(p: &mut Parser, checkpoint: Checkpoint) -> SyntaxKind {
         p.bump();
         expr_required_bp(p, ASSIGN_BP);
         p.finish_node();
+
         return YIELD_FROM_EXPR;
     }
+
     p.start_at(checkpoint, YIELD_EXPR);
     p.bump();
+
     if can_start_expr(p.current()) {
         expr_bp(p, ASSIGN_BP);
+
         if p.eat(FAT_ARROW) {
             expr_required_bp(p, ASSIGN_BP);
         }
     }
+
     p.finish_node();
+
     YIELD_EXPR
 }
 
 fn clone_expr(p: &mut Parser, checkpoint: Checkpoint) -> SyntaxKind {
     p.start_at(checkpoint, CLONE_EXPR);
     p.bump();
+
     if p.at(LPAREN) && clone_is_call(p) {
         argument_list(p);
     } else {
         expr_required_bp(p, CLONE_BP);
     }
+
     p.finish_node();
+
     CLONE_EXPR
 }
 
@@ -353,12 +394,14 @@ fn clone_is_call(p: &Parser) -> bool {
 fn paren_has_top_level_comma(p: &Parser) -> bool {
     let mut depth = 0u32;
     let mut n = 0;
+
     loop {
         match p.nth(n) {
             EOF => return false,
             LPAREN | LBRACKET | LBRACE | CURLY_OPEN | DOLLAR_OPEN_CURLY => depth += 1,
             RPAREN | RBRACKET | RBRACE => {
                 depth = depth.saturating_sub(1);
+
                 if depth == 0 {
                     return false;
                 }
@@ -367,7 +410,9 @@ fn paren_has_top_level_comma(p: &Parser) -> bool {
             SEMICOLON if depth <= 1 => return false,
             _ => {}
         }
+
         n += 1;
+
         if n > 4096 {
             return false;
         }
@@ -382,21 +427,26 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
                 let (offset, text) = (p.current_offset(), p.current_text());
                 string::check_escapes(p, offset, text);
             }
+
             p.start(LITERAL);
             p.bump();
             p.finish_node();
+
             LITERAL
         }
         DOUBLE_QUOTE => {
             string::interpolated_string(p);
+
             INTERPOLATED_STRING
         }
         BACKTICK => {
             string::shell_exec(p);
+
             SHELL_EXEC_EXPR
         }
         HEREDOC_START => {
             string::heredoc(p);
+
             HEREDOC
         }
         LPAREN => {
@@ -405,6 +455,7 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
             expr_required(p);
             p.expect(RPAREN, "')'");
             p.finish_node();
+
             PAREN_EXPR
         }
         LBRACKET => array_expr(p),
@@ -412,26 +463,33 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
         LIST_KW => list_expr(p),
         kind if is_name_token(kind) => {
             name(p);
+
             NAME
         }
         READONLY_KW if p.nth(1) == LPAREN => {
             name(p);
+
             NAME
         }
         STATIC_KW => {
             if matches!(p.nth(1), FUNCTION_KW | FN_KW) {
                 return Some(closure(p, checkpoint));
             }
+
             name(p);
+
             NAME
         }
         FUNCTION_KW | FN_KW => return Some(closure(p, checkpoint)),
         HASH_BRACKET => {
             item::attribute_lists(p);
+
             if matches!(p.current(), FUNCTION_KW | FN_KW | STATIC_KW) {
                 return Some(closure(p, checkpoint));
             }
+
             p.error_expected("Function");
+
             return Some(ERROR);
         }
         MATCH_KW => match_expr(p),
@@ -439,37 +497,47 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
             if !new_expr(p) {
                 return Some(NEW_EXPR);
             }
+
             NEW_EXPR
         }
         ISSET_KW => {
             parenthesized_list(p, ISSET_EXPR);
+
             ISSET_EXPR
         }
         EMPTY_KW => {
             parenthesized_list(p, EMPTY_EXPR);
+
             EMPTY_EXPR
         }
         EVAL_KW => {
             parenthesized_list(p, EVAL_EXPR);
+
             EVAL_EXPR
         }
         EXIT_KW => {
             p.start(EXIT_EXPR);
             p.bump();
+
             if p.at(LPAREN) && p.nth(1) == ELLIPSIS {
                 argument_list(p);
             } else if p.at(LPAREN) {
                 p.bump();
+
                 if !p.at(RPAREN) {
                     expr_required(p);
                 }
+
                 p.expect(RPAREN, "')'");
             }
+
             p.finish_node();
+
             EXIT_EXPR
         }
         _ => return None,
     };
+
     Some(postfix(p, checkpoint, kind))
 }
 
@@ -477,10 +545,12 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
 fn parenthesized_list(p: &mut Parser, kind: SyntaxKind) {
     p.start(kind);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         comma_list(p, RPAREN, |p| expr(p).is_some(), can_start_expr);
         p.expect(RPAREN, "')'");
     }
+
     p.finish_node();
 }
 
@@ -491,9 +561,11 @@ fn postfix(p: &mut Parser, checkpoint: Checkpoint, mut kind: SyntaxKind) -> Synt
             LBRACKET => {
                 p.start_at(checkpoint, INDEX_EXPR);
                 p.bump();
+
                 if !p.at(RBRACKET) {
                     expr_required(p);
                 }
+
                 p.expect(RBRACKET, "']'");
                 p.finish_node();
                 kind = INDEX_EXPR;
@@ -507,18 +579,22 @@ fn postfix(p: &mut Parser, checkpoint: Checkpoint, mut kind: SyntaxKind) -> Synt
             }
             DOUBLE_COLON => {
                 let is_static_property = matches!(p.nth(1), VARIABLE | DOLLAR);
+
                 kind = if is_static_property {
                     STATIC_PROPERTY_EXPR
                 } else {
                     SCOPED_ACCESS_EXPR
                 };
+
                 p.start_at(checkpoint, kind);
                 p.bump();
+
                 if p.at(CLASS_KW) {
                     name(p);
                 } else {
                     member_name(p, "Member name");
                 }
+
                 p.finish_node();
             }
             LPAREN => {
@@ -554,10 +630,13 @@ pub(crate) fn variable(p: &mut Parser) -> SyntaxKind {
         p.start(VARIABLE_EXPR);
         p.bump();
         p.finish_node();
+
         return VARIABLE_EXPR;
     }
+
     p.start(VARIABLE_VARIABLE);
     p.bump();
+
     match p.current() {
         VARIABLE | DOLLAR => {
             variable(p);
@@ -569,7 +648,9 @@ pub(crate) fn variable(p: &mut Parser) -> SyntaxKind {
         }
         _ => p.error_expected("Variable"),
     }
+
     p.finish_node();
+
     VARIABLE_VARIABLE
 }
 
@@ -589,12 +670,15 @@ pub(crate) fn comma_list(
                 p.error_bump();
             }
         }
+
         if p.eat(COMMA) {
             continue;
         }
+
         if p.at(close) || !starts_item(p.current()) {
             break;
         }
+
         p.error_expected("','");
     }
 }
@@ -602,6 +686,7 @@ pub(crate) fn comma_list(
 pub(crate) fn argument_list(p: &mut Parser) {
     p.start(ARGUMENT_LIST);
     p.expect(LPAREN, "'('");
+
     if p.at(ELLIPSIS) && p.nth(1) == RPAREN {
         p.bump();
     } else {
@@ -609,6 +694,7 @@ pub(crate) fn argument_list(p: &mut Parser) {
             can_start_expr(kind) || matches!(kind, ELLIPSIS | QUESTION)
         });
     }
+
     p.expect(RPAREN, "')'");
     p.finish_node();
 }
@@ -621,21 +707,26 @@ fn ends_argument(p: &Parser, ahead: usize) -> bool {
 fn argument(p: &mut Parser) -> bool {
     let named = is_identifier_like(p.current()) && p.nth(1) == COLON;
     let placeholder = p.at(QUESTION) && ends_argument(p, 1);
+
     if !named && !placeholder && !can_start_expr(p.current()) && !p.at(ELLIPSIS) {
         return false;
     }
+
     p.start(ARGUMENT);
+
     if placeholder {
         // `f(1, ?)`: partial application leaves the argument to the call of the closure it makes.
         p.bump();
     } else if p.at(ELLIPSIS) {
         p.bump();
+
         if !ends_argument(p, 0) {
             expr_required(p);
         }
     } else if named {
         p.bump();
         p.bump();
+
         if p.at(QUESTION) && ends_argument(p, 1) {
             p.bump();
         } else {
@@ -644,34 +735,44 @@ fn argument(p: &mut Parser) -> bool {
     } else {
         expr_required(p);
     }
+
     p.finish_node();
+
     true
 }
 
 fn array_expr(p: &mut Parser) -> SyntaxKind {
     p.start(ARRAY_EXPR);
+
     let close = if p.at(ARRAY_KW) {
         p.bump();
         p.bump();
+
         RPAREN
     } else {
         p.bump();
+
         RBRACKET
     };
+
     array_items(p, close);
     p.expect(close, if close == RPAREN { "')'" } else { "']'" });
     p.finish_node();
+
     ARRAY_EXPR
 }
 
 fn list_expr(p: &mut Parser) -> SyntaxKind {
     p.start(LIST_EXPR);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         array_items(p, RPAREN);
         p.expect(RPAREN, "')'");
     }
+
     p.finish_node();
+
     LIST_EXPR
 }
 
@@ -681,16 +782,21 @@ fn array_items(p: &mut Parser, close: SyntaxKind) {
         if p.eat(COMMA) {
             continue;
         }
+
         if !array_item(p) {
             p.error_bump();
+
             continue;
         }
+
         if p.eat(COMMA) {
             continue;
         }
+
         if p.at(close) || !(can_start_expr(p.current()) || matches!(p.current(), ELLIPSIS | AMP)) {
             break;
         }
+
         p.error_expected("','");
     }
 }
@@ -699,7 +805,9 @@ fn array_item(p: &mut Parser) -> bool {
     if !can_start_expr(p.current()) && !matches!(p.current(), ELLIPSIS | AMP) {
         return false;
     }
+
     p.start(ARRAY_ITEM);
+
     match p.current() {
         ELLIPSIS | AMP => {
             p.bump();
@@ -707,13 +815,16 @@ fn array_item(p: &mut Parser) -> bool {
         }
         _ => {
             expr_required(p);
+
             if p.eat(FAT_ARROW) {
                 p.eat(AMP);
                 expr_required(p);
             }
         }
     }
+
     p.finish_node();
+
     true
 }
 
@@ -723,44 +834,56 @@ fn match_expr(p: &mut Parser) -> SyntaxKind {
     p.expect(LPAREN, "'('");
     expr_required(p);
     p.expect(RPAREN, "')'");
+
     if p.expect(LBRACE, "'{'") {
         while !p.at(RBRACE) && !p.eof() && !p.at_any(&[SEMICOLON, CLOSE_TAG]) {
             if !match_arm(p) {
                 p.error_bump();
             }
+
             if !p.eat(COMMA) && !p.at(RBRACE) {
                 break;
             }
         }
+
         p.expect(RBRACE, "'}'");
     }
+
     p.finish_node();
+
     MATCH_EXPR
 }
 
 fn match_arm(p: &mut Parser) -> bool {
     let is_default = p.at(DEFAULT_KW) && matches!(p.nth(1), FAT_ARROW | COMMA);
+
     if !is_default && !can_start_expr(p.current()) {
         return false;
     }
+
     p.start(MATCH_ARM);
+
     if is_default {
         p.bump();
         p.eat(COMMA);
     } else {
         loop {
             expr_required(p);
+
             if p.at(COMMA) && p.nth(1) != FAT_ARROW && can_start_expr(p.nth(1)) {
                 p.bump();
             } else {
                 p.eat(COMMA);
+
                 break;
             }
         }
     }
+
     p.expect(FAT_ARROW, "'=>'");
     expr_required(p);
     p.finish_node();
+
     true
 }
 
@@ -771,18 +894,22 @@ fn closure(p: &mut Parser, checkpoint: Checkpoint) -> SyntaxKind {
     } else {
         p.at(FN_KW)
     };
+
     let kind = if is_arrow { ARROW_FUNCTION_EXPR } else { CLOSURE_EXPR };
     p.start_at(checkpoint, kind);
     p.eat(STATIC_KW);
     p.bump();
     p.eat(AMP);
     item::parameter_list(p);
+
     if !is_arrow && p.at(USE_KW) {
         closure_use(p);
     }
+
     if p.at(COLON) {
         item::return_type(p);
     }
+
     if is_arrow {
         p.expect(FAT_ARROW, "'=>'");
         expr_required(p);
@@ -791,13 +918,16 @@ fn closure(p: &mut Parser, checkpoint: Checkpoint) -> SyntaxKind {
     } else {
         p.error_expected("'{'");
     }
+
     p.finish_node();
+
     kind
 }
 
 fn closure_use(p: &mut Parser) {
     p.start(CLOSURE_USE);
     p.bump();
+
     if p.expect(LPAREN, "'('") {
         comma_list(
             p,
@@ -806,16 +936,20 @@ fn closure_use(p: &mut Parser) {
                 if !matches!(p.current(), VARIABLE | AMP) {
                     return false;
                 }
+
                 p.start(CLOSURE_USE_VARIABLE);
                 p.eat(AMP);
                 p.expect(VARIABLE, "Variable");
                 p.finish_node();
+
                 true
             },
             |kind| matches!(kind, VARIABLE | AMP),
         );
+
         p.expect(RPAREN, "')'");
     }
+
     p.finish_node();
 }
 
@@ -826,17 +960,21 @@ fn new_expr(p: &mut Parser) -> bool {
     p.bump();
     item::attribute_lists(p);
     let mut closed = false;
+
     if p.at(CLASS_KW) || (p.at(READONLY_KW) && p.nth(1) == CLASS_KW) {
         item::anonymous_class(p);
         closed = true;
     } else {
         class_name_reference(p);
+
         if p.at(LPAREN) {
             argument_list(p);
             closed = true;
         }
     }
+
     p.finish_node();
+
     closed
 }
 
@@ -854,9 +992,11 @@ fn new_variable_tail(p: &mut Parser, checkpoint: Checkpoint) {
             LBRACKET => {
                 p.start_at(checkpoint, INDEX_EXPR);
                 p.bump();
+
                 if !p.at(RBRACKET) {
                     expr_required(p);
                 }
+
                 p.expect(RBRACKET, "']'");
                 p.finish_node();
             }

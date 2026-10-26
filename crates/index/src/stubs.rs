@@ -76,6 +76,7 @@ pub fn stubs_dir(storage: &Path) -> PathBuf {
 /// The folder holding fetched stubs, if there is one.
 pub fn locate(storage: &Path) -> Option<PathBuf> {
     let dir = stubs_dir(storage);
+
     dir.join(".complete").exists().then_some(dir)
 }
 
@@ -83,9 +84,11 @@ pub fn locate(storage: &Path) -> Option<PathBuf> {
 /// The folder only counts once it is complete, so an interrupted download is started over.
 pub fn fetch(storage: &Path) -> Result<PathBuf, String> {
     let target = stubs_dir(storage);
+
     if target.join(".complete").exists() {
         return Ok(target);
     }
+
     let partial = target.with_extension("partial");
     let _ = std::fs::remove_dir_all(&partial);
     std::fs::create_dir_all(&partial).map_err(|error| error.to_string())?;
@@ -99,33 +102,42 @@ pub fn fetch(storage: &Path) -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(&target);
     std::fs::rename(&partial, &target).map_err(|error| error.to_string())?;
     std::fs::write(target.join(".complete"), "").map_err(|error| error.to_string())?;
+
     Ok(target)
 }
 
 fn unpack(reader: impl Read, into: &Path) -> std::io::Result<()> {
     let mut archive = tar::Archive::new(reader);
+
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.into_owned();
         // The first component is the folder GitHub wraps the commit in.
         let relative: PathBuf = path.components().skip(1).collect();
+
         let keep =
             relative.extension().is_some_and(|extension| extension == "php") || relative.as_os_str() == "LICENSE";
+
         if !keep || !entry.header().entry_type().is_file() {
             continue;
         }
+
         if relative
             .components()
             .any(|part| matches!(part, std::path::Component::ParentDir))
         {
             continue;
         }
+
         let destination = into.join(&relative);
+
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent)?;
         }
+
         entry.unpack(&destination)?;
     }
+
     Ok(())
 }
 
@@ -134,9 +146,11 @@ fn unpack(reader: impl Read, into: &Path) -> std::io::Result<()> {
 pub fn extension_of(stubs_root: &Path, file: &Path) -> Option<String> {
     let relative = file.strip_prefix(stubs_root).ok()?;
     let first = relative.components().next()?;
+
     if relative.components().count() < 2 {
         return None;
     }
+
     Some(normalize_extension(&first.as_os_str().to_string_lossy()))
 }
 
@@ -153,18 +167,22 @@ pub fn selected_extensions(required: &[String]) -> Vec<String> {
         .iter()
         .map(|name| normalize_extension(name))
         .collect();
+
     for name in required {
         let normalized = normalize_extension(name);
+
         let mapped = match normalized.as_str() {
             "sodium" => "libsodium".to_string(),
             "zendopcache" | "opcache" => "zendopcache".to_string(),
             other if other.starts_with("pdo") => "pdo".to_string(),
             other => other.to_string(),
         };
+
         if !out.contains(&mapped) {
             out.push(mapped);
         }
     }
+
     out
 }
 
@@ -180,14 +198,17 @@ mod tests {
     #[test]
     fn names_the_extension_of_a_stub_file() {
         let root = Path::new("/s");
+
         assert_eq!(
             extension_of(root, Path::new("/s/Zend OPcache/x.php")).as_deref(),
             Some("zendopcache")
         );
+
         assert_eq!(
             extension_of(root, Path::new("/s/standard/basic.php")).as_deref(),
             Some("standard")
         );
+
         assert_eq!(extension_of(root, Path::new("/s/PhpStormStubsMap.php")), None);
     }
 
@@ -204,6 +225,7 @@ mod tests {
     fn unpacks_php_files_and_the_license_only() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let mut builder = tar::Builder::new(Vec::new());
+
         for (path, body) in [
             ("stubs-abc/standard/basic.php", "<?php function f() {}"),
             ("stubs-abc/LICENSE", "Apache"),
@@ -214,10 +236,12 @@ mod tests {
             header.set_size(body.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
+
             builder
                 .append_data(&mut header, path, body.as_bytes())
                 .expect("appended");
         }
+
         let bytes = builder.into_inner().expect("finished");
         unpack(bytes.as_slice(), dir.path()).expect("unpacked");
         assert!(dir.path().join("standard/basic.php").exists());

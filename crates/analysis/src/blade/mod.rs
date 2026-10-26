@@ -42,6 +42,7 @@ pub struct NameRef {
     pub value: String,
     pub start: u32,
     pub end: u32,
+
     /// The component a slot or an attribute belongs to.
     pub scope: Option<String>,
 }
@@ -88,43 +89,55 @@ impl Template {
     pub fn read(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Type)]) -> Template {
         let nodes = scan(text);
         let mut names = Vec::new();
+
         let directives = if index.frameworks().laravel {
             index.section::<php_index::framework::layouts::Directives>()
         } else {
             std::sync::Arc::default()
         };
+
         let mut builder = Builder::new(text, &nodes, &directives.plain, &directives.conditionals);
+
         if index.frameworks().laravel {
             for (name, class) in SHARED {
                 declare(&mut builder, name, &Type::class(*class));
             }
+
             if is_component(path) {
                 for (name, class) in COMPONENT {
                     declare(&mut builder, name, &Type::class(*class));
                 }
             }
         }
+
         for (name, ty) in given {
             declare(&mut builder, name, ty);
         }
+
         let mut open_tags: Vec<String> = Vec::new();
+
         for node in &nodes {
             match node {
                 Node::Directive(directive) => {
                     if !directives.plain.contains(&directive.name) {
                         names.extend(directive_names(index, text, directive));
                     }
+
                     if directive.is("props") || directive.is("aware") {
                         props(&mut builder, text, directive, given);
+
                         continue;
                     }
                 }
                 Node::Tag(tag) => tag_names(text, tag, &mut open_tags, &mut names),
                 _ => {}
             }
+
             builder.node(node);
         }
+
         let (virt, imbalances) = builder.finish();
+
         Template {
             nodes,
             names,
@@ -169,12 +182,15 @@ impl Template {
 fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<NameRef>) {
     if tag.livewire {
         livewire_names(tag, names);
+
         return;
     }
+
     if tag.closing {
         if let Some(at) = open.iter().rposition(|name| *name == tag.name) {
             open.truncate(at);
         }
+
         if !tag.name.is_empty() && tag.name != "slot" && !tag.name.starts_with("slot:") {
             names.push(NameRef {
                 kind: KeyKind::Component,
@@ -184,17 +200,21 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
                 scope: None,
             });
         }
+
         return;
     }
+
     if tag.name.is_empty() || tag.name == "dynamic-component" {
         return;
     }
+
     if tag.name == "slot" || tag.name.starts_with("slot:") {
         let owner = open
             .iter()
             .rev()
             .find(|name| *name != "slot" && !name.starts_with("slot:"))
             .cloned();
+
         let written = match tag.name.strip_prefix("slot:") {
             Some(rest) => Some((rest.to_string(), tag.name_start + 5, tag.name_end)),
             None => tag
@@ -204,6 +224,7 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
                 .and_then(|attribute| attribute.value)
                 .map(|(start, end)| (text[start as usize..end as usize].to_string(), start, end)),
         };
+
         if let Some((value, start, end)) = written {
             names.push(NameRef {
                 kind: KeyKind::Slot,
@@ -213,11 +234,14 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
                 scope: owner,
             });
         }
+
         if !tag.self_closing {
             open.push(tag.name.clone());
         }
+
         return;
     }
+
     names.push(NameRef {
         kind: KeyKind::Component,
         value: tag.name.clone(),
@@ -225,6 +249,7 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
         end: tag.name_end,
         scope: None,
     });
+
     for attribute in &tag.attributes {
         if attribute.name.is_empty()
             || attribute.name.contains([':', '.', '@', '{'])
@@ -232,6 +257,7 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
         {
             continue;
         }
+
         names.push(NameRef {
             kind: KeyKind::Attribute,
             value: attribute.name.clone(),
@@ -240,6 +266,7 @@ fn tag_names(text: &str, tag: &Tag, open: &mut Vec<String>, names: &mut Vec<Name
             scope: Some(tag.name.clone()),
         });
     }
+
     if !tag.self_closing {
         open.push(tag.name.clone());
     }
@@ -254,16 +281,20 @@ fn wire_items(
     options: CompletionOptions,
 ) -> CompletionList {
     use crate::completion::{CompletionItem, ItemKind, TextEdit, match_score};
+
     let (start, end) = (u32::from(wire.range.start()), u32::from(wire.range.end()));
     let typed = text.get(start as usize..offset as usize).unwrap_or_default();
+
     let kind = match wire.member {
         livewire::Member::Property => ItemKind::Property,
         livewire::Member::Method => ItemKind::Method,
     };
+
     let mut items: Vec<(u8, CompletionItem)> = livewire::candidates(index, wire)
         .into_iter()
         .filter_map(|(name, detail)| {
             let score = match_score(&name, typed)?;
+
             Some((
                 score,
                 CompletionItem {
@@ -286,8 +317,10 @@ fn wire_items(
             ))
         })
         .collect();
+
     items.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.label.cmp(&right.1.label)));
     let incomplete = items.len() > options.limit;
+
     CompletionList {
         items: items.into_iter().take(options.limit).map(|(_, item)| item).collect(),
         incomplete,
@@ -299,6 +332,7 @@ fn livewire_names(tag: &Tag, names: &mut Vec<NameRef>) {
     if tag.name.is_empty() {
         return;
     }
+
     names.push(NameRef {
         kind: KeyKind::Livewire,
         value: tag.name.clone(),
@@ -306,9 +340,11 @@ fn livewire_names(tag: &Tag, names: &mut Vec<NameRef>) {
         end: tag.name_end,
         scope: None,
     });
+
     if tag.closing {
         return;
     }
+
     for attribute in &tag.attributes {
         if attribute.name.is_empty()
             || attribute.name.contains([':', '.', '@', '{'])
@@ -316,6 +352,7 @@ fn livewire_names(tag: &Tag, names: &mut Vec<NameRef>) {
         {
             continue;
         }
+
         names.push(NameRef {
             kind: KeyKind::Attribute,
             value: attribute.name.clone(),
@@ -338,17 +375,21 @@ fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive, given: &[
     let Some((start, end)) = directive.args else {
         return;
     };
+
     builder.emit("[");
     builder.copy(start, end);
     builder.emit("];\n");
     let wrapped = format!("<?php {};", &text[start as usize..end as usize]);
     let shift = |offset: u32| offset - 6 + start;
     let tree = parse(&wrapped).syntax();
+
     let Some(array) = tree.descendants().find(|node| node.kind() == ARRAY_EXPR) else {
         return;
     };
+
     for item in array.children().filter(|node| node.kind() == ARRAY_ITEM) {
         let parts: Vec<SyntaxNode> = item.children().collect();
+
         let (name, value) = match parts.as_slice() {
             [key, value] => (
                 php_index::test_facts::string_value(key).map(|(name, _)| name),
@@ -357,12 +398,15 @@ fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive, given: &[
             [only] => (php_index::test_facts::string_value(only).map(|(name, _)| name), None),
             _ => continue,
         };
+
         let Some(name) = name.filter(|name| is_variable_name(name)) else {
             continue;
         };
+
         if given.iter().any(|(known, _)| *known == name) {
             continue;
         }
+
         match value {
             Some(value) => {
                 builder.emit(&format!("${name} = ("));
@@ -377,6 +421,7 @@ fn props(builder: &mut Builder<'_>, text: &str, directive: &Directive, given: &[
 
 pub(crate) fn is_variable_name(name: &str) -> bool {
     let mut bytes = name.bytes();
+
     bytes
         .next()
         .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
@@ -388,15 +433,19 @@ fn directive_names(index: &Index, text: &str, directive: &Directive) -> Vec<Name
     let Some((start, end)) = directive.args else {
         return Vec::new();
     };
+
     let args = &text[start as usize..end as usize];
     let mut out = Vec::new();
+
     for marker in directive_markers(index, &directive.name) {
         let Marker::Key { kind, position, .. } = marker else {
             continue;
         };
+
         let Some(kind) = KeyKind::parse(&kind) else {
             continue;
         };
+
         if let Some((value, from, to)) = nth_string(args, position) {
             out.push(NameRef {
                 kind,
@@ -407,6 +456,7 @@ fn directive_names(index: &Index, text: &str, directive: &Directive) -> Vec<Name
             });
         }
     }
+
     out
 }
 
@@ -416,13 +466,16 @@ fn nth_string(args: &str, position: usize) -> Option<(String, usize, usize)> {
     let wrapped = format!("<?php [{args}];");
     let tree = parse(&wrapped).syntax();
     let array = tree.descendants().find(|node| node.kind() == ARRAY_EXPR)?;
+
     let item = array
         .children()
         .filter(|node| node.kind() == ARRAY_ITEM)
         .nth(position)?;
+
     let literal = item.children().last()?;
     let (value, span) = php_index::test_facts::string_value(&literal)?;
     let prefix = "<?php [".len();
+
     Some((value, span.start as usize - prefix, span.end as usize - prefix))
 }
 
@@ -431,7 +484,9 @@ fn place_to_source(virt: &Virtual, place: Place) -> Option<Place> {
     if place.path.is_some() {
         return Some(place);
     }
+
     let range = virt.range_to_source(range_of(place.span.start, place.span.end))?;
+
     Some(Place {
         path: None,
         span: php_index::Span {
@@ -451,13 +506,16 @@ pub fn definitions_at(
 ) -> Vec<Place> {
     if let Some(wire) = livewire::wire_at(index, path, text, offset) {
         let root = parse("<?php").syntax();
+
         return Analyzer::new(index, &root, 0)
             .describe(&wire.target())
             .into_iter()
             .filter_map(|description| description.place)
             .collect();
     }
+
     let template = Template::read(index, path, text, given);
+
     if let Some(name) = template.name_at(offset) {
         return definitions(index, name.kind, &name.value, name.scope.as_deref())
             .into_iter()
@@ -467,10 +525,13 @@ pub fn definitions_at(
             })
             .collect();
     }
+
     let Some(at) = template.virt.to_virtual(offset) else {
         return Vec::new();
     };
+
     let root = template.root();
+
     Analyzer::new(index, &root, at)
         .definitions(at)
         .into_iter()
@@ -488,31 +549,38 @@ pub fn hover_at(
 ) -> Option<HoverResult> {
     if let Some(wire) = livewire::wire_at(index, path, text, offset) {
         let root = parse("<?php").syntax();
+
         let sections: Vec<String> = Analyzer::new(index, &root, 0)
             .describe(&wire.target())
             .iter()
             .map(hover_markdown)
             .collect();
+
         return (!sections.is_empty()).then(|| HoverResult {
             markdown: sections.join("\n\n---\n\n"),
             range: wire.range,
         });
     }
+
     let template = Template::read(index, path, text, given);
+
     if let Some(name) = template.name_at(offset) {
         let sections: Vec<String> =
             crate::frameworks::keys::describe(index, name.kind, &name.value, name.scope.as_deref())
                 .iter()
                 .map(hover_markdown)
                 .collect();
+
         return Some(HoverResult {
             markdown: sections.join("\n\n---\n\n"),
             range: range_of(name.start, name.end),
         });
     }
+
     let at = template.virt.to_virtual(offset)?;
     let root = template.root();
     let found = Analyzer::new(index, &root, at).hover(at)?;
+
     Some(HoverResult {
         markdown: found.markdown,
         range: template.virt.range_to_source(found.range)?,
@@ -531,9 +599,12 @@ pub fn complete_at(
     if let Some(wire) = livewire::wire_at(index, path, text, offset) {
         return Some(wire_items(index, text, &wire, offset, options));
     }
+
     let template = Template::read(index, path, text, given);
+
     if let Some(name) = template.name_at(offset) {
         let typed = text.get(name.start as usize..offset as usize)?;
+
         return Some(key_items(
             index,
             name.kind,
@@ -543,12 +614,14 @@ pub fn complete_at(
             options,
         ));
     }
+
     if let Some(tag) = template.tag_with_room_at(offset) {
         let scope = if tag.livewire {
             format!("livewire:{}", tag.name)
         } else {
             tag.name.clone()
         };
+
         return Some(key_items(
             index,
             KeyKind::Attribute,
@@ -558,17 +631,22 @@ pub fn complete_at(
             options,
         ));
     }
+
     let at = template.virt.to_virtual(offset)?;
     let mut list = complete(index, &template.virt.text, at, options);
+
     list.items.retain_mut(|item| {
         let Some(range) = template.virt.range_to_source(range_of(item.edit.start, item.edit.end)) else {
             return false;
         };
+
         item.edit.start = u32::from(range.start());
         item.edit.end = u32::from(range.end());
         item.additional_edits.clear();
+
         true
     });
+
     Some(list)
 }
 
@@ -583,9 +661,12 @@ pub fn symbols_at(
     if let Some(wire) = livewire::wire_at(index, path, text, offset) {
         let root = parse("<?php").syntax();
         let symbols = crate::refs::from_targets(&Analyzer::new(index, &root, 0), vec![wire.target()]);
+
         return (!symbols.is_empty()).then_some((wire.range, symbols));
     }
+
     let template = Template::read(index, path, text, given);
+
     if let Some(name) = template.name_at(offset) {
         return Some((
             range_of(name.start, name.end),
@@ -596,9 +677,11 @@ pub fn symbols_at(
             }],
         ));
     }
+
     let at = template.virt.to_virtual(offset)?;
     let root = template.root();
     let (range, symbols) = crate::references::symbols_at(index, &root, at)?;
+
     Some((template.virt.range_to_source(range)?, symbols))
 }
 
@@ -606,6 +689,7 @@ pub fn symbols_at(
 pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Type)], query: &Query) -> Vec<Hit> {
     let template = Template::read(index, path, text, given);
     let mut out = Vec::new();
+
     if let Symbol::Key { .. } = &query.symbol {
         for name in &template.names {
             let symbol = Symbol::Key {
@@ -613,6 +697,7 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
                 name: name.value.clone(),
                 scope: name.scope.clone(),
             };
+
             if query.matches(&symbol) {
                 out.push(Hit {
                     range: range_of(name.start, name.end),
@@ -625,9 +710,11 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
             }
         }
     }
+
     if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
         let empty = parse("<?php").syntax();
         let analyzer = Analyzer::new(index, &empty, 0);
+
         for wire in livewire::wire_refs(index, path, text) {
             for symbol in crate::refs::from_targets(&analyzer, vec![wire.target()]) {
                 if query.matches(&symbol) {
@@ -643,20 +730,25 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
             }
         }
     }
+
     let root = template.root();
     let ctx = FileContext::new(index, &root);
+
     let found = match &query.symbol {
         Symbol::Variable { name, scope } => variable_hits(&ctx, *scope, name),
         _ => hits_in_file(&ctx, &template.virt.text, query),
     };
+
     for mut hit in found {
         if let Some(range) = template.virt.range_to_source(hit.range) {
             hit.range = range;
             out.push(hit);
         }
     }
+
     out.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     out.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
+
     out
 }
 
@@ -670,18 +762,23 @@ pub fn prepare_rename(
     offset: u32,
 ) -> Result<Prepared, String> {
     let template = Template::read(index, path, text, given);
+
     if template.name_at(offset).is_some() {
         return Err("A string that names a route, a key or a view cannot be renamed".to_string());
     }
+
     let Some(at) = template.virt.to_virtual(offset) else {
         return Err("There is no name to rename here".to_string());
     };
+
     let root = template.root();
     let prepared = crate::rename::prepare_rename(index, &root, &template.virt.text, at)?;
+
     let range = template
         .virt
         .range_to_source(prepared.range)
         .ok_or("This name is not written in the template")?;
+
     Ok(Prepared { range, ..prepared })
 }
 
@@ -695,11 +792,14 @@ pub fn rename(
 ) -> Result<crate::rename::Rename, String> {
     let given = data::given(index, sources, current.path);
     let prepared = prepare_rename(index, Some(current.path), current.text, &given, offset)?;
+
     if prepared.kind == RenameKind::Namespace {
         return Err("A namespace is renamed from its declaration".to_string());
     }
+
     let (_, symbols) =
         symbols_at(index, Some(current.path), current.text, &given, offset).ok_or("There is no name to rename here")?;
+
     crate::rename::rename_symbols(index, sources, current, &symbols, prepared.kind, new_name)
 }
 

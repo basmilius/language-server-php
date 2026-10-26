@@ -19,6 +19,7 @@ pub struct Span {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Availability {
     pub from: Option<u16>,
+
     /// The first version without it.
     pub until: Option<u16>,
 }
@@ -26,6 +27,7 @@ pub struct Availability {
 impl Availability {
     pub fn contains(&self, level: PhpVersion) -> bool {
         let level = encode_version(level);
+
         self.from.is_none_or(|from| level >= from) && self.until.is_none_or(|until| level < until)
     }
 
@@ -82,6 +84,7 @@ impl ClassKind {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttributeArg {
     pub name: Option<String>,
+
     /// The expression as written.
     pub value: String,
 }
@@ -105,6 +108,7 @@ pub struct Template {
 pub struct TypeAlias {
     pub name: String,
     pub ty: Type,
+
     /// Where the name is written, in the file once the extractor has placed the comment.
     pub name_span: Span,
 }
@@ -149,6 +153,7 @@ pub struct DocMethod {
 pub enum AssertWhen {
     /// The call returned at all.
     Always,
+
     IfTrue,
     IfFalse,
 }
@@ -157,11 +162,15 @@ pub enum AssertWhen {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocAssert {
     pub when: AssertWhen,
+
     /// `$param`, `$this` or `$param->property`, as written.
     pub subject: String,
+
     pub ty: Type,
+
     /// `!Type`: the subject is not of the type.
     pub negated: bool,
+
     /// `=Type`: the subject is the type itself and not only a subtype.
     pub equality: bool,
 }
@@ -171,6 +180,7 @@ pub struct DocAssert {
 pub struct RawTag {
     /// Without the `@`.
     pub name: String,
+
     pub text: String,
 }
 
@@ -184,18 +194,23 @@ pub struct Doc {
     pub var: Option<(Type, Option<String>, String)>,
     pub throws: Vec<(Type, String)>,
     pub templates: Vec<Template>,
+
     /// `@psalm-type` and `@phpstan-type` of a class, which its own docs read in place.
     pub type_aliases: Vec<TypeAlias>,
+
     /// The aliases a class takes from others, which its docs read as templates the hierarchy binds.
     pub type_imports: Vec<TypeImport>,
+
     pub extends: Vec<Type>,
     pub implements: Vec<Type>,
     pub uses: Vec<Type>,
     pub mixins: Vec<Type>,
     pub properties: Vec<DocProperty>,
     pub methods: Vec<DocMethod>,
+
     /// `Some` with the explanation (possibly empty) when `@deprecated` is there.
     pub deprecated: Option<String>,
+
     pub internal: bool,
     pub since: Option<u16>,
     pub removed: Option<u16>,
@@ -215,12 +230,14 @@ impl Doc {
 pub struct LeveledType {
     /// From this version on, this type; sorted by version, newest first.
     pub levels: Vec<(u16, Type)>,
+
     pub default: Option<Type>,
 }
 
 impl LeveledType {
     pub fn at(&self, level: PhpVersion) -> Option<&Type> {
         let level = encode_version(level);
+
         self.levels
             .iter()
             .find(|(from, _)| level >= *from)
@@ -233,15 +250,20 @@ impl LeveledType {
 pub struct Param {
     /// Without the `$`.
     pub name: String,
+
     pub ty: Option<Type>,
     pub doc_ty: Option<Type>,
     pub leveled: Option<LeveledType>,
+
     /// The default value as written.
     pub default: Option<String>,
+
     pub variadic: bool,
     pub by_ref: bool,
+
     /// A constructor parameter that also declares a property.
     pub promoted: Option<Promotion>,
+
     pub description: String,
     pub attributes: Vec<Attribute>,
     pub availability: Availability,
@@ -259,6 +281,7 @@ impl Param {
     /// says so, as the stubs do with `[optional]` and an `@method` line does with `= value`.
     pub fn is_optional(&self) -> bool {
         let note = self.description.trim_start();
+
         self.default.is_some() || self.variadic || note.starts_with("[optional]") || note.starts_with('=')
     }
 
@@ -288,6 +311,7 @@ pub struct Callable {
     pub leveled_ret: Option<LeveledType>,
     pub by_ref_return: bool,
     pub is_generator: bool,
+
     /// The body asks for its arguments as a list, so it takes more than it names.
     pub reads_all_arguments: bool,
 }
@@ -319,6 +343,7 @@ impl Callable {
 pub struct Function {
     /// Qualified with its namespace.
     pub name: Name,
+
     pub callable: Callable,
     pub doc: Option<Box<Doc>>,
     pub attributes: Vec<Attribute>,
@@ -346,9 +371,12 @@ pub struct Method {
 pub struct Property {
     /// Without the `$`.
     pub name: String,
+
     pub visibility: Visibility,
+
     /// The visibility of writes, when asymmetric.
     pub set_visibility: Option<Visibility>,
+
     pub is_static: bool,
     pub is_readonly: bool,
     pub is_abstract: bool,
@@ -357,8 +385,10 @@ pub struct Property {
     pub leveled: Option<LeveledType>,
     pub default: Option<String>,
     pub promoted: bool,
+
     /// Which hooks it has: `get`, `set`.
     pub hooks: Vec<String>,
+
     pub doc: Option<Box<Doc>>,
     pub attributes: Vec<Attribute>,
     pub availability: Availability,
@@ -387,8 +417,10 @@ pub struct ClassConst {
     pub name: String,
     pub visibility: Visibility,
     pub is_final: bool,
+
     /// An enum case.
     pub is_case: bool,
+
     pub ty: Option<Type>,
     pub doc_ty: Option<Type>,
     pub leveled: Option<LeveledType>,
@@ -417,6 +449,7 @@ pub enum Adaptation {
         method: String,
         excluded: Vec<Name>,
     },
+
     /// `[A::]foo as [visibility] [alias]`.
     Alias {
         trait_name: Option<Name>,
@@ -430,6 +463,7 @@ pub enum Adaptation {
 pub struct TraitUse {
     /// With the arguments of `@use Trait<Foo>`.
     pub ty: Type,
+
     pub adaptations: Vec<Adaptation>,
 }
 
@@ -440,12 +474,16 @@ pub struct ClassDecl {
     pub is_abstract: bool,
     pub is_final: bool,
     pub is_readonly: bool,
+
     /// The parent of a class, the parents of an interface.
     pub extends: Vec<Type>,
+
     pub implements: Vec<Type>,
     pub trait_uses: Vec<TraitUse>,
+
     /// The type of an enum's cases' values.
     pub backing: Option<Type>,
+
     pub methods: Vec<Method>,
     pub properties: Vec<Property>,
     pub constants: Vec<ClassConst>,
@@ -473,9 +511,11 @@ pub struct FileSymbols {
     pub classes: Vec<ClassDecl>,
     pub functions: Vec<Function>,
     pub constants: Vec<ConstDecl>,
+
     /// A `define()` the file makes that the declarations above do not hold, because its name is
     /// only known when the code runs.
     pub dynamic_define: bool,
+
     /// Groups, datasets and test case bindings, when the file has any.
     pub tests: Option<Box<crate::test_facts::TestFacts>>,
 }
@@ -515,6 +555,7 @@ pub struct ClassSummary {
     pub is_abstract: bool,
     pub deprecated: bool,
     pub availability: Availability,
+
     /// The classes it extends, implements or uses, by name.
     pub parents: Vec<Name>,
 }
@@ -539,6 +580,7 @@ pub struct FileSummary {
 impl FileSummary {
     pub fn of(symbols: &FileSymbols) -> FileSummary {
         let deprecated = |doc: &Option<Box<Doc>>| doc.as_ref().is_some_and(|doc| doc.deprecated.is_some());
+
         FileSummary {
             dynamic_define: symbols.dynamic_define,
             tests: symbols.tests.clone(),

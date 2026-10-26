@@ -34,6 +34,7 @@ fn symbol_data(symbol: &CallSymbol) -> Value {
 
 fn symbol_from_data(data: &Value) -> Option<CallSymbol> {
     let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_string);
+
     match data.get("kind")?.as_str()? {
         "function" => Some(CallSymbol::Function(text("name")?)),
         "method" => Some(CallSymbol::Method {
@@ -69,13 +70,16 @@ impl Server {
             path: Some(path.to_path_buf()),
             span,
         };
+
         let location = texts.location(&place)?;
+
         Some((location.uri, location.range))
     }
 
     fn call_hierarchy_item(texts: &mut TextCache<'_>, item: &CallItem) -> Option<CallHierarchyItem> {
         let (uri, range) = Self::range_in(texts, &item.path, item.span)?;
         let (_, selection_range) = Self::range_in(texts, &item.path, item.name_span)?;
+
         let (name, kind, detail) = match &item.symbol {
             CallSymbol::Function(name) => (
                 short(name).to_string(),
@@ -104,6 +108,7 @@ impl Server {
                 None,
             ),
         };
+
         Some(CallHierarchyItem {
             name,
             kind,
@@ -128,12 +133,15 @@ impl Server {
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
         let offset = u32::from(document.mapper(encoding).offset(position.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let items = prepare_call_hierarchy(&project.index, &root, offset);
         let mut texts = TextCache::new(self, Some(&uri));
+
         Some(
             items
                 .iter()
@@ -152,15 +160,19 @@ impl Server {
         let packages = self.package_scope(&params.item.uri, &path);
         let open = self.documents.texts();
         let project = self.workspace.project_for(&path);
+
         let sources =
             ProjectSources::new(open, &project.words).with_packages(packages.then_some(&project.package_words));
+
         let calls = incoming_calls(&project.index, &sources, &symbol);
         let mut texts = TextCache::new(self, None);
         let mut out = Vec::new();
+
         for call in &calls {
             let Some(from) = Self::call_hierarchy_item(&mut texts, &call.from) else {
                 continue;
             };
+
             let from_ranges = call
                 .ranges
                 .iter()
@@ -169,12 +181,16 @@ impl Server {
                         start: u32::from(range.start()),
                         end: u32::from(range.end()),
                     };
+
                     Self::range_in(&mut texts, &call.from.path, span).map(|(_, range)| range)
                 })
                 .collect();
+
             out.push(CallHierarchyIncomingCall { from, from_ranges });
         }
+
         self.demote_tests(&mut out, |call| uri_to_path(&call.from.uri));
+
         Some(out)
     }
 
@@ -187,17 +203,21 @@ impl Server {
         let open = self.documents.texts();
         let project = self.workspace.project_for(&path);
         let item = call_item(&project.index, &symbol)?;
+
         let text = match open.get(&item.path) {
             Some(text) => text.clone(),
             None => String::from_utf8_lossy(&std::fs::read(&item.path).ok()?).into_owned(),
         };
+
         let calls = outgoing_calls(&project.index, &text, &item);
         let mut texts = TextCache::new(self, None);
         let mut out = Vec::new();
+
         for call in &calls {
             let Some(to) = Self::call_hierarchy_item(&mut texts, &call.to) else {
                 continue;
             };
+
             let from_ranges = call
                 .ranges
                 .iter()
@@ -206,18 +226,23 @@ impl Server {
                         start: u32::from(range.start()),
                         end: u32::from(range.end()),
                     };
+
                     Self::range_in(&mut texts, &item.path, span).map(|(_, range)| range)
                 })
                 .collect();
+
             out.push(CallHierarchyOutgoingCall { to, from_ranges });
         }
+
         self.demote_tests(&mut out, |call| uri_to_path(&call.to.uri));
+
         Some(out)
     }
 
     fn type_hierarchy_item(texts: &mut TextCache<'_>, item: &TypeItem) -> Option<TypeHierarchyItem> {
         let (uri, range) = Self::range_in(texts, &item.path, item.span)?;
         let (_, selection_range) = Self::range_in(texts, &item.path, item.name_span)?;
+
         Some(TypeHierarchyItem {
             name: short(&item.name).to_string(),
             kind: class_symbol_kind(item.kind),
@@ -242,12 +267,15 @@ impl Server {
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
         let offset = u32::from(document.mapper(encoding).offset(position.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let items = prepare_type_hierarchy(&project.index, &root, offset);
         let mut texts = TextCache::new(self, Some(&uri));
+
         Some(
             items
                 .iter()
@@ -266,11 +294,14 @@ impl Server {
         let project = self.workspace.project_for(&path);
         let found = find(&project.index, &name);
         let mut texts = TextCache::new(self, None);
+
         let mut items: Vec<TypeHierarchyItem> = found
             .iter()
             .filter_map(|related| Self::type_hierarchy_item(&mut texts, related))
             .collect();
+
         self.demote_tests(&mut items, |item| uri_to_path(&item.uri));
+
         Some(items)
     }
 

@@ -110,10 +110,12 @@ impl Section for DynamicRelations {
                 }),
                 Origin::Stub => false,
             };
+
             read && index
                 .read_text(&file.path)
                 .is_some_and(|text| text.contains("resolveRelationUsing"))
         });
+
         DynamicRelations { found }
     }
 
@@ -141,6 +143,7 @@ pub fn relations(index: &Index, model: &str) -> Option<Vec<RelationInfo>> {
     let ancestors = index.ancestors(&model_type);
     model_of(&ancestors)?;
     let info = info_of(index, &class)?;
+
     Some(
         info.relations
             .iter()
@@ -171,6 +174,7 @@ fn is_named(class: &ClassDecl, name: &str) -> bool {
 /// The class a type of ancestors stands for, when it is a model of the project.
 fn model_of<'a, 'b>(ancestors: &'b [Ancestor<'a>]) -> Option<&'b Ancestor<'a>> {
     let first = ancestors.first()?;
+
     (!is_named(first.class.decl, MODEL) && ancestors.iter().any(|ancestor| is_named(ancestor.class.decl, MODEL)))
         .then_some(first)
 }
@@ -178,15 +182,19 @@ fn model_of<'a, 'b>(ancestors: &'b [Ancestor<'a>]) -> Option<&'b Ancestor<'a>> {
 fn info_of(index: &Index, model: &Class<'_>) -> Option<Arc<ModelInfo>> {
     let infos = index.section::<ModelInfos>();
     let key = model.decl.name.to_ascii_lowercase();
+
     if let Ok(found) = infos.found.lock() {
         if let Some(known) = found.get(&key) {
             return known.clone();
         }
     }
+
     let info = build_info(index, model).map(Arc::new);
+
     if let Ok(mut found) = infos.found.lock() {
         found.insert(key, info.clone());
     }
+
     info
 }
 
@@ -195,6 +203,7 @@ pub fn table(index: &Index, model: &str) -> Option<String> {
     let class = index.class(model)?;
     let ancestors = index.ancestors(&Type::class(class.decl.name.clone()));
     model_of(&ancestors)?;
+
     Some(info_of(index, &class)?.table.clone())
 }
 
@@ -202,6 +211,7 @@ pub fn table(index: &Index, model: &str) -> Option<String> {
 pub fn primitive_casts(index: &Index) -> Option<Vec<String>> {
     let concern = index.class(HAS_ATTRIBUTES)?;
     let list = string_list(&property_default(concern.decl, "primitiveCastTypes")?);
+
     (!list.is_empty()).then_some(list)
 }
 
@@ -211,9 +221,11 @@ pub fn is_known_cast(index: &Index, primitives: &[String], cast: &str) -> bool {
     if primitives.iter().any(|known| known.eq_ignore_ascii_case(cast)) {
         return true;
     }
+
     let head = cast.split_once(':').map_or(cast, |(head, _)| head);
     // The model reads these prefixes in code rather than from its list.
     let formatted = ["date", "datetime", "immutable_date", "immutable_datetime", "decimal"];
+
     (cast.contains(':') && formatted.iter().any(|prefix| head.eq_ignore_ascii_case(prefix)))
         || index.class(head.trim_start_matches('\\')).is_some()
 }
@@ -225,30 +237,38 @@ fn owns_members(class: &Class<'_>) -> bool {
 fn build_info(index: &Index, model: &Class<'_>) -> Option<ModelInfo> {
     let model_type = Type::class(model.decl.name.clone());
     let ancestors = index.ancestors(&model_type);
+
     let mut info = ModelInfo {
         timestamps: true,
         ..ModelInfo::default()
     };
+
     let mut table: Option<String> = None;
     let mut seen_cast: HashSet<String> = HashSet::new();
     let mut seen_member: HashSet<String> = HashSet::new();
+
     info.soft_deletes = ancestors
         .iter()
         .any(|ancestor| is_named(ancestor.class.decl, SOFT_DELETES));
+
     for ancestor in ancestors.iter().filter(|ancestor| owns_members(&ancestor.class)) {
         let decl = ancestor.class.decl;
         let tree = tree_of(index, &ancestor.class.file.path);
+
         for attribute in &decl.attributes {
             read_class_attribute(attribute, &mut table, &mut info);
         }
+
         if let Some(value) = property_default(decl, "table") {
             if let Some(name) = literal_string(index, ancestor.class, &value) {
                 table.get_or_insert(name);
             }
         }
+
         if property_default(decl, "timestamps").is_some_and(|value| value.trim() == "false") {
             info.timestamps = false;
         }
+
         if let Some(tree) = &tree {
             for (name, ty) in casts_of(index, ancestor, tree) {
                 if seen_cast.insert(name.clone()) {
@@ -256,27 +276,35 @@ fn build_info(index: &Index, model: &Class<'_>) -> Option<ModelInfo> {
                 }
             }
         }
+
         if let Some(value) = property_default(decl, "appends") {
             info.appends.extend(string_list(&value));
         }
+
         for method in &decl.methods {
             let lower = method.name.to_ascii_lowercase();
+
             if !seen_member.insert(lower.clone()) {
                 continue;
             }
+
             if let Some(scope) = scope_of(ancestor, method) {
                 info.scopes.push(scope);
             }
+
             if let Some(accessor) = accessor_of(index, ancestor, method, tree.as_ref()) {
                 info.accessors.push(accessor);
             }
+
             if let Some(relation) = relation_of(index, &model_type, ancestor, method, tree.as_ref()) {
                 info.relations.push(relation);
             }
         }
     }
+
     info.table = table.unwrap_or_else(|| table_of(&model.decl.name));
     info.appends.dedup();
+
     Some(info)
 }
 
@@ -287,9 +315,11 @@ fn read_class_attribute(attribute: &Attribute, table: &mut Option<String>, info:
             .iter()
             .find(|arg| arg.name.as_deref() == Some("name"))
             .or_else(|| attribute.args.first().filter(|arg| arg.name.is_none()));
+
         if let Some(arg) = named {
             table.get_or_insert_with(|| unquote(&arg.value));
         }
+
         if attribute
             .args
             .iter()
@@ -311,20 +341,25 @@ fn property_default(decl: &ClassDecl, name: &str) -> Option<String> {
 /// A string written as a literal or as a constant of a class: `'users'` and `self::TABLE`.
 fn literal_string(index: &Index, class: Class<'_>, text: &str) -> Option<String> {
     let text = text.trim();
+
     if text.starts_with(['\'', '"']) {
         return Some(unquote(text));
     }
+
     let (owner, constant) = text.split_once("::")?;
     let constant = constant.trim();
+
     let value = match owner.trim() {
         "self" | "static" => class.decl.constant(constant)?.value.clone()?,
         other => {
             let tree = tree_of(index, &class.file.path)?;
             let resolver = crate::extract::resolver_at(&tree, class.decl.span.start);
             let found = index.class(&resolver.resolve_class(other))?;
+
             found.decl.constant(constant)?.value.clone()?
         }
     };
+
     Some(unquote(&value))
 }
 
@@ -335,10 +370,13 @@ fn unquote(text: &str) -> String {
 /// The strings of an array written as text, or the single string.
 fn string_list(text: &str) -> Vec<String> {
     let tree = parse(&format!("<?php {text};")).syntax();
+
     let Some(array) = tree.descendants().find(|node| node.kind() == ARRAY_EXPR) else {
         let single = unquote(text);
+
         return if single.is_empty() { Vec::new() } else { vec![single] };
     };
+
     array_items(&array)
         .unwrap_or_default()
         .into_iter()
@@ -357,16 +395,20 @@ pub fn scope_builder_type(index: &Index, class: &str, method: &str) -> Option<Ty
     if !index.frameworks().eloquent || !index.is_subclass_of(class, MODEL) {
         return None;
     }
+
     let found = index.find_declared_method(&Type::class(class.to_string()), method)?;
+
     let marked = found
         .member
         .attributes
         .iter()
         .any(|attribute| attribute.name.eq_ignore_ascii_case(SCOPE));
+
     let named = method
         .strip_prefix("scope")
         .and_then(|rest| rest.chars().next())
         .is_some_and(char::is_uppercase);
+
     (marked || named).then(|| Type::Class {
         name: BUILDER.to_string(),
         args: vec![Type::class(class.to_string())],
@@ -378,18 +420,23 @@ fn scope_of(ancestor: &Ancestor<'_>, method: &Method) -> Option<Scope> {
         .attributes
         .iter()
         .any(|attribute| attribute.name.eq_ignore_ascii_case(SCOPE));
+
     let name = if marked {
         method.name.clone()
     } else {
         let rest = method.name.strip_prefix("scope")?;
         let first = rest.chars().next()?;
+
         if !first.is_uppercase() {
             return None;
         }
+
         let mut chars = rest.chars();
         let head: String = chars.next()?.to_lowercase().collect();
+
         format!("{head}{}", chars.as_str())
     };
+
     Some(Scope {
         name,
         owner: ancestor.class.decl.name.clone(),
@@ -399,6 +446,7 @@ fn scope_of(ancestor: &Ancestor<'_>, method: &Method) -> Option<Scope> {
 
 fn accessor_of(index: &Index, ancestor: &Ancestor<'_>, method: &Method, tree: Option<&SyntaxNode>) -> Option<Accessor> {
     let level = index.level;
+
     let own = |name: String, ty: Option<Type>, write_only: bool| Accessor {
         name,
         ty,
@@ -407,6 +455,7 @@ fn accessor_of(index: &Index, ancestor: &Ancestor<'_>, method: &Method, tree: Op
         span: method.span,
         write_only,
     };
+
     if let Some(rest) = method
         .name
         .strip_prefix("get")
@@ -414,9 +463,11 @@ fn accessor_of(index: &Index, ancestor: &Ancestor<'_>, method: &Method, tree: Op
     {
         if !rest.is_empty() {
             let ty = method.callable.effective_return(level).cloned();
+
             return Some(own(snake(rest), ty, false));
         }
     }
+
     if let Some(rest) = method
         .name
         .strip_prefix("set")
@@ -426,14 +477,18 @@ fn accessor_of(index: &Index, ancestor: &Ancestor<'_>, method: &Method, tree: Op
             return Some(own(snake(rest), None, true));
         }
     }
+
     let returns_attribute = method
         .callable
         .effective_return(level)
         .is_some_and(|ty| ty.class_names().iter().any(|name| name.eq_ignore_ascii_case(ATTRIBUTE)));
+
     if returns_attribute && method.callable.params.is_empty() {
         let ty = tree.and_then(|tree| attribute_getter_type(tree, method));
+
         return Some(own(snake(&method.name), ty, false));
     }
+
     None
 }
 
@@ -441,10 +496,13 @@ fn accessor_of(index: &Index, ancestor: &Ancestor<'_>, method: &Method, tree: Op
 fn attribute_getter_type(tree: &SyntaxNode, method: &Method) -> Option<Type> {
     let declaration = method_at(tree, method.name_span.start)?;
     let call = returned_expression(&declaration)?;
+
     if call.kind() != CALL_EXPR {
         return None;
     }
+
     let argument_list = call.children().find(|child| child.kind() == ARGUMENT_LIST)?;
+
     let closure = argument_list
         .children()
         .filter(|child| child.kind() == ARGUMENT)
@@ -453,15 +511,19 @@ fn attribute_getter_type(tree: &SyntaxNode, method: &Method) -> Option<Type> {
                 .children_with_tokens()
                 .filter_map(|element| element.into_token())
                 .find(|token| token.kind() == IDENT);
+
             named.is_none_or(|name| name.text() == "get")
         })?
         .children()
         .last()?;
+
     if !matches!(closure.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR) {
         return None;
     }
+
     let resolver = resolver_for(&closure);
     let (callable, _) = crate::extract::callable_at(&closure, &resolver, None);
+
     callable.ret
 }
 
@@ -476,17 +538,21 @@ fn relation_of(
     if method.is_static || method.visibility != Visibility::Public || !method.callable.params.is_empty() {
         return None;
     }
+
     let level = index.level;
     let declared = method.callable.effective_return(level);
+
     let ty = match declared {
         Some(declared) => {
             let is_relation = declared
                 .class_names()
                 .iter()
                 .any(|name| index.is_subclass_of(name, RELATION));
+
             if !is_relation {
                 return None;
             }
+
             match declared {
                 Type::Class { args, .. } if !args.is_empty() => declared.clone(),
                 _ => relation_from_body(index, model_type, method, tree?).unwrap_or_else(|| declared.clone()),
@@ -494,7 +560,9 @@ fn relation_of(
         }
         None => relation_from_body(index, model_type, method, tree?)?,
     };
+
     let ty = ty.substitute(&HashMap::new(), Some(model_type), Some(&ancestor.self_name));
+
     Some(RelationMember {
         name: method.name.clone(),
         owner: ancestor.class.decl.name.clone(),
@@ -509,6 +577,7 @@ fn relation_of(
 fn relation_from_body(index: &Index, model_type: &Type, method: &Method, tree: &SyntaxNode) -> Option<Type> {
     let declaration = method_at(tree, method.name_span.start)?;
     let mut call = returned_expression(&declaration)?;
+
     // `$this->morphMany(...)->latest()` is still the relation: the builder calls after it return it.
     loop {
         let receiver = call
@@ -517,21 +586,27 @@ fn relation_from_body(index: &Index, model_type: &Type, method: &Method, tree: &
             .filter(|callee| callee.kind() == PROPERTY_FETCH_EXPR)
             .and_then(|callee| callee.children().next())
             .filter(|receiver| receiver.kind() == CALL_EXPR);
+
         match receiver {
             Some(receiver) => call = receiver,
             None => break,
         }
     }
+
     if call.kind() != CALL_EXPR {
         return None;
     }
+
     let callee = call.children().next()?;
+
     if callee.kind() != PROPERTY_FETCH_EXPR || callee.children().next()?.text() != "$this" {
         return None;
     }
+
     let name = callee.children().find(|child| child.kind() == NAME)?.text().to_string();
     let found = index.find_declared_method(model_type, &name)?;
     let doc_ret = found.member.callable.doc_ret.clone()?;
+
     if !doc_ret
         .class_names()
         .iter()
@@ -539,19 +614,24 @@ fn relation_from_body(index: &Index, model_type: &Type, method: &Method, tree: &
     {
         return None;
     }
+
     let arguments = argument_expressions(&call);
     let mut bound: HashMap<String, Type> = found.subst.as_ref().clone();
+
     for (position, param) in found.member.callable.params.iter().enumerate() {
         let Some(Type::ClassString(Some(inner))) = param.effective_type(index.level) else {
             continue;
         };
+
         let Type::Template(template) = inner.as_ref() else {
             continue;
         };
+
         if let Some(Literal::Class(class)) = arguments.get(position).and_then(literal_of) {
             bound.insert(template.clone(), Type::class(class));
         }
     }
+
     if let Some(doc) = &found.member.doc {
         for template in &doc.templates {
             bound
@@ -559,6 +639,7 @@ fn relation_from_body(index: &Index, model_type: &Type, method: &Method, tree: &
                 .or_insert_with(|| template.bound.clone().unwrap_or(Type::Mixed));
         }
     }
+
     Some(doc_ret.substitute(&bound, Some(model_type), Some(&found.self_name)))
 }
 
@@ -568,6 +649,7 @@ fn casts_of(index: &Index, ancestor: &Ancestor<'_>, tree: &SyntaxNode) -> Vec<(S
     let decl = ancestor.class.decl;
     let mut out = Vec::new();
     let mut arrays: Vec<SyntaxNode> = Vec::new();
+
     if decl
         .property("casts")
         .and_then(|property| property.default.as_ref())
@@ -584,20 +666,24 @@ fn casts_of(index: &Index, ancestor: &Ancestor<'_>, tree: &SyntaxNode) -> Vec<(S
             arrays.extend(property.children().find(|node| node.kind() == ARRAY_EXPR));
         }
     }
+
     if let Some(method) = decl.method("casts") {
         if let Some(declaration) = method_at(tree, method.name_span.start) {
             arrays.extend(returned_expression(&declaration).filter(|node| node.kind() == ARRAY_EXPR));
         }
     }
+
     for array in arrays {
         for (key, value) in array_items(&array).unwrap_or_default() {
             let Some(Literal::Text(attribute, _)) = key.as_ref().and_then(literal_of) else {
                 continue;
             };
+
             let ty = cast_type(index, &value);
             out.push((attribute, ty));
         }
     }
+
     out
 }
 
@@ -607,6 +693,7 @@ fn carbon(index: &Index) -> Type {
             return Type::class(name);
         }
     }
+
     Type::class("DateTimeInterface")
 }
 
@@ -621,6 +708,7 @@ fn cast_type(index: &Index, value: &SyntaxNode) -> Type {
 
 fn named_cast(index: &Index, text: &str) -> Type {
     let (head, rest) = text.split_once(':').map_or((text, ""), |(head, rest)| (head, rest));
+
     match head.to_ascii_lowercase().as_str() {
         "int" | "integer" => Type::Int,
         "real" | "float" | "double" => Type::Float,
@@ -632,6 +720,7 @@ fn named_cast(index: &Index, text: &str) -> Type {
         "date" | "datetime" | "custom_datetime" => carbon(index),
         "immutable_date" | "immutable_datetime" | "immutable_custom_datetime" => {
             let immutable = "Carbon\\CarbonImmutable";
+
             if index.class(immutable).is_some() {
                 Type::class(immutable)
             } else {
@@ -653,9 +742,11 @@ fn class_cast(index: &Index, class: &str) -> Type {
     let Some(found) = index.class(class) else {
         return Type::Mixed;
     };
+
     if found.decl.kind == crate::model::ClassKind::Enum {
         return Type::class(found.decl.name.clone());
     }
+
     for ancestor in index.ancestors(&Type::class(class)) {
         if is_named(ancestor.class.decl, CASTS_ATTRIBUTES) {
             if let Some(get) = ancestor.subst.get("TGet") {
@@ -663,6 +754,7 @@ fn class_cast(index: &Index, class: &str) -> Type {
             }
         }
     }
+
     Type::Mixed
 }
 
@@ -675,6 +767,7 @@ fn column_type(index: &Index, ty: ColumnType) -> Type {
         ColumnType::Array => Type::plain_array(),
         ColumnType::Datetime => {
             let _ = index;
+
             Type::String
         }
         ColumnType::Mixed => Type::Mixed,
@@ -698,6 +791,7 @@ fn attribute_members(index: &Index, model: &Class<'_>, info: &ModelInfo) -> Vec<
     let table = tables.table(&info.table);
     let mut out: Vec<AttributeMember> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+
     for accessor in &info.accessors {
         if seen.insert(accessor.name.clone()) {
             out.push(AttributeMember {
@@ -715,18 +809,23 @@ fn attribute_members(index: &Index, model: &Class<'_>, info: &ModelInfo) -> Vec<
             }
         }
     }
+
     let carbon_type = carbon(index);
+
     let mut push_column = |name: &str, base: Option<(ColumnType, bool)>, summary: String| {
         if !seen.insert(name.to_string()) {
             return;
         }
+
         let cast = info
             .casts
             .iter()
             .find(|(attribute, _)| attribute == name)
             .map(|(_, ty)| ty.clone());
+
         let timestamp =
             info.timestamps && matches!(name, "created_at" | "updated_at") || info.soft_deletes && name == "deleted_at";
+
         let (ty, nullable) = match (cast, base) {
             (Some(cast), Some((_, nullable))) => (cast, nullable),
             (Some(cast), None) => (cast, true),
@@ -735,7 +834,9 @@ fn attribute_members(index: &Index, model: &Class<'_>, info: &ModelInfo) -> Vec<
             (None, None) if timestamp => (carbon_type.clone(), true),
             (None, None) => return,
         };
+
         let ty = if nullable { ty.nullable() } else { ty };
+
         out.push(AttributeMember {
             name: name.to_string(),
             ty: Some(ty),
@@ -746,6 +847,7 @@ fn attribute_members(index: &Index, model: &Class<'_>, info: &ModelInfo) -> Vec<
             read_only: false,
         });
     };
+
     if let Some(table) = table {
         for column in &table.columns {
             push_column(
@@ -755,10 +857,13 @@ fn attribute_members(index: &Index, model: &Class<'_>, info: &ModelInfo) -> Vec<
             );
         }
     }
+
     let casted: Vec<String> = info.casts.iter().map(|(name, _)| name.clone()).collect();
+
     for name in casted {
         push_column(&name, None, format!("Cast attribute `{name}`."));
     }
+
     for name in &info.appends {
         if seen.insert(name.clone()) {
             out.push(AttributeMember {
@@ -772,7 +877,9 @@ fn attribute_members(index: &Index, model: &Class<'_>, info: &ModelInfo) -> Vec<
             });
         }
     }
+
     let _ = model;
+
     out
 }
 
@@ -808,6 +915,7 @@ fn relation_result(index: &Index, relation: &Type) -> Option<Type> {
             return ancestor.subst.get("TResult").cloned();
         }
     }
+
     None
 }
 
@@ -821,21 +929,27 @@ pub(super) fn extend_properties<'a>(
     let Some(model) = model_of(ancestors) else {
         return;
     };
+
     let Some(info) = info_of(index, &model.class) else {
         return;
     };
+
     let owner_of = |owner: &Option<Name>| -> Class<'a> {
         owner.as_ref().and_then(|name| index.class(name)).unwrap_or(model.class)
     };
+
     for member in attribute_members(index, &model.class, &info) {
         if only.is_some_and(|only| member.name != only) || !names.insert(member.name.clone()) {
             continue;
         }
+
         let class = owner_of(&member.owner);
+
         let ancestor = ancestors
             .iter()
             .find(|ancestor| ancestor.class.decl.name == class.decl.name)
             .unwrap_or(model);
+
         out.push(Found {
             class,
             member: Cow::Owned(synthetic_property(class.decl, &member)),
@@ -845,14 +959,18 @@ pub(super) fn extend_properties<'a>(
             static_as: None,
         });
     }
+
     for relation in &info.relations {
         if only.is_some_and(|only| relation.name != only) || !names.insert(relation.name.clone()) {
             continue;
         }
+
         let Some(result) = relation_result(index, &relation.ty) else {
             continue;
         };
+
         let class = owner_of(&Some(relation.owner.clone()));
+
         let member = AttributeMember {
             name: relation.name.clone(),
             ty: Some(result),
@@ -862,6 +980,7 @@ pub(super) fn extend_properties<'a>(
             summary: format!("Relation `{}`.", relation.name),
             read_only: false,
         };
+
         out.push(Found {
             class,
             member: Cow::Owned(synthetic_property(class.decl, &member)),
@@ -923,6 +1042,7 @@ pub(super) fn extend_methods<'a>(
 ) {
     extend_builder(index, ancestors, only, out, names);
     extend_model(index, ancestors, only, out, names);
+
     if only.is_some() {
         bind_relation(index, ancestors, out);
     }
@@ -943,22 +1063,28 @@ fn extend_builder<'a>(
         let Some(Type::Class { name: model_name, .. }) = builder.subst.get("TModel") else {
             continue;
         };
+
         let Some(model) = index.class(model_name) else {
             continue;
         };
+
         let Some(info) = info_of(index, &model) else {
             continue;
         };
+
         for scope in &info.scopes {
             if only.is_some_and(|only| !scope.name.eq_ignore_ascii_case(only))
                 || !names.insert(scope.name.to_ascii_lowercase())
             {
                 continue;
             }
+
             let Some(owner) = index.class(&scope.owner) else {
                 continue;
             };
+
             let params = scope.method.callable.params.iter().skip(1).cloned().collect();
+
             out.push(Found {
                 class: owner,
                 member: Cow::Owned(synthetic_method(&scope.name, params, Type::Static, &scope.method)),
@@ -968,27 +1094,36 @@ fn extend_builder<'a>(
                 static_as: None,
             });
         }
+
         let tables = index.section::<Tables>();
+
         let Some(table) = tables.table(&info.table) else {
             continue;
         };
+
         let wanted_column = |name: &str| {
             let rest = name.strip_prefix("where").or_else(|| name.strip_prefix("Where"))?;
+
             (!rest.is_empty()).then(|| snake(rest))
         };
+
         for column in &table.columns {
             let method = format!("where{}", studly(&column.name));
+
             if only.is_some_and(|only| !only.eq_ignore_ascii_case(&method)) {
                 continue;
             }
+
             if let Some(only) = only {
                 if wanted_column(only).as_deref() != Some(column.name.as_str()) {
                     continue;
                 }
             }
+
             if !names.insert(method.to_ascii_lowercase()) {
                 continue;
             }
+
             let source = Method {
                 name: method.clone(),
                 visibility: Visibility::Public,
@@ -1005,6 +1140,7 @@ fn extend_builder<'a>(
                 name_span: model.decl.name_span,
                 span: model.decl.span,
             };
+
             out.push(Found {
                 class: builder.class,
                 member: Cow::Owned(synthetic_method(
@@ -1034,17 +1170,21 @@ fn extend_model<'a>(
     let Some(model) = model_of(ancestors) else {
         return;
     };
+
     if only.is_none_or(|only| only.eq_ignore_ascii_case("factory")) {
         name_factory(index, model, out);
     }
+
     let builder = Type::Class {
         name: BUILDER.to_string(),
         args: vec![Type::class(model.class.decl.name.clone())],
     };
+
     let forwarded = match only {
         Some(name) => index.find_method(&builder, name).into_iter().collect(),
         None => index.methods(&builder),
     };
+
     for found in forwarded {
         if found.member.visibility != Visibility::Public
             || found.member.name.starts_with("__")
@@ -1052,8 +1192,10 @@ fn extend_model<'a>(
         {
             continue;
         }
+
         let mut method = found.member.into_owned();
         method.is_static = true;
+
         out.push(Found {
             class: found.class,
             member: Cow::Owned(method),
@@ -1071,27 +1213,35 @@ fn bind_relation<'a>(index: &'a Index, ancestors: &[Ancestor<'a>], out: &mut [Fo
     let Some(model) = model_of(ancestors) else {
         return;
     };
+
     let model_type = Type::class(model.class.decl.name.clone());
+
     for found in out.iter_mut() {
         let method = &found.member;
+
         if method.is_static || method.visibility != Visibility::Public || !method.callable.params.is_empty() {
             continue;
         }
+
         let Some(Type::Class { name, args }) = method.callable.effective_return(index.level) else {
             continue;
         };
+
         if !args.is_empty()
             || !index.is_subclass_of(name, RELATION)
             || found.class.decl.name.starts_with("Illuminate\\")
         {
             continue;
         }
+
         let Some(tree) = tree_of(index, &found.class.file.path) else {
             continue;
         };
+
         let Some(bound) = relation_from_body(index, &model_type, method, &tree) else {
             continue;
         };
+
         let mut refined = found.member.clone().into_owned();
         refined.callable.doc_ret = Some(bound);
         found.member = Cow::Owned(refined);
@@ -1109,13 +1259,17 @@ pub(crate) fn bind_factory_model(index: &Index, ancestors: &mut [Ancestor<'_>]) 
     else {
         return;
     };
+
     if position == 0 || matches!(ancestors[position].subst.get("TModel"), Some(Type::Class { .. })) {
         return;
     }
+
     let factory = ancestors[0].class;
+
     let Some(model) = factory_model(index, factory) else {
         return;
     };
+
     let mut subst = ancestors[position].subst.as_ref().clone();
     subst.insert("TModel".to_string(), Type::class(model));
     ancestors[position].subst = Arc::new(subst);
@@ -1131,11 +1285,13 @@ fn factory_model(index: &Index, factory: Class<'_>) -> Option<Name> {
             return Some(model);
         }
     }
+
     let rest = factory
         .decl
         .name
         .strip_prefix("Database\\Factories\\")?
         .strip_suffix("Factory")?;
+
     ["App\\Models\\", "App\\"]
         .iter()
         .map(|namespace| format!("{namespace}{rest}"))
@@ -1154,12 +1310,15 @@ fn name_factory<'a>(index: &'a Index, model: &Ancestor<'a>, out: &mut [Found<'a,
     else {
         return;
     };
+
     if matches!(out[position].subst.get("TFactory"), Some(Type::Class { .. })) {
         return;
     }
+
     let Some(factory) = factory_of(index, model.class) else {
         return;
     };
+
     let mut method = out[position].member.clone().into_owned();
     method.callable.doc_ret = Some(Type::class(factory));
     method.callable.ret = None;
@@ -1172,19 +1331,25 @@ fn factory_of(index: &Index, model: Class<'_>) -> Option<Name> {
             if !attribute.name.eq_ignore_ascii_case(USE_FACTORY) {
                 continue;
             }
+
             let text = attribute.args.first()?.value.trim().to_string();
             let class = text.strip_suffix("::class")?;
             let tree = tree_of(index, &ancestor.class.file.path)?;
             let resolver = crate::extract::resolver_at(&tree, ancestor.class.decl.span.start);
+
             return Some(resolver.resolve_class(class.trim()));
         }
     }
+
     let name = model.decl.name.as_str();
+
     let rest = name
         .strip_prefix("App\\Models\\")
         .or_else(|| name.strip_prefix("App\\"))
         .unwrap_or(name);
+
     let factory = format!("Database\\Factories\\{rest}Factory");
+
     index.class(&factory).map(|_| factory)
 }
 
@@ -1296,6 +1461,7 @@ class User extends Model
     fn fixture() -> Index {
         let mut files = ELOQUENT.to_vec();
         files.extend_from_slice(OTHERS);
+
         project(&files)
     }
 
@@ -1306,6 +1472,7 @@ class User extends Model
     fn property(index: &Index, name: &str) -> Option<String> {
         let found = index.find_property(&user(), name)?;
         let ty = found.member.effective_type(index.level)?;
+
         Some(found.resolve(ty).display(false))
     }
 
@@ -1314,20 +1481,25 @@ class User extends Model
         let index = fixture();
         assert_eq!(property(&index, "id").as_deref(), Some("int"));
         assert_eq!(property(&index, "name").as_deref(), Some("string"));
+
         assert_eq!(
             property(&index, "email_verified_at").as_deref(),
             Some("?Illuminate\\Support\\Carbon")
         );
+
         assert_eq!(property(&index, "is_admin").as_deref(), Some("bool"));
         assert_eq!(property(&index, "settings").as_deref(), Some("?array"));
+
         assert_eq!(
             property(&index, "created_at").as_deref(),
             Some("?Illuminate\\Support\\Carbon")
         );
+
         assert_eq!(
             property(&index, "deleted_at").as_deref(),
             Some("?Illuminate\\Support\\Carbon")
         );
+
         assert_eq!(property(&index, "team_id").as_deref(), Some("int"));
         assert_eq!(property(&index, "balance").as_deref(), Some("?App\\Money"));
         assert!(property(&index, "nope").is_none());
@@ -1339,19 +1511,24 @@ class User extends Model
         assert_eq!(property(&index, "full_name").as_deref(), Some("string"));
         assert_eq!(property(&index, "nick_name").as_deref(), Some("string"));
         assert!(index.find_property(&user(), "display_name").is_some());
+
         assert_eq!(
             property(&index, "posts").as_deref(),
             Some("Illuminate\\Database\\Eloquent\\Collection<int, App\\Models\\Post>")
         );
+
         assert_eq!(property(&index, "team").as_deref(), Some("?App\\Models\\Team"));
+
         assert_eq!(
             property(&index, "latestPost").as_deref(),
             Some("Illuminate\\Database\\Eloquent\\Collection<int, App\\Models\\Post>")
         );
+
         assert_eq!(
             property(&index, "recentPosts").as_deref(),
             Some("Illuminate\\Database\\Eloquent\\Collection<int, App\\Models\\Post>")
         );
+
         assert!(property(&index, "rename").is_none());
     }
 
@@ -1362,10 +1539,12 @@ class User extends Model
         assert!(where_.member.is_static && where_.mixin);
         let first = index.find_method(&user(), "first").expect("forwarded");
         assert_eq!(first.subst.get("TModel"), Some(&Type::class("App\\Models\\User")));
+
         assert!(
             index.find_method(&user(), "orderBy").is_some(),
             "through the builder's mixin"
         );
+
         let save = index.find_method(&user(), "save").expect("declared");
         assert!(!save.member.is_static && !save.mixin);
     }
@@ -1373,25 +1552,32 @@ class User extends Model
     #[test]
     fn scopes_and_dynamic_wheres_are_methods_of_the_builder() {
         let index = fixture();
+
         let builder = Type::Class {
             name: super::BUILDER.to_string(),
             args: vec![user()],
         };
+
         let active = index.find_method(&builder, "active").expect("a scope");
+
         assert_eq!(
             active.member.callable.params.len(),
             1,
             "the builder argument is dropped"
         );
+
         assert_eq!(active.class.decl.name, "App\\Models\\User");
+
         assert!(
             index.find_method(&builder, "verified").is_some(),
             "an attribute marks a scope"
         );
+
         assert!(index.find_method(&user(), "active").is_some(), "static call of a scope");
         assert!(index.find_method(&builder, "whereEmail").is_some());
         assert!(index.find_method(&builder, "whereIsAdmin").is_some());
         assert!(index.find_method(&builder, "whereNothing").is_none());
+
         assert!(
             index
                 .methods(&builder)
@@ -1403,6 +1589,7 @@ class User extends Model
     #[test]
     fn a_model_without_a_documented_factory_gets_the_one_by_convention() {
         let mut index = fixture();
+
         for (path, text) in [
             (
                 "vendor/laravel/HasFactory.php",
@@ -1431,10 +1618,12 @@ class User extends Model
         ] {
             super::super::testing::add(&mut index, path, text);
         }
+
         let ret = |class: &str| {
             let found = index
                 .find_method(&Type::class(class), "factory")
                 .expect("a factory method");
+
             found
                 .member
                 .callable
@@ -1442,14 +1631,17 @@ class User extends Model
                 .clone()
                 .map(|ty| found.resolve(&ty).display(false))
         };
+
         assert_eq!(
             ret("App\\Models\\Post").as_deref(),
             Some("Database\\Factories\\PostFactory")
         );
+
         assert_eq!(
             ret("App\\Models\\Odd").as_deref(),
             Some("Database\\Factories\\OddFactory")
         );
+
         assert_eq!(
             ret("App\\Models\\Documented").as_deref(),
             Some("Database\\Factories\\PostFactory")
@@ -1460,11 +1652,13 @@ class User extends Model
     fn a_change_to_a_migration_changes_the_columns() {
         let mut index = fixture();
         assert!(index.find_property(&user(), "age").is_none());
+
         add(
             &mut index,
             "database/migrations/2021_01_01_000000_add_age.php",
             "<?php Schema::table('users', function (Blueprint $table) { $table->integer('age'); });",
         );
+
         assert_eq!(property(&index, "age").as_deref(), Some("int"));
     }
 }

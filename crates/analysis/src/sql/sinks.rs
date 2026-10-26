@@ -12,8 +12,10 @@ use sql_embed::{Dialect, FragmentKind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Place {
     At(usize),
+
     /// A variadic parameter: this place and every one after it.
     From(usize),
+
     Every,
 }
 
@@ -37,15 +39,21 @@ pub(crate) enum Format {
 pub(crate) struct Sink {
     /// The class that declares the method, `None` for a function.
     pub class: Option<String>,
+
     /// The method, or the qualified name of the function.
     pub name: String,
+
     params: Vec<String>,
+
     /// The kind of each place that takes SQL; `None` for a part whose kind is whatever reads best.
     args: Vec<(Option<FragmentKind>, Place)>,
+
     pub refine: bool,
     pub context: Option<FragmentKind>,
+
     /// The places of the table and of its alias, for a call that adds a table to its query.
     pub table: Option<(Place, Option<Place>)>,
+
     optional_first: bool,
     pub format: Option<Format>,
     pub dialect: Option<Dialect>,
@@ -103,8 +111,10 @@ fn place_named(word: &str, params: &[String], variadic: Option<usize>) -> Option
     if word == "*" {
         return Some(Place::Every);
     }
+
     let name = word.strip_prefix('$')?;
     let position = params.iter().position(|param| param == name)?;
+
     Some(if variadic == Some(position) {
         Place::From(position)
     } else {
@@ -115,6 +125,7 @@ fn place_named(word: &str, params: &[String], variadic: Option<usize>) -> Option
 fn read(class: Option<&str>, name: &str, params: &[(String, bool)], tags: &[RawTag]) -> Option<Sink> {
     let names: Vec<String> = params.iter().map(|(name, _)| name.clone()).collect();
     let variadic = params.iter().position(|(_, variadic)| *variadic);
+
     let mut sink = Sink {
         class: class.map(str::to_string),
         name: name.to_string(),
@@ -127,9 +138,12 @@ fn read(class: Option<&str>, name: &str, params: &[(String, bool)], tags: &[RawT
         format: None,
         dialect: None,
     };
+
     let mut any = false;
+
     for tag in tags {
         let mut words = tag.text.split_whitespace();
+
         match tag.name.as_str() {
             "sql" => {
                 let kind = match words.next() {
@@ -140,13 +154,17 @@ fn read(class: Option<&str>, name: &str, params: &[(String, bool)], tags: &[RawT
                     },
                     None => continue,
                 };
+
                 let Some(place) = words.next() else {
                     continue;
                 };
+
                 let Some(place) = place_named(place, &names, variadic) else {
                     continue;
                 };
+
                 sink.args.push((kind, place));
+
                 if let Some(dialect) = words.next().and_then(Dialect::parse) {
                     sink.dialect = Some(dialect);
                 }
@@ -157,6 +175,7 @@ fn read(class: Option<&str>, name: &str, params: &[(String, bool)], tags: &[RawT
                 let Some(table) = words.next().and_then(|word| place_named(word, &names, variadic)) else {
                     continue;
                 };
+
                 let alias = words.next().and_then(|word| place_named(word, &names, variadic));
                 sink.table = Some((table, alias));
             }
@@ -170,17 +189,21 @@ fn read(class: Option<&str>, name: &str, params: &[(String, bool)], tags: &[RawT
             }
             _ => continue,
         }
+
         any = true;
     }
+
     any.then_some(sink)
 }
 
 /// Every entry, by the lowercase name of its method or the short name of its function.
 fn table() -> &'static HashMap<String, Vec<Sink>> {
     static TABLE: OnceLock<HashMap<String, Vec<Sink>>> = OnceLock::new();
+
     TABLE.get_or_init(|| {
         let symbols = extract(&parse(include_str!("sinks.php")).syntax(), ExtractOptions::default());
         let mut out: HashMap<String, Vec<Sink>> = HashMap::new();
+
         let params_of = |callable: &php_index::Callable| -> Vec<(String, bool)> {
             callable
                 .params
@@ -188,22 +211,27 @@ fn table() -> &'static HashMap<String, Vec<Sink>> {
                 .map(|param| (param.name.clone(), param.variadic))
                 .collect()
         };
+
         for function in &symbols.functions {
             let tags = function.doc.as_ref().map(|doc| doc.tags.as_slice()).unwrap_or_default();
+
             if let Some(sink) = read(None, &function.name, &params_of(&function.callable), tags) {
                 out.entry(crate::short(&function.name).to_ascii_lowercase())
                     .or_default()
                     .push(sink);
             }
         }
+
         for class in &symbols.classes {
             for method in &class.methods {
                 let tags = method.doc.as_ref().map(|doc| doc.tags.as_slice()).unwrap_or_default();
+
                 if let Some(sink) = read(Some(&class.name), &method.name, &params_of(&method.callable), tags) {
                     out.entry(method.name.to_ascii_lowercase()).or_default().push(sink);
                 }
             }
         }
+
         out
     })
 }
@@ -223,10 +251,12 @@ mod tests {
     #[test]
     fn reads_every_entry_of_the_table() {
         let query = named("query");
+
         let pdo = query
             .iter()
             .find(|sink| sink.class.as_deref() == Some("PDO"))
             .expect("PDO::query");
+
         assert_eq!(pdo.kind_at(0), Some(Some(FragmentKind::Statements)));
         let pg = named("pg_query").first().expect("pg_query");
         assert_eq!(pg.class, None);
@@ -237,31 +267,39 @@ mod tests {
         let literal = named("literal").first().expect("literal");
         assert_eq!(literal.name, "Raxos\\Database\\Query\\literal");
         assert!(literal.refine);
+
         let join = named("join")
             .iter()
             .find(|sink| sink.class.as_deref() == Some("Doctrine\\DBAL\\Query\\QueryBuilder"))
             .expect("a join");
+
         assert_eq!(join.kind_at(1), Some(Some(FragmentKind::TableReference)));
         assert_eq!(join.kind_at(3), Some(Some(FragmentKind::Condition)));
         assert!(join.table_at(1) && join.alias_at(2));
+
         let select = named("select")
             .iter()
             .find(|sink| sink.class.as_deref() == Some("Doctrine\\DBAL\\Query\\QueryBuilder"))
             .expect("a select");
+
         assert_eq!(
             select.kind_at(4),
             Some(Some(FragmentKind::Expression)),
             "every argument"
         );
+
         let raw = named("raw")
             .iter()
             .find(|sink| sink.class.as_deref() == Some("Raxos\\Contract\\Database\\Query\\QueryInterface"))
             .expect("raw");
+
         assert_eq!(raw.kind_at(0), Some(None), "a part of no kind");
+
         let prepare = named("prepare")
             .iter()
             .find(|sink| sink.class.as_deref() == Some("wpdb"))
             .expect("wpdb::prepare");
+
         assert_eq!(prepare.format, Some(Format::Wpdb));
         assert!(named("nothing").is_empty());
         let count: usize = table().values().map(Vec::len).sum();

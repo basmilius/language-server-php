@@ -31,12 +31,14 @@ pub fn line_start(text: &str, offset: usize) -> usize {
 /// The offset after the line break of the line an offset is on, or the end of the text.
 pub fn line_end(text: &str, offset: usize) -> usize {
     let offset = offset.min(text.len());
+
     text[offset..].find('\n').map_or(text.len(), |at| offset + at + 1)
 }
 
 /// The whitespace a line starts with.
 pub fn indent_of(text: &str, offset: usize) -> String {
     let start = line_start(text, offset);
+
     text[start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
 }
 
@@ -48,17 +50,20 @@ pub fn remove_with_lines(text: &str, range: TextRange) -> TextEdit {
     let before_is_blank = text[line_start(text, start)..start].trim().is_empty();
     let rest_of_line = &text[end..line_end(text, end).max(end)];
     let after_is_blank = rest_of_line.trim().is_empty();
+
     if before_is_blank && after_is_blank {
         start = line_start(text, start);
         end = line_end(text, end);
         let blank_before = start >= 2 && text[..start].ends_with("\n\n") || start == 0;
         let blank_after = text[end..].starts_with('\n') || text[end..].starts_with("\r\n");
+
         if blank_before && blank_after {
             end = line_end(text, end);
         } else if blank_before && start > 0 && text[end..].trim_start().starts_with('}') {
             start -= 1;
         }
     }
+
     TextEdit {
         start: start as u32,
         end: end as u32,
@@ -71,6 +76,7 @@ pub fn remove_with_lines(text: &str, range: TextRange) -> TextEdit {
 pub fn merge_inserts(mut edits: Vec<TextEdit>) -> Vec<TextEdit> {
     edits.sort_by(|left, right| (left.start, left.new_text.trim()).cmp(&(right.start, right.new_text.trim())));
     let mut merged: Vec<TextEdit> = Vec::new();
+
     for edit in edits {
         match merged.last_mut() {
             Some(last) if last.start == edit.start && last.end == edit.end && edit.start == edit.end => {
@@ -79,6 +85,7 @@ pub fn merge_inserts(mut edits: Vec<TextEdit>) -> Vec<TextEdit> {
             _ => merged.push(edit),
         }
     }
+
     merged
 }
 
@@ -87,8 +94,10 @@ pub fn apply(text: &str, edits: &[TextEdit]) -> String {
     let mut ordered: Vec<&TextEdit> = edits.iter().collect();
     ordered.sort_by_key(|edit| std::cmp::Reverse((edit.start, edit.end)));
     let mut out = text.to_string();
+
     for edit in ordered {
         out.replace_range(edit.start as usize..edit.end as usize, &edit.new_text);
     }
+
     out
 }

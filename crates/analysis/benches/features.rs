@@ -34,12 +34,16 @@ impl Sources for Files {
 
 fn bench(criterion: &mut Criterion) {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/phpstorm-stubs");
+
     if !root.join("standard").exists() {
         eprintln!("no corpus: run scripts/fetch-corpus.sh");
+
         return;
     }
+
     let mut index = Index::new(PhpVersion::V8_4);
     let mut project: HashMap<PathBuf, String> = HashMap::new();
+
     for (path, _) in discover_stubs(&root) {
         if let Ok(text) = std::fs::read_to_string(&path) {
             // The stubs stand in for the project's own files, so every search has files to read.
@@ -47,26 +51,33 @@ fn bench(criterion: &mut Criterion) {
             project.insert(path, text);
         }
     }
+
     let sources = Files(project);
     let current_path = root.join("standard/standard_0.php");
     let text = std::fs::read_to_string(&current_path).unwrap_or_default();
     let tree = parse(&text).syntax();
+
     criterion.bench_function("semantic tokens of a stub file", |bencher| {
         bencher.iter(|| semantic_tokens(&index, &tree, None).len());
     });
+
     criterion.bench_function("inlay hints of a stub file", |bencher| {
         bencher.iter(|| inlay_hints(&index, &tree, None, HintOptions::default()).len());
     });
+
     let call = "<?php\n$parts = explode(',', $text, 2);\n";
     let call_tree = parse(call).syntax();
     let offset = call.find("', $text").expect("a marker") as u32 + 1;
+
     criterion.bench_function("signature help in a call", |bencher| {
         bencher.iter(|| signature_help(&index, &call_tree, offset).is_some());
     });
+
     let usage = "<?php\nfunction f(\\DateTimeInterface $date) { return $date->format('c'); }\n";
     let usage_tree = parse(usage).syntax();
     let usage_offset = usage.find("DateTimeInterface").expect("a marker") as u32 + 3;
     let usage_path = root.join("current.php");
+
     criterion.bench_function("find usages of a class over the stubs", |bencher| {
         bencher.iter(|| {
             references_at(
@@ -82,6 +93,7 @@ fn bench(criterion: &mut Criterion) {
             .map(|found| found.files.len())
         });
     });
+
     criterion.bench_function("rename a class over the stubs", |bencher| {
         bencher.iter(|| {
             rename(

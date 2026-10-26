@@ -12,6 +12,7 @@ fn echo_and_simple_statements() {
           (EMPTY_STATEMENT ";"))
     "#]],
     );
+
     check(
         "return; return 1; break; break 2; continue 2;",
         expect![[r#"
@@ -24,6 +25,7 @@ fn echo_and_simple_statements() {
           (CONTINUE_STATEMENT "continue" (LITERAL "2") ";"))
     "#]],
     );
+
     check(
         "global $a, $$b; static $c = 1, $d; unset($a, $b['x']);",
         expect![[r#"
@@ -34,6 +36,7 @@ fn echo_and_simple_statements() {
           (UNSET_STATEMENT "unset" "(" (VARIABLE_EXPR "$a") "," (INDEX_EXPR (VARIABLE_EXPR "$b") "[" (LITERAL "'x'") "]") ")" ";"))
     "#]],
     );
+
     check(
         "goto end; end: echo 1;",
         expect![[r#"
@@ -44,6 +47,7 @@ fn echo_and_simple_statements() {
           (ECHO_STATEMENT "echo" (LITERAL "1") ";"))
     "#]],
     );
+
     check(
         "declare(strict_types=1);",
         expect![[r#"
@@ -52,6 +56,7 @@ fn echo_and_simple_statements() {
           (DECLARE_STATEMENT "declare" "(" (DECLARE_DIRECTIVE (NAME "strict_types") "=" (LITERAL "1")) ")" ";"))
     "#]],
     );
+
     check(
         "declare(ticks=1) { echo 1; }",
         expect![[r#"
@@ -63,6 +68,7 @@ fn echo_and_simple_statements() {
               "}")))
     "#]],
     );
+
     check(
         "declare(ticks=1): echo 1; enddeclare;",
         expect![[r#"
@@ -87,6 +93,7 @@ fn control_flow() {
                   "}") (ELSEIF_CLAUSE "elseif" "(" (VARIABLE_EXPR "$c") ")" (EXPR_STATEMENT (CALL_EXPR (NAME "d") (ARGUMENT_LIST "(" ")")) ";")) (ELSE_CLAUSE "else" (IF_STATEMENT "if" "(" (VARIABLE_EXPR "$e") ")" (EXPR_STATEMENT (CALL_EXPR (NAME "f") (ARGUMENT_LIST "(" ")")) ";") (ELSE_CLAUSE "else" (EXPR_STATEMENT (CALL_EXPR (NAME "g") (ARGUMENT_LIST "(" ")")) ";"))))))
         "#]],
     );
+
     check(
         "while ($a) $b++;",
         expect![[r#"
@@ -95,6 +102,7 @@ fn control_flow() {
           (WHILE_STATEMENT "while" "(" (VARIABLE_EXPR "$a") ")" (EXPR_STATEMENT (POSTFIX_EXPR (VARIABLE_EXPR "$b") "++") ";")))
     "#]],
     );
+
     check(
         "do { $a++; } while ($a < 3);",
         expect![[r#"
@@ -106,6 +114,7 @@ fn control_flow() {
               "}") "while" "(" (BINARY_EXPR (VARIABLE_EXPR "$a") "<" (LITERAL "3")) ")" ";"))
     "#]],
     );
+
     check(
         "for ($i = 0, $j = 1; $i < 3; $i++, $j--) {}",
         expect![[r#"
@@ -116,6 +125,7 @@ fn control_flow() {
               "}")))
     "#]],
     );
+
     check(
         "for (;;) {}",
         expect![[r#"
@@ -126,6 +136,7 @@ fn control_flow() {
               "}")))
     "#]],
     );
+
     check(
         "foreach ($a as $k => &$v) {}",
         expect![[r#"
@@ -136,6 +147,7 @@ fn control_flow() {
               "}")))
     "#]],
     );
+
     check(
         "foreach ($a as [$x, $y]) {}",
         expect![[r#"
@@ -146,6 +158,7 @@ fn control_flow() {
               "}")))
     "#]],
     );
+
     check(
         "foreach ($a as ['k' => $x]) {}",
         expect![[r#"
@@ -156,6 +169,7 @@ fn control_flow() {
               "}")))
     "#]],
     );
+
     check(
         "switch ($a) { case 1: case 2; echo 1; break; default: echo 2; }",
         expect![[r#"
@@ -164,6 +178,7 @@ fn control_flow() {
               (SWITCH_STATEMENT "switch" "(" (VARIABLE_EXPR "$a") ")" "{" (CASE_CLAUSE "case" (LITERAL "1") ":") (CASE_CLAUSE "case" (LITERAL "2") ";" (ECHO_STATEMENT "echo" (LITERAL "1") ";") (BREAK_STATEMENT "break" ";")) (DEFAULT_CLAUSE "default" ":" (ECHO_STATEMENT "echo" (LITERAL "2") ";")) "}"))
         "#]],
     );
+
     check(
         "try { a(); } catch (A | B $e) { b(); } catch (C) {} finally { c(); }",
         expect![[r#"
@@ -198,6 +213,7 @@ fn alternative_syntax() {
                     (ECHO_STATEMENT "echo" (LITERAL "3") ";"))) "endif" ";"))
         "#]],
     );
+
     check(
         "while ($a): $b++; endwhile;",
         expect![[r#"
@@ -207,6 +223,7 @@ fn alternative_syntax() {
               (EXPR_STATEMENT (POSTFIX_EXPR (VARIABLE_EXPR "$b") "++") ";")) "endwhile" ";"))
     "#]],
     );
+
     check(
         "for ($i = 0; $i < 3; $i++): echo $i; endfor;",
         expect![[r#"
@@ -216,6 +233,7 @@ fn alternative_syntax() {
               (ECHO_STATEMENT "echo" (VARIABLE_EXPR "$i") ";")) "endfor" ";"))
     "#]],
     );
+
     check(
         "foreach ($a as $b): echo $b; endforeach;",
         expect![[r#"
@@ -225,6 +243,7 @@ fn alternative_syntax() {
               (ECHO_STATEMENT "echo" (VARIABLE_EXPR "$b") ";")) "endforeach" ";"))
     "#]],
     );
+
     check(
         "switch ($a): case 1: echo 1; endswitch;",
         expect![[r#"
@@ -238,6 +257,7 @@ fn alternative_syntax() {
 #[test]
 fn inline_html_and_tags() {
     let text = "?>\n<ul><?php foreach ($a as $b): ?>\n<li><?= $b ?></li>\n<?php endforeach; ?>\n</ul>\n";
+
     check(
         text,
         expect![[r#"
@@ -270,6 +290,7 @@ fn namespaces_and_use() {
               (ECHO_STATEMENT "echo" (LITERAL "1") ";"))))
     "#]],
     );
+
     check(
         "namespace A { class B {} } namespace { class C {} }",
         expect![[r#"
@@ -289,6 +310,7 @@ fn namespaces_and_use() {
               "}")))
     "#]],
     );
+
     check(
         "use A\\{B, C as D, function e, const F};",
         expect![[r#"
@@ -297,6 +319,7 @@ fn namespaces_and_use() {
           (USE_STATEMENT "use" (USE_GROUP (NAME "A") "\\" "{" (USE_CLAUSE (NAME "B")) "," (USE_CLAUSE (NAME "C") "as" (NAME "D")) "," (USE_CLAUSE "function" (NAME "e")) "," (USE_CLAUSE "const" (NAME "F")) "}") ";"))
     "#]],
     );
+
     check(
         "use function A\\f, A\\g; use const A\\C as K;",
         expect![[r#"
@@ -320,6 +343,7 @@ fn functions() {
                   "}")))
         "#]],
     );
+
     check(
         "function &ref(): iterable {}",
         expect![[r#"
@@ -330,6 +354,7 @@ fn functions() {
               "}")))
     "#]],
     );
+
     check(
         "#[A, B(1)] #[C] function g() {}",
         expect![[r##"
@@ -340,6 +365,7 @@ fn functions() {
               "}")))
     "##]],
     );
+
     check(
         "function f(#[SensitiveParameter] $secret, $a = new Foo(1)) {}",
         expect![[r##"
@@ -350,6 +376,7 @@ fn functions() {
                   "}")))
         "##]],
     );
+
     check(
         "const A = 1, B = 'x';",
         expect![[r#"
@@ -358,6 +385,7 @@ fn functions() {
           (CONST_STATEMENT "const" (CONST_ELEMENT (NAME "A") "=" (LITERAL "1")) "," (CONST_ELEMENT (NAME "B") "=" (LITERAL "'x'")) ";"))
     "#]],
     );
+
     check(
         "#[Attr] const C = 1;",
         expect![[r##"
@@ -381,6 +409,7 @@ fn classes() {
                   "}")))
         "#]],
     );
+
     check(
         "final readonly class P { public function __construct(public int $x, private readonly string $y = 'a') {} }",
         expect![[r#"
@@ -394,6 +423,7 @@ fn classes() {
                   "}")))
         "#]],
     );
+
     check(
         "class K { const A = 1, B = 2; public const int C = 3; final protected const D = 4; }",
         expect![[r#"
@@ -407,6 +437,7 @@ fn classes() {
                   "}")))
         "#]],
     );
+
     check(
         "class V { var $a; public ?int $b = null; static public array $c = []; public int|string $d, $e; }",
         expect![[r#"
@@ -421,6 +452,7 @@ fn classes() {
                   "}")))
         "#]],
     );
+
     check(
         "class T { use A, B { A::f insteadof B; B::f as protected g; h as private; } }",
         expect![[r#"
@@ -437,6 +469,7 @@ fn classes() {
                   "}")))
         "#]],
     );
+
     check(
         "class M { public static function make(): static { return new static; } function list() {} function class() {} }",
         expect![[r#"
@@ -457,6 +490,7 @@ fn classes() {
                   "}")))
         "#]],
     );
+
     check(
         "/** Doc */ #[A] class D {}",
         expect![[r##"
@@ -483,6 +517,7 @@ fn interfaces_traits_and_enums() {
                   "}")))
         "#]],
     );
+
     check(
         "trait T { public $a; abstract public function f(); public static function g() {} }",
         expect![[r#"
@@ -498,6 +533,7 @@ fn interfaces_traits_and_enums() {
                   "}")))
         "#]],
     );
+
     check(
         "enum Suit { case Hearts; case Spades; public function label(): string { return 'x'; } const D = self::Hearts; }",
         expect![[r#"
@@ -515,6 +551,7 @@ fn interfaces_traits_and_enums() {
                   "}")))
         "#]],
     );
+
     check(
         "enum Status: string implements HasLabel { use Labels; case Active = 'a'; case Off = 'o'; }",
         expect![[r#"
@@ -528,6 +565,7 @@ fn interfaces_traits_and_enums() {
                   "}")))
         "#]],
     );
+
     check(
         "enum E: int { case A = 1 << 0; }",
         expect![[r#"
@@ -561,6 +599,7 @@ fn property_hooks_and_asymmetric_visibility() {
                   "}")))
         "#]],
     );
+
     check(
         "class P { public int $x { get; set; } public ?int $y = 1 { final get => 1; &get { return $this->y; } } }",
         expect![[r#"
@@ -584,6 +623,7 @@ fn property_hooks_and_asymmetric_visibility() {
                   "}")))
         "#]],
     );
+
     check(
         "class P { public private(set) int $a = 0; protected(set) readonly int $b; public public(set) static int $c = 0; }",
         expect![[r#"
@@ -597,6 +637,7 @@ fn property_hooks_and_asymmetric_visibility() {
                   "}")))
         "#]],
     );
+
     check(
         "class P { public function __construct(public protected(set) string $a, final public int $b { get => 1; }) {} }",
         expect![[r#"
@@ -613,6 +654,7 @@ fn property_hooks_and_asymmetric_visibility() {
                   "}")))
         "#]],
     );
+
     check(
         "class P { public int $a { #[A] set(int $v) => $this->a = $v; } }",
         expect![[r##"
@@ -645,8 +687,10 @@ fn halt_compiler() {
 #[test]
 fn doc_comments_belong_to_declarations() {
     use crate::{DumpOptions, dump, parse};
+
     let parsed =
         parse("<?php\n/** A */\nclass A {\n    /** m */\n    public function m() {}\n}\n\n/** x */\n$x = 1;\n");
+
     let tree = dump(
         &parsed.syntax(),
         DumpOptions {
@@ -654,6 +698,7 @@ fn doc_comments_belong_to_declarations() {
             ranges: true,
         },
     );
+
     expect![[r#"
         SOURCE_FILE@0..85
           OPEN_TAG@0..6 "<?php\n"
@@ -710,12 +755,14 @@ fn doc_comments_belong_to_declarations() {
 #[test]
 fn the_first_declaration_of_a_namespace_owns_its_doc_comment() {
     use crate::{SyntaxKind, parse};
+
     for text in [
         "<?php\nnamespace A;\n\n/** doc */\nclass C {}\n",
         "<?php\nnamespace A {\n    /** doc */\n    class C {}\n}\n",
         "<?php\nif ($a):\n    /** doc */\n    function f() {}\nendif;\n",
     ] {
         let parsed = parse(text);
+
         let declaration = parsed
             .syntax()
             .descendants()
@@ -726,6 +773,7 @@ fn the_first_declaration_of_a_namespace_owns_its_doc_comment() {
                 )
             })
             .expect("a declaration");
+
         let first = declaration.first_token().expect("a token");
         assert_eq!(first.kind(), SyntaxKind::DOC_COMMENT, "{text}");
         assert_eq!(parsed.syntax().text().to_string(), text);

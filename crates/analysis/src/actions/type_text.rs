@@ -26,17 +26,21 @@ pub fn native_type_text(ty: &Type, class: &mut dyn FnMut(&str) -> String) -> Opt
         Type::Class { name, .. } => class(name),
         Type::Union(members) => {
             let nullable = members.len() == 2 && members.contains(&Type::Null);
+
             if nullable {
                 let other = members.iter().find(|member| **member != Type::Null)?;
+
                 if matches!(other, Type::Intersection(_) | Type::Union(_)) {
                     return None;
                 }
+
                 format!("?{}", native_type_text(other, class)?)
             } else {
                 let parts: Option<Vec<String>> = members
                     .iter()
                     .map(|member| {
                         let text = native_type_text(member, class)?;
+
                         Some(if matches!(member, Type::Intersection(_)) {
                             format!("({text})")
                         } else {
@@ -44,11 +48,13 @@ pub fn native_type_text(ty: &Type, class: &mut dyn FnMut(&str) -> String) -> Opt
                         })
                     })
                     .collect();
+
                 parts?.join("|")
             }
         }
         Type::Intersection(members) => {
             let parts: Option<Vec<String>> = members.iter().map(|member| native_type_text(member, class)).collect();
+
             parts?.join("&")
         }
         _ => return None,

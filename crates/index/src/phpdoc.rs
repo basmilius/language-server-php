@@ -13,12 +13,16 @@ use crate::types::{CallableParam, CallableType, Conditional, ShapeField, Type};
 /// What a type in a doc comment is read against.
 pub struct TypeContext<'a> {
     pub resolver: &'a NameResolver,
+
     /// The class the comment is in, which `self` names.
     pub class_name: Option<&'a str>,
+
     pub parent_name: Option<&'a str>,
     pub in_trait: bool,
+
     /// Names of `@template` in scope.
     pub templates: Vec<String>,
+
     /// The type aliases of the class, by name.
     pub aliases: Vec<(String, Type)>,
 }
@@ -40,9 +44,11 @@ impl<'a> TypeContext<'a> {
         if self.templates.iter().any(|name| name == raw) {
             return Type::Template(raw.to_string());
         }
+
         if let Some((_, ty)) = self.aliases.iter().find(|(name, _)| name == raw) {
             return ty.clone();
         }
+
         match raw.to_ascii_lowercase().as_str() {
             "self" => match self.class_name {
                 Some(name) if !self.in_trait => Type::class(name),
@@ -62,6 +68,7 @@ impl<'a> TypeContext<'a> {
 /// `None` when nothing of it reads as a type.
 pub fn parse_type(text: &str, cx: &TypeContext) -> Option<Type> {
     let mut parser = TypeParser::new(text, cx);
+
     parser.top()
 }
 
@@ -69,6 +76,7 @@ pub fn parse_type(text: &str, cx: &TypeContext) -> Option<Type> {
 pub fn parse_type_prefix(text: &str, cx: &TypeContext) -> Option<(Type, usize)> {
     let mut parser = TypeParser::new(text, cx);
     let ty = parser.top()?;
+
     Some((ty, parser.pos))
 }
 
@@ -102,6 +110,7 @@ impl<'a> TypeParser<'a> {
     fn eat(&mut self, expected: char) -> bool {
         if self.peek() == Some(expected) {
             self.pos += expected.len_utf8();
+
             true
         } else {
             false
@@ -115,6 +124,7 @@ impl<'a> TypeParser<'a> {
 
     fn top(&mut self) -> Option<Type> {
         self.skip_ws();
+
         self.conditional_or_union()
     }
 
@@ -122,62 +132,82 @@ impl<'a> TypeParser<'a> {
         if self.depth > MAX_DEPTH {
             return None;
         }
+
         self.depth += 1;
         let result = self.conditional_or_union_inner();
         self.depth -= 1;
+
         result
     }
 
     fn conditional_or_union_inner(&mut self) -> Option<Type> {
         let start = self.pos;
         let mut subject = None;
+
         let first = if self.peek() == Some('$') && !self.rest().starts_with("$this") {
             let name = self.variable_name()?;
             subject = Some(name);
+
             None
         } else {
             let ty = self.union()?;
+
             Some(ty)
         };
+
         let after = self.pos;
         self.skip_ws();
         let is_keyword = self.rest().starts_with("is ") || self.rest().starts_with("is\t");
+
         if !is_keyword {
             self.pos = after;
+
             if let Some(ty) = first {
                 return Some(ty);
             }
+
             self.pos = start;
+
             return self.union();
         }
+
         let subject = match (subject, &first) {
             (Some(name), _) => name,
             (None, Some(Type::Template(name))) => name.clone(),
             (None, Some(other)) => other.display(false),
             _ => return None,
         };
+
         self.pos += 2;
         self.skip_ws();
+
         let negated = if self.rest().starts_with("not ") {
             self.pos += 4;
             self.skip_ws();
+
             true
         } else {
             false
         };
+
         let is = self.union()?;
         self.skip_ws();
+
         if !self.eat('?') {
             return None;
         }
+
         self.skip_ws();
         let then = self.conditional_or_union()?;
         self.skip_ws();
+
         if !self.eat(':') {
             return None;
         }
+
         self.skip_ws();
         let otherwise = self.conditional_or_union()?;
+
         Some(Type::Conditional(Box::new(Conditional {
             subject,
             is,
@@ -190,54 +220,70 @@ impl<'a> TypeParser<'a> {
     fn variable_name(&mut self) -> Option<String> {
         let rest = self.rest();
         let bytes = rest.as_bytes();
+
         if bytes.first() != Some(&b'$') {
             return None;
         }
+
         let mut end = 1;
+
         while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] >= 0x80) {
             end += 1;
         }
+
         if end == 1 {
             return None;
         }
+
         self.pos += end;
+
         Some(rest[..end].to_string())
     }
 
     fn union(&mut self) -> Option<Type> {
         let mut members = vec![self.intersection()?];
+
         while self.peek() == Some('|') {
             self.pos += 1;
             members.push(self.intersection()?);
         }
+
         Some(Type::union(members))
     }
 
     fn intersection(&mut self) -> Option<Type> {
         let mut members = vec![self.postfix()?];
+
         loop {
             if self.peek() != Some('&') {
                 break;
             }
+
             let next = self.rest()[1..].chars().next();
+
             if next.is_none_or(|c| c.is_whitespace() || c == '$' || c == '.' || c == '&') {
                 break;
             }
+
             self.pos += 1;
             members.push(self.postfix()?);
         }
+
         if members.len() == 1 {
             return members.pop();
         }
+
         Some(Type::Intersection(members))
     }
 
     fn postfix(&mut self) -> Option<Type> {
         let mut ty = self.atom()?;
+
         while self.rest().starts_with("[]") {
             self.pos += 2;
             ty = Type::List(Box::new(ty));
         }
+
         Some(ty)
     }
 
@@ -246,6 +292,7 @@ impl<'a> TypeParser<'a> {
             '?' => {
                 self.pos += 1;
                 let inner = self.atom()?;
+
                 Some(inner.nullable())
             }
             '(' => {
@@ -253,15 +300,18 @@ impl<'a> TypeParser<'a> {
                 self.skip_ws();
                 let inner = self.conditional_or_union()?;
                 self.skip_ws();
+
                 if !self.eat(')') {
                     return None;
                 }
+
                 Some(inner)
             }
             '\'' | '"' => self.string_literal(),
             '$' => {
                 if self.rest().starts_with("$this") {
                     self.pos += 5;
+
                     Some(Type::Static)
                 } else {
                     None
@@ -279,6 +329,7 @@ impl<'a> TypeParser<'a> {
         let end = rest.find(quote)?;
         let value = rest[..end].to_string();
         self.pos += end + 2;
+
         Some(Type::StringLiteral(value))
     }
 
@@ -286,35 +337,46 @@ impl<'a> TypeParser<'a> {
         let rest = self.rest();
         let mut end = 0;
         let bytes = rest.as_bytes();
+
         if bytes[0] == b'-' {
             end = 1;
         }
+
         let digits_start = end;
+
         while end < bytes.len() && (bytes[end].is_ascii_digit() || bytes[end] == b'_') {
             end += 1;
         }
+
         if end == digits_start {
             return None;
         }
+
         let mut is_float = false;
+
         if end + 1 < bytes.len() && bytes[end] == b'.' && bytes[end + 1].is_ascii_digit() {
             is_float = true;
             end += 1;
+
             while end < bytes.len() && bytes[end].is_ascii_digit() {
                 end += 1;
             }
         }
+
         let text = &rest[..end];
         self.pos += end;
+
         if is_float {
             return Some(Type::Float);
         }
+
         Some(text.replace('_', "").parse().map(Type::IntLiteral).unwrap_or(Type::Int))
     }
 
     fn name(&mut self) -> Option<Type> {
         let rest = self.rest();
         let mut end = 0;
+
         for (index, c) in rest.char_indices() {
             if is_name_char(c) {
                 end = index + c.len_utf8();
@@ -322,22 +384,28 @@ impl<'a> TypeParser<'a> {
                 break;
             }
         }
+
         // A trailing hyphen belongs to prose ("string- ..."), not to the name.
         let raw = rest[..end].trim_end_matches('-');
+
         if raw.is_empty() {
             return None;
         }
+
         self.pos += raw.len();
         let lower = raw.to_ascii_lowercase();
 
         if self.rest().starts_with("::") {
             self.pos += 2;
             let rest = self.rest();
+
             let consumed = rest
                 .char_indices()
                 .find(|(_, c)| !(c.is_alphanumeric() || *c == '_' || *c == '*'))
                 .map_or(rest.len(), |(index, _)| index);
+
             self.pos += consumed;
+
             return Some(Type::Mixed);
         }
 
@@ -348,74 +416,92 @@ impl<'a> TypeParser<'a> {
             "class-string" | "trait-string" | "interface-string" | "enum-string" => {
                 if self.rest().starts_with('<') {
                     let args = self.generic_args()?;
+
                     return Some(Type::ClassString(args.into_iter().next().map(Box::new)));
                 }
+
                 return Some(Type::ClassString(None));
             }
             "callable" | "pure-callable" | "closure" | "\\closure" => {
                 let closure = lower.trim_start_matches('\\') == "closure";
+
                 if self.rest().starts_with('(') {
                     return self.callable_signature(closure);
                 }
+
                 if closure {
                     return Some(Type::class("Closure"));
                 }
+
                 return Some(Type::Callable(None));
             }
             "object" => {
                 if self.rest().starts_with('{') {
                     self.skip_braces();
                 }
+
                 return Some(Type::Object);
             }
             "int" | "integer" => {
                 if self.rest().starts_with('<') {
                     self.generic_args()?;
                 }
+
                 return Some(Type::Int);
             }
             "int-mask-of" | "int-mask" => {
                 if self.rest().starts_with('<') {
                     self.generic_args()?;
                 }
+
                 return Some(Type::Int);
             }
             "key-of" | "value-of" | "properties-of" | "new" | "template-type" => {
                 if self.rest().starts_with('<') {
                     self.generic_args()?;
                 }
+
                 return Some(Type::Mixed);
             }
             _ => {}
         }
+
         if let Some(simple) = simple_keyword(&lower) {
             return Some(simple);
         }
+
         let ty = self.cx.class_type(raw);
+
         if self.rest().starts_with('<') {
             let args = self.generic_args()?;
+
             if let Type::Class { name, .. } = ty {
                 return Some(Type::Class { name, args });
             }
         }
+
         Some(ty)
     }
 
     fn skip_braces(&mut self) {
         let mut depth = 0;
+
         for (index, c) in self.rest().char_indices() {
             match c {
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
+
                     if depth == 0 {
                         self.pos += index + 1;
+
                         return;
                     }
                 }
                 _ => {}
             }
         }
+
         self.pos = self.src.len();
     }
 
@@ -423,12 +509,16 @@ impl<'a> TypeParser<'a> {
         if !self.eat('<') {
             return None;
         }
+
         let mut args = Vec::new();
+
         loop {
             self.skip_ws();
+
             if self.eat('>') {
                 break;
             }
+
             if self.eat('*') {
                 args.push(Type::Mixed);
             } else if self.rest().starts_with("max") || self.rest().starts_with("min") {
@@ -437,16 +527,22 @@ impl<'a> TypeParser<'a> {
             } else {
                 args.push(self.conditional_or_union()?);
             }
+
             self.skip_ws();
+
             if self.eat(',') {
                 continue;
             }
+
             self.skip_ws();
+
             if !self.eat('>') {
                 return None;
             }
+
             break;
         }
+
         Some(args)
     }
 
@@ -454,8 +550,10 @@ impl<'a> TypeParser<'a> {
         if self.rest().starts_with('{') {
             return self.shape(list);
         }
+
         if self.rest().starts_with('<') {
             let saved = self.pos;
+
             match self.generic_args() {
                 Some(mut args) => {
                     return match (list, args.len()) {
@@ -463,6 +561,7 @@ impl<'a> TypeParser<'a> {
                         (false, 1) => Type::array_of(args.remove(0)),
                         (false, _) => {
                             let key = args.remove(0);
+
                             Type::Array(Box::new(key), Box::new(args.remove(0)))
                         }
                     };
@@ -470,6 +569,7 @@ impl<'a> TypeParser<'a> {
                 None => self.pos = saved,
             }
         }
+
         if list {
             Type::List(Box::new(Type::Mixed))
         } else {
@@ -480,17 +580,20 @@ impl<'a> TypeParser<'a> {
     fn iterable(&mut self) -> Type {
         if self.rest().starts_with('<') {
             let saved = self.pos;
+
             match self.generic_args() {
                 Some(mut args) if args.len() == 1 => {
                     return Type::Iterable(Box::new(Type::ArrayKey), Box::new(args.remove(0)));
                 }
                 Some(mut args) if args.len() >= 2 => {
                     let key = args.remove(0);
+
                     return Type::Iterable(Box::new(key), Box::new(args.remove(0)));
                 }
                 _ => self.pos = saved,
             }
         }
+
         Type::Iterable(Box::new(Type::Mixed), Box::new(Type::Mixed))
     }
 
@@ -499,64 +602,85 @@ impl<'a> TypeParser<'a> {
         self.pos += 1;
         let mut fields = Vec::new();
         let mut index = 0u32;
+
         loop {
             self.skip_ws();
+
             if self.eat('}') {
                 break;
             }
+
             if self.rest().starts_with("...") {
                 self.pos += 3;
                 self.skip_ws();
+
                 if self.peek() != Some('}') && self.peek() != Some(',') {
                     let _ = self.conditional_or_union();
                 }
+
                 self.skip_ws();
                 self.eat(',');
+
                 continue;
             }
+
             let Some(field) = self.shape_field(&mut index, list) else {
                 self.pos = start;
                 self.skip_braces();
+
                 return if list {
                     Type::List(Box::new(Type::Mixed))
                 } else {
                     Type::plain_array()
                 };
             };
+
             fields.push(field);
             self.skip_ws();
+
             if self.eat(',') {
                 continue;
             }
+
             self.skip_ws();
+
             if !self.eat('}') {
                 self.pos = start;
                 self.skip_braces();
+
                 return Type::plain_array();
             }
+
             break;
         }
+
         Type::Shape(fields)
     }
 
     fn shape_field(&mut self, index: &mut u32, list: bool) -> Option<ShapeField> {
         let saved = self.pos;
+
         if let Some((key, optional)) = self.shape_key() {
             self.skip_ws();
             let ty = self.conditional_or_union()?;
+
             return Some(ShapeField {
                 key: Some(key),
                 optional,
                 ty,
             });
         }
+
         self.pos = saved;
         let ty = self.conditional_or_union()?;
+
         let key = list.then(|| {
             let key = index.to_string();
             *index += 1;
+
             key
         });
+
         Some(ShapeField {
             key,
             optional: false,
@@ -567,10 +691,12 @@ impl<'a> TypeParser<'a> {
     /// A key followed by `:` or `?:`, which tells a shape entry from a bare type.
     fn shape_key(&mut self) -> Option<(String, bool)> {
         let rest = self.rest();
+
         let (key, consumed) = match rest.chars().next()? {
             quote @ ('\'' | '"') => {
                 let inner = &rest[1..];
                 let end = inner.find(quote)?;
+
                 (inner[..end].to_string(), end + 2)
             }
             c if c.is_alphanumeric() || c == '_' || c == '-' => {
@@ -578,22 +704,30 @@ impl<'a> TypeParser<'a> {
                     .char_indices()
                     .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
                     .map_or(rest.len(), |(index, _)| index);
+
                 (rest[..end].to_string(), end)
             }
             _ => return None,
         };
+
         let after = &rest[consumed..];
+
         if let Some(rest) = after.strip_prefix("?:") {
             self.pos += rest.as_ptr() as usize - self.rest().as_ptr() as usize;
+
             return Some((key, true));
         }
+
         if let Some(rest) = after.strip_prefix(':') {
             if rest.starts_with(':') {
                 return None;
             }
+
             self.pos += rest.as_ptr() as usize - self.rest().as_ptr() as usize;
+
             return Some((key, false));
         }
+
         None
     }
 
@@ -601,14 +735,19 @@ impl<'a> TypeParser<'a> {
         if !self.eat('(') {
             return None;
         }
+
         let mut params = Vec::new();
+
         loop {
             self.skip_ws();
+
             if self.eat(')') {
                 break;
             }
+
             let ty = self.conditional_or_union()?;
             self.skip_ws();
+
             let mut param = CallableParam {
                 ty,
                 optional: false,
@@ -616,41 +755,52 @@ impl<'a> TypeParser<'a> {
                 by_ref: false,
                 name: None,
             };
+
             if self.eat('&') {
                 param.by_ref = true;
                 self.skip_ws();
             }
+
             if self.rest().starts_with("...") {
                 self.pos += 3;
                 param.variadic = true;
                 self.skip_ws();
             }
+
             if self.peek() == Some('$') {
                 let name = self.variable_name()?;
                 param.name = Some(name);
             }
+
             if self.eat('=') {
                 param.optional = true;
             }
+
             params.push(param);
             self.skip_ws();
+
             if self.eat(',') {
                 continue;
             }
+
             if !self.eat(')') {
                 return None;
             }
+
             break;
         }
+
         let mut ret = None;
         let before = self.pos;
         self.skip_ws();
+
         if self.eat(':') {
             self.skip_ws();
             ret = Some(self.postfix_union_for_return()?);
         } else {
             self.pos = before;
         }
+
         Some(Type::Callable(Some(Box::new(CallableType { closure, params, ret }))))
     }
 
@@ -708,10 +858,12 @@ fn simple_keyword(lower: &str) -> Option<Type> {
 pub fn clean_comment(raw: &str) -> Vec<String> {
     let body = raw.strip_prefix("/**").unwrap_or(raw);
     let body = body.strip_suffix("*/").unwrap_or(body);
+
     body.lines()
         .map(|line| {
             let line = line.trim_end();
             let trimmed = line.trim_start();
+
             match trimmed.strip_prefix('*') {
                 Some(rest) => rest.strip_prefix(' ').unwrap_or(rest).to_string(),
                 None => trimmed.to_string(),
@@ -727,23 +879,29 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
     let mut prose: Vec<String> = Vec::new();
     let mut tags: Vec<(String, String)> = Vec::new();
     let mut in_fence = false;
+
     for line in lines {
         let trimmed = line.trim_start();
+
         if trimmed.starts_with("```") {
             in_fence = !in_fence;
         }
+
         if !in_fence && let Some(rest) = trimmed.strip_prefix('@') {
             let name_end = rest.find(|c: char| c.is_whitespace() || c == '(').unwrap_or(rest.len());
             let name = rest[..name_end].to_string();
+
             if !name.is_empty()
                 && name
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':')
             {
                 tags.push((name, rest[name_end..].trim_start().to_string()));
+
                 continue;
             }
         }
+
         match tags.last_mut() {
             Some((_, text)) => {
                 if !line.trim().is_empty() || !text.is_empty() {
@@ -769,6 +927,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
         templates: cx.templates.clone(),
         aliases: cx.aliases.clone(),
     };
+
     for (name, text) in &tags {
         if is_tag(name, "template")
             || name == "template-covariant"
@@ -778,6 +937,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
             || name.ends_with("-template-contravariant")
         {
             let template = parse_template(text, &scoped);
+
             if let Some(template) = template {
                 scoped.templates.push(template.name.clone());
                 doc.templates.push(template);
@@ -798,6 +958,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
                 if let Some((alias, ty)) = parse_type_alias(text, &scoped) {
                     scoped.aliases.push((alias.clone(), ty.clone()));
                     let name_span = alias_span(raw, &alias);
+
                     doc.type_aliases.push(TypeAlias {
                         name: alias,
                         ty,
@@ -812,6 +973,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
     for (name, text) in &tags {
         let tag = strip_prefix_vendor(name);
         let vendor = tag.len() != name.len();
+
         match tag {
             "param" => {
                 if let Some(param) = parse_param_tag(text, &scoped) {
@@ -832,13 +994,16 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
             "var" => {
                 if let Some((ty, used)) = parse_type_prefix(text, &scoped) {
                     let rest = text[used..].trim_start();
+
                     let (variable, description) = match rest.strip_prefix('$') {
                         Some(after) => {
                             let end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+
                             (Some(after[..end].to_string()), after[end..].trim().to_string())
                         }
                         None => (None, rest.trim().to_string()),
                     };
+
                     if doc.var.is_none() || vendor {
                         doc.var = Some((ty, variable, description));
                     }
@@ -890,6 +1055,7 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
                     "assert-if-false" => AssertWhen::IfFalse,
                     _ => AssertWhen::Always,
                 };
+
                 if let Some(assert) = parse_assert_tag(text, when, &scoped) {
                     doc.asserts.push(assert);
                 }
@@ -902,22 +1068,28 @@ pub fn parse_doc(raw: &str, cx: &TypeContext, stub: bool) -> Doc {
             }),
         }
     }
+
     doc
 }
 
 /// `Name = Type`, or `Name Type` as PHPStan also takes it.
 fn parse_type_alias(text: &str, cx: &TypeContext) -> Option<(String, Type)> {
     let text = text.trim_start();
+
     let end = text
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .unwrap_or(text.len());
+
     let name = &text[..end];
+
     if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
+
     let rest = text[end..].trim_start();
     let rest = rest.strip_prefix('=').unwrap_or(rest).trim_start();
     let (ty, _) = parse_type_prefix(rest, cx)?;
+
     Some((name.to_string(), ty))
 }
 
@@ -925,22 +1097,28 @@ fn parse_type_alias(text: &str, cx: &TypeContext) -> Option<(String, Type)> {
 fn alias_span(raw: &str, alias: &str) -> Span {
     for (at, _) in raw.match_indices("-type") {
         let before = &raw[..at];
+
         if !(before.ends_with("@psalm") || before.ends_with("@phpstan")) {
             continue;
         }
+
         let rest = &raw[at + "-type".len()..];
         let trimmed = rest.trim_start();
+
         let follows = trimmed
             .strip_prefix(alias)
             .is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'));
+
         if follows && trimmed.len() < rest.len() {
             let start = (raw.len() - trimmed.len()) as u32;
+
             return Span {
                 start,
                 end: start + alias.len() as u32,
             };
         }
     }
+
     Span::default()
 }
 
@@ -948,14 +1126,18 @@ fn alias_span(raw: &str, alias: &str) -> Span {
 fn parse_type_import(text: &str, cx: &TypeContext) -> Option<TypeImport> {
     let mut words = text.split_whitespace();
     let name = words.next()?.to_string();
+
     if !words.next()?.eq_ignore_ascii_case("from") {
         return None;
     }
+
     let class = cx.resolver.resolve_class(words.next()?);
+
     let alias = match words.next() {
         Some(word) if word.eq_ignore_ascii_case("as") => words.next()?.to_string(),
         _ => name.clone(),
     };
+
     Some(TypeImport { alias, name, class })
 }
 
@@ -976,36 +1158,48 @@ fn strip_prefix_vendor(name: &str) -> &str {
 
 fn first_version(text: &str) -> Option<u16> {
     let word = text.split_whitespace().next()?;
+
     if !word.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
+
     PhpVersion::parse(word).map(encode_version)
 }
 
 /// The summary is the first paragraph, up to a period at the end of a line when there is one.
 fn split_prose(lines: &[String]) -> (String, String) {
     let mut start = 0;
+
     while start < lines.len() && lines[start].trim().is_empty() {
         start += 1;
     }
+
     let mut end = lines.len();
+
     while end > start && lines[end - 1].trim().is_empty() {
         end -= 1;
     }
+
     let lines = &lines[start..end];
     let mut summary_end = lines.len();
+
     for (index, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
             summary_end = index;
+
             break;
         }
+
         if line.trim_end().ends_with('.') && index + 1 < lines.len() && !lines[index + 1].trim().is_empty() {
             summary_end = index + 1;
+
             break;
         }
     }
+
     let summary = lines[..summary_end].join("\n");
     let description = lines[summary_end..].join("\n").trim().to_string();
+
     (summary, description)
 }
 
@@ -1013,24 +1207,29 @@ fn parse_template(text: &str, cx: &TypeContext) -> Option<Template> {
     let text = text.trim();
     let end = text.find(|c: char| c.is_whitespace()).unwrap_or(text.len());
     let name = &text[..end];
+
     if name.is_empty() {
         return None;
     }
+
     let mut rest = text[end..].trim_start();
     let mut bound = None;
     let mut default = None;
+
     if let Some(after) = rest.strip_prefix("of ").or_else(|| rest.strip_prefix("as ")) {
         if let Some((ty, used)) = parse_type_prefix(after, cx) {
             bound = Some(ty);
             rest = after[used..].trim_start();
         }
     }
+
     if let Some(after) = rest.strip_prefix('=') {
         if let Some((ty, used)) = parse_type_prefix(after.trim_start(), cx) {
             default = Some(ty);
             rest = after.trim_start()[used..].trim_start();
         }
     }
+
     Some(Template {
         name: name.to_string(),
         bound,
@@ -1041,26 +1240,33 @@ fn parse_template(text: &str, cx: &TypeContext) -> Option<Template> {
 
 fn parse_param_tag(text: &str, cx: &TypeContext) -> Option<DocParam> {
     let text = text.trim_start();
+
     let (ty, rest) =
         if text.starts_with('$') || text.starts_with("&$") || text.starts_with("...$") || text.starts_with("&...$") {
             (None, text)
         } else {
             let (ty, used) = parse_type_prefix(text, cx)?;
+
             (Some(ty), text[used..].trim_start())
         };
+
     let mut rest = rest;
     let mut by_ref = false;
     let mut variadic = false;
+
     if let Some(after) = rest.strip_prefix('&') {
         by_ref = true;
         rest = after.trim_start();
     }
+
     if let Some(after) = rest.strip_prefix("...") {
         variadic = true;
         rest = after;
     }
+
     let after = rest.strip_prefix('$')?;
     let end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+
     Some(DocParam {
         name: after[..end].to_string(),
         ty,
@@ -1077,10 +1283,13 @@ fn parse_assert_tag(text: &str, when: AssertWhen, cx: &TypeContext) -> Option<Do
     text = text.trim_start_matches(['!', '=']);
     let (ty, used) = parse_type_prefix(text, cx)?;
     let rest = text[used..].trim_start();
+
     if !rest.starts_with('$') {
         return None;
     }
+
     let end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+
     Some(DocAssert {
         when,
         subject: rest[..end].to_string(),
@@ -1092,14 +1301,18 @@ fn parse_assert_tag(text: &str, when: AssertWhen, cx: &TypeContext) -> Option<Do
 
 fn parse_property_tag(text: &str, tag: &str, cx: &TypeContext) -> Option<DocProperty> {
     let text = text.trim_start();
+
     let (ty, rest) = if text.starts_with('$') {
         (None, text)
     } else {
         let (ty, used) = parse_type_prefix(text, cx)?;
+
         (Some(ty), text[used..].trim_start())
     };
+
     let after = rest.strip_prefix('$')?;
     let end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+
     Some(DocProperty {
         name: after[..end].to_string(),
         ty,
@@ -1112,39 +1325,50 @@ fn parse_property_tag(text: &str, tag: &str, cx: &TypeContext) -> Option<DocProp
 fn parse_method_tag(text: &str, cx: &TypeContext) -> Option<DocMethod> {
     let mut text = text.trim_start();
     let mut is_static = false;
+
     if let Some(rest) = text.strip_prefix("static ") {
         is_static = true;
         text = rest.trim_start();
     }
+
     let open = text.find('(')?;
     let head = text[..open].trim_end();
+
     let (ret, name) = match head.rsplit_once(char::is_whitespace) {
         Some((ret, name)) => (parse_type(ret.trim(), cx), name),
         None => (None, head),
     };
+
     if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return None;
     }
+
     let mut depth = 0;
     let mut close = None;
+
     for (index, c) in text[open..].char_indices() {
         match c {
             '(' | '<' | '{' | '[' => depth += 1,
             ')' | '>' | '}' | ']' => {
                 depth -= 1;
+
                 if depth == 0 {
                     close = Some(open + index);
+
                     break;
                 }
             }
             _ => {}
         }
     }
+
     let close = close?;
+
     let params = split_top_level(&text[open + 1..close])
         .into_iter()
         .filter_map(|piece| parse_param_tag(&piece, cx))
         .collect();
+
     Some(DocMethod {
         name: name.to_string(),
         is_static,
@@ -1158,6 +1382,7 @@ fn split_top_level(text: &str) -> Vec<String> {
     let mut pieces = Vec::new();
     let mut depth = 0;
     let mut start = 0;
+
     for (index, c) in text.char_indices() {
         match c {
             '(' | '<' | '{' | '[' => depth += 1,
@@ -1169,15 +1394,18 @@ fn split_top_level(text: &str) -> Vec<String> {
             _ => {}
         }
     }
+
     if !text[start..].trim().is_empty() {
         pieces.push(text[start..].to_string());
     }
+
     pieces
 }
 
 /// The type in an inline `/** @var Type $name */` comment.
 pub fn parse_var_comment(raw: &str, cx: &TypeContext) -> Option<(Type, Option<String>)> {
     let doc = parse_doc(raw, cx, false);
+
     doc.var.map(|(ty, name, _)| (ty, name))
 }
 
@@ -1188,6 +1416,7 @@ mod tests {
     fn resolver() -> NameResolver {
         let mut resolver = NameResolver::new("App");
         resolver.add_use(crate::resolve::UseKind::Class, "Illuminate\\Support\\Collection", None);
+
         resolver
     }
 
@@ -1196,6 +1425,7 @@ mod tests {
         let mut cx = TypeContext::new(&resolver);
         cx.templates = vec!["T".to_string(), "K".to_string()];
         cx.class_name = Some("App\\Box");
+
         parse_type(text, &cx).map_or_else(|| "<none>".to_string(), |ty| ty.display(false))
     }
 
@@ -1217,10 +1447,12 @@ mod tests {
         assert_eq!(ty("array<int>"), "array<int>");
         assert_eq!(ty("list<Foo>"), "list<App\\Foo>");
         assert_eq!(ty("Foo[]"), "list<App\\Foo>");
+
         assert_eq!(
             ty("Collection<int, User>"),
             "Illuminate\\Support\\Collection<int, App\\User>"
         );
+
         assert_eq!(ty("iterable<K, T>"), "iterable<K, T>");
         assert_eq!(ty("class-string<T>"), "class-string<T>");
         assert_eq!(ty("int<0, max>"), "int");
@@ -1255,6 +1487,7 @@ mod tests {
     fn doc(text: &str) -> Doc {
         let resolver = resolver();
         let cx = TypeContext::new(&resolver);
+
         parse_doc(text, &cx, true)
     }
 
@@ -1263,6 +1496,7 @@ mod tests {
         let doc = doc(
             "/**\n * Finds a user.\n *\n * Longer text\n * on two lines.\n *\n * @param int $id The id\n *   continued\n * @return User|null\n * @throws \\RuntimeException when gone\n * @deprecated use find()\n * @since 8.1\n * @see Foo::bar()\n */",
         );
+
         assert_eq!(doc.summary, "Finds a user.");
         assert_eq!(doc.description, "Longer text\non two lines.");
         assert_eq!(doc.params.len(), 1);
@@ -1280,6 +1514,7 @@ mod tests {
         let doc = doc(
             "/**\n * @template E of object\n * @param class-string<E> $expected\n * @phpstan-assert =E $actual\n * @psalm-assert !null $value\n * @phpstan-assert-if-true list<mixed> $this->items\n * @psalm-assert-if-false int|string $key\n */",
         );
+
         let shown: Vec<String> = doc
             .asserts
             .iter()
@@ -1294,6 +1529,7 @@ mod tests {
                 )
             })
             .collect();
+
         assert_eq!(
             shown,
             vec![
@@ -1317,6 +1553,7 @@ mod tests {
         let doc = doc(
             "/**\n * @template T of \\Countable\n * @template-covariant V = int\n * @extends Base<T>\n * @implements \\IteratorAggregate<int, V>\n * @mixin Helper\n * @property-read string $name The name\n * @method static self make(int $id, string ...$rest) Makes one\n */",
         );
+
         assert_eq!(doc.templates.len(), 2);
         assert_eq!(doc.templates[0].bound.as_ref().unwrap().display(false), "Countable");
         assert_eq!(doc.templates[1].default.as_ref().unwrap().display(false), "int");
@@ -1335,6 +1572,7 @@ mod tests {
         let doc = doc(
             "/**\n * @return array\n * @phpstan-return list<int>\n * @param array $a\n * @psalm-param non-empty-list<string> $a\n */",
         );
+
         assert_eq!(doc.ret.unwrap().0.display(false), "list<int>");
         assert_eq!(doc.params[0].ty.as_ref().unwrap().display(false), "list<string>");
     }

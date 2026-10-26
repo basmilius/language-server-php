@@ -54,9 +54,11 @@ pub fn kinds_of(ty: &Type) -> Option<Kinds> {
         Type::Callable(_) => Kinds::STRING.union(Kinds::ARRAY).union(Kinds::OBJECT),
         Type::Union(members) => {
             let mut all = Kinds::default();
+
             for member in members {
                 all = all.union(kinds_of(member)?);
             }
+
             all
         }
         _ => return None,
@@ -69,12 +71,15 @@ impl Cx<'_> {
     /// that is not known.
     pub fn hierarchy_complete(&self, name: &str) -> bool {
         let key = name.to_ascii_lowercase();
+
         if let Some(known) = self.complete.borrow().get(&key) {
             return *known;
         }
+
         self.complete.borrow_mut().insert(key.clone(), true);
         let verdict = self.compute_complete(name);
         self.complete.borrow_mut().insert(key, verdict);
+
         verdict
     }
 
@@ -82,17 +87,20 @@ impl Cx<'_> {
         let Some(class) = self.index.class(name) else {
             return false;
         };
+
         let decl = class.decl;
         let mut referenced: Vec<&Type> = Vec::new();
         referenced.extend(&decl.extends);
         referenced.extend(&decl.implements);
         referenced.extend(decl.trait_uses.iter().map(|usage| &usage.ty));
+
         if let Some(doc) = &decl.doc {
             referenced.extend(&doc.extends);
             referenced.extend(&doc.implements);
             referenced.extend(&doc.uses);
             referenced.extend(&doc.mixins);
         }
+
         referenced
             .iter()
             .flat_map(|ty| ty.class_names())
@@ -103,23 +111,29 @@ impl Cx<'_> {
     /// known and none is a trait, whose members belong to the class that uses it.
     pub fn known_classes(&self, ty: &Type) -> Option<Vec<String>> {
         let mut out = Vec::new();
+
         for member in ty.members() {
             let Type::Class { name, .. } = member else {
                 return None;
             };
+
             let class = self.index.class(name)?;
             let declared_once = self.index.class_declarations(name) == 1;
+
             if class.decl.kind == ClassKind::Trait || !declared_once || !self.hierarchy_complete(name) {
                 return None;
             }
+
             out.push(class.decl.name.clone());
         }
+
         (!out.is_empty()).then_some(out)
     }
 
     /// Whether a class or anything above it has one of the magic methods.
     pub fn has_magic(&self, class: &str, methods: &[&str]) -> bool {
         let ty = Type::class(class);
+
         methods
             .iter()
             .any(|method| self.index.find_method(&ty, method).is_some())
@@ -143,16 +157,21 @@ impl Cx<'_> {
         let (Some(given_kinds), Some(wanted_kinds)) = (kinds_of(given), kinds_of(wanted)) else {
             return false;
         };
+
         let mut accepted = wanted_kinds;
+
         if wanted_kinds.contains(Kinds::FLOAT) {
             accepted = accepted.union(Kinds::INT);
         }
+
         if !self.strict_types && wanted_kinds.intersects(Kinds::SCALAR) {
             accepted = accepted.union(Kinds::SCALAR);
+
             if lenient_null {
                 accepted = accepted.union(Kinds::NULL);
             }
         }
+
         if !given_kinds.intersects(accepted) {
             // An object that converts to a string is still accepted by a string in the default mode.
             return !(given_kinds.contains(Kinds::OBJECT)
@@ -160,6 +179,7 @@ impl Cx<'_> {
                 && wanted_kinds.contains(Kinds::STRING)
                 && self.may_convert_to_string(given));
         }
+
         self.classes_never_match(given, wanted)
     }
 
@@ -181,10 +201,13 @@ impl Cx<'_> {
                 _ => None,
             })
             .collect();
+
         let Some(given_classes) = given_classes else {
             return false;
         };
+
         let mut wanted_classes: Vec<&str> = Vec::new();
+
         for member in wanted.members() {
             match member {
                 Type::Class { name, .. } => wanted_classes.push(name),
@@ -193,10 +216,13 @@ impl Cx<'_> {
                 _ => return false,
             }
         }
+
         let accepts_string = !self.strict_types && wanted.members().iter().any(|member| matches!(member, Type::String));
+
         if wanted_classes.is_empty() {
             return false;
         }
+
         for given_class in given_classes {
             if accepts_string
                 && self
@@ -206,12 +232,14 @@ impl Cx<'_> {
             {
                 return false;
             }
+
             for wanted_class in &wanted_classes {
                 if !self.disjoint(given_class, wanted_class) {
                     return false;
                 }
             }
         }
+
         true
     }
 
@@ -227,9 +255,11 @@ impl Cx<'_> {
                 })
                 .collect()
         };
+
         let (Some(left), Some(right)) = (names(left), names(right)) else {
             return false;
         };
+
         !left.is_empty()
             && !right.is_empty()
             && left
@@ -247,20 +277,26 @@ impl Cx<'_> {
             "Iterator",
             "IteratorAggregate",
         ];
+
         if IMPLICIT.iter().any(|name| right.eq_ignore_ascii_case(name)) {
             return false;
         }
+
         let (Some(left_class), Some(right_class)) = (self.index.class(left), self.index.class(right)) else {
             return false;
         };
+
         if !self.hierarchy_complete(left) || !self.hierarchy_complete(right) {
             return false;
         }
+
         if self.index.is_subclass_of(left, right) || self.index.is_subclass_of(right, left) {
             return false;
         }
+
         let closed = |class: &php_index::Class<'_>| class.decl.is_final || matches!(class.decl.kind, ClassKind::Enum);
         let is_class = |class: &php_index::Class<'_>| class.decl.kind == ClassKind::Class;
+
         closed(&left_class) || closed(&right_class) || (is_class(&left_class) && is_class(&right_class))
     }
 }
@@ -272,6 +308,7 @@ pub(crate) fn sure_type(cx: &Cx, analyzer: &Analyzer<'_>, env: &Env, expr: &Synt
     match expr.kind() {
         LITERAL | ARRAY_EXPR | CAST_EXPR => {
             let ty = analyzer.type_of(expr, env);
+
             (!ty.is_unknown()).then_some(ty)
         }
         NAME => match text_of(expr).to_ascii_lowercase().as_str() {
@@ -289,6 +326,7 @@ pub(crate) fn sure_type(cx: &Cx, analyzer: &Analyzer<'_>, env: &Env, expr: &Synt
         },
         BINARY_EXPR => {
             let operator = ast::tokens(expr).find(|token| !token.kind().is_trivia())?;
+
             match operator.kind() {
                 DOT => Some(Type::String),
                 EQ | NEQ | IDENTICAL | NOT_IDENTICAL | LT | GT | LE | GE | AND_AND | OR_OR | INSTANCEOF_KW => {
@@ -314,14 +352,17 @@ pub(crate) fn callable_of(analyzer: &Analyzer<'_>, function: &SyntaxNode) -> php
         templates: Vec::new(),
         aliases: Vec::new(),
     });
+
     php_index::extract::callable_at(function, &analyzer.resolver, class_scope.as_ref()).0
 }
 
 fn sure_parameter_type(cx: &Cx, analyzer: &Analyzer<'_>, variable: &SyntaxNode) -> Option<Type> {
     let name = text_of(variable);
+
     let function = variable
         .ancestors()
         .find(|ancestor| matches!(ancestor.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION))?;
+
     if variable
         .ancestors()
         .take_while(|ancestor| *ancestor != function)
@@ -329,18 +370,24 @@ fn sure_parameter_type(cx: &Cx, analyzer: &Analyzer<'_>, variable: &SyntaxNode) 
     {
         return None;
     }
+
     if assigns_variable(&function, &name) {
         return None;
     }
+
     let callable = callable_of(analyzer, &function);
+
     let param: &Param = callable
         .params
         .iter()
         .find(|param| format!("${}", param.name) == name)?;
+
     if param.variadic || param.by_ref {
         return None;
     }
+
     let ty = param.native_type(cx.index.level)?.clone();
+
     // A parameter with a default of `null` takes null whatever its type says.
     let ty = if param
         .default
@@ -351,6 +398,7 @@ fn sure_parameter_type(cx: &Cx, analyzer: &Analyzer<'_>, variable: &SyntaxNode) 
     } else {
         ty
     };
+
     concrete(&ty)
 }
 
@@ -359,13 +407,17 @@ fn sure_property_type(cx: &Cx, analyzer: &Analyzer<'_>, env: &Env, access: &Synt
     let name = access.children().filter(|child| child.kind() == NAME).last()?;
     let receiver = analyzer.receiver_type(&analyzer.type_of(&object, env));
     let classes = cx.known_classes(&receiver)?;
+
     if classes.len() != 1 {
         return None;
     }
+
     let found = cx.index.find_property(&receiver, &text_of(&name))?;
+
     if found.member.is_static || found.member.doc_ty.is_some() && found.member.ty.is_none() {
         return None;
     }
+
     concrete(found.member.native_type(cx.index.level)?)
 }
 
@@ -373,30 +425,37 @@ fn sure_return_type(cx: &Cx, analyzer: &Analyzer<'_>, env: &Env, call: &SyntaxNo
     if crate::infer::is_first_class_callable(call) {
         return Some(Type::class("Closure"));
     }
+
     let mut callees = analyzer.callees(call, env);
     callees.dedup_by(|left, right| left.name == right.name);
+
     let [callee] = callees.as_slice() else {
         return None;
     };
+
     if callee.is_constructor || callee.name == "closure" {
         return None;
     }
+
     concrete(callee.callable.native_return(cx.index.level)?)
 }
 
 /// `$a?->b` is null when `$a` is, anywhere along the chain.
 fn with_nullsafe(expr: &SyntaxNode, ty: Type) -> Type {
     let mut current = Some(expr.clone());
+
     while let Some(node) = current {
         if matches!(node.kind(), PROPERTY_FETCH_EXPR) && ast::tokens(&node).any(|token| token.kind() == NULLSAFE_ARROW)
         {
             return ty.nullable();
         }
+
         current = match node.kind() {
             PROPERTY_FETCH_EXPR | CALL_EXPR | INDEX_EXPR | PAREN_EXPR => node.children().next(),
             _ => None,
         };
     }
+
     ty
 }
 
@@ -420,5 +479,6 @@ fn concrete(ty: &Type) -> Option<Type> {
                 | Type::Iterable(..)
         )
     });
+
     sure.then(|| ty.clone())
 }

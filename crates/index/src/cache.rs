@@ -42,6 +42,7 @@ impl Stamp {
         let metadata = fs::metadata(path).ok()?;
         let modified = metadata.modified().ok()?;
         let nanos = modified.duration_since(UNIX_EPOCH).ok()?.as_nanos();
+
         Some(Stamp {
             size: metadata.len(),
             mtime_ns: u64::try_from(nanos).unwrap_or(u64::MAX),
@@ -64,8 +65,10 @@ struct StoredHead {
     path: String,
     stamp: Stamp,
     hash: u64,
+
     /// Where the declarations start, counted from the start of the payloads.
     offset: u64,
+
     length: u32,
     summary: FileSummary,
 }
@@ -82,8 +85,10 @@ struct Header {
 pub struct CachedFile {
     pub stamp: Stamp,
     pub hash: u64,
+
     /// Absolute in the cache file.
     pub offset: u64,
+
     pub length: u32,
     pub summary: Arc<FileSummary>,
 }
@@ -101,6 +106,7 @@ impl CachedFile {
 /// The declarations of a file that goes into the cache file.
 pub enum Payload {
     Bytes(Vec<u8>),
+
     /// Declarations that are in an older cache file already.
     Stored {
         store: Arc<SymbolStore>,
@@ -155,6 +161,7 @@ pub struct Saved {
 #[derive(Default)]
 pub struct Cache {
     pub files: HashMap<String, CachedFile>,
+
     /// The cache file the declarations are read from. `None` for a cache that holds nothing.
     pub store: Option<Arc<SymbolStore>>,
 }
@@ -170,15 +177,18 @@ impl Cache {
         let store = Arc::new(SymbolStore::open(path).ok()?);
         let probe = store.read(0, 64.min(fs::metadata(path).ok()?.len() as usize)).ok()?;
         let (header, rest) = postcard::take_from_bytes::<Header>(&probe).ok()?;
+
         if header.magic != MAGIC || header.schema != SCHEMA {
             return None;
         }
+
         let header_length = probe.len() - rest.len();
         let index_length = u64::from_le_bytes(store.read(header_length as u64, 8).ok()?.try_into().ok()?);
         let index_start = header_length as u64 + 8;
         let index = store.read(index_start, usize::try_from(index_length).ok()?).ok()?;
         let heads: Vec<StoredHead> = postcard::from_bytes(&index).ok()?;
         let base = index_start + index_length;
+
         let files = heads
             .into_iter()
             .map(|head| {
@@ -194,6 +204,7 @@ impl Cache {
                 )
             })
             .collect();
+
         Some(Cache {
             files,
             store: Some(store),
@@ -205,10 +216,13 @@ impl Cache {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+
         let mut offset = 0u64;
         let mut heads = Vec::with_capacity(entries.len());
+
         for entry in &entries {
             let length = u32::try_from(entry.payload.length()).map_err(io::Error::other)?;
+
             heads.push(StoredHead {
                 path: entry.path.clone(),
                 stamp: entry.stamp,
@@ -217,21 +231,26 @@ impl Cache {
                 length,
                 summary: (*entry.summary).clone(),
             });
+
             offset += u64::from(length);
         }
+
         let header = postcard::to_stdvec(&Header {
             magic: MAGIC,
             schema: SCHEMA,
         })
         .map_err(io::Error::other)?;
+
         let index = postcard::to_stdvec(&heads).map_err(io::Error::other)?;
         let base = (header.len() + 8 + index.len()) as u64;
         let temporary = path.with_extension("tmp");
+
         {
             let mut out = io::BufWriter::new(fs::File::create(&temporary)?);
             out.write_all(&header)?;
             out.write_all(&(index.len() as u64).to_le_bytes())?;
             out.write_all(&index)?;
+
             for entry in &entries {
                 match &entry.payload {
                     Payload::Bytes(bytes) => out.write_all(bytes)?,
@@ -240,13 +259,17 @@ impl Cache {
                     }
                 }
             }
+
             out.flush()?;
         }
+
         fs::rename(&temporary, path)?;
+
         let places = heads
             .iter()
             .map(|head| (head.path.clone(), (base + head.offset, head.length)))
             .collect();
+
         Ok(Saved {
             store: Arc::new(SymbolStore::open(path)?),
             places,
@@ -269,16 +292,19 @@ mod tests {
         let symbols = extract(&parse(&text).syntax(), ExtractOptions::default());
         let stamp = Stamp::of(&source).expect("stat");
         let summary = Arc::new(FileSummary::of(&symbols));
+
         let entry =
             Entry::new(&source, stamp, content_hash(text.as_bytes()), summary.clone(), &symbols).expect("serialized");
 
         let path = dir.path().join("cache/project.bin");
         let saved = Cache::save(&path, vec![entry]).expect("saved");
         let key = source.to_string_lossy().into_owned();
+
         assert_eq!(
             saved.places[&key].1 as usize,
             postcard::to_stdvec(&symbols).expect("bytes").len()
         );
+
         let cache = Cache::load(&path);
         let loaded = cache.files.get(&key).expect("a record");
         assert_eq!(loaded.stamp, stamp);
@@ -298,10 +324,12 @@ mod tests {
                 length: loaded.length,
             },
         };
+
         let second = dir.path().join("cache/second.bin");
         Cache::save(&second, vec![again]).expect("saved");
         let copied = Cache::load(&second);
         let copy = copied.files.get(&key).expect("a record");
+
         assert_eq!(
             *copy
                 .source(copied.store.as_ref().expect("a store"))

@@ -158,11 +158,13 @@ fn found_with(files: &[(&str, &str)], code: &str, detection: Detection) -> Vec<S
     let fixture = Fixture::framework(&all);
     let root = parse(code).syntax();
     let env = Environment::new(Settings::default(), None, None);
+
     embedded(&fixture.index, &root, detection)
         .iter()
         .map(|found| {
             let analysis = Analysis::new(&env, &found.fragment);
             let dialect = found.dialect.map(|dialect| format!(" {dialect:?}")).unwrap_or_default();
+
             format!(
                 "{:?} {:?}{dialect}: {}",
                 found.reason,
@@ -195,10 +197,12 @@ $h = <<<TEXT
     SELECT 8 is not marked
     TEXT;
 "#;
+
     let detection = Detection {
         heuristic: false,
         ..Detection::default()
     };
+
     assert_eq!(
         found_with(&[], code, detection),
         [
@@ -226,6 +230,7 @@ function list_users(PDO $pdo, int $id, array $ids) {
     $pdo->quote('SELECT is a quote, not a query');
 }
 "#;
+
     assert_eq!(
         found(&[PDO], code),
         [
@@ -252,6 +257,7 @@ $heading = "Insert a new row";
 $this->select('Select a file');
 $pdo->query('Select a file');
 "#;
+
     assert_eq!(found(&[PDO], code), Vec::<String>::new());
 }
 
@@ -266,6 +272,7 @@ class Repository {
     }
 }
 "#;
+
     assert_eq!(
         found(&[], code),
         [
@@ -274,16 +281,19 @@ class Repository {
             "Heuristic Statements: UPDATE users SET name = ? WHERE id = ?",
         ]
     );
+
     let off = Detection {
         heuristic: false,
         ..Detection::default()
     };
+
     assert_eq!(found_with(&[], code, off), Vec::<String>::new());
 }
 
 #[test]
 fn postgresql_functions_take_the_query_with_or_without_a_connection() {
     let code = "<?php\npg_query('SELECT 1');\npg_query($connection, 'SELECT 2');\n";
+
     assert_eq!(
         found(&[PDO], code),
         [
@@ -313,6 +323,7 @@ function report(int $id) {
     Db::query()->select('id')->from('app_scan')->raw('for update');
 }
 "#;
+
     assert_eq!(
         found(&[RAXOS, SCAN], code),
         [
@@ -345,6 +356,7 @@ function report(Connection $db) {
     $db->table('orders as o')->selectRaw('count(*) as total')->orderBy($db->raw('total desc'));
 }
 "#;
+
     assert_eq!(
         found(&[LARAVEL, USER], code),
         [
@@ -369,6 +381,7 @@ function report(Connection $connection) {
     $builder->where('u.email = :email');
 }
 "#;
+
     assert_eq!(
         found(&[DBAL], code),
         [
@@ -387,6 +400,7 @@ function report(Connection $connection) {
 fn the_string_at_an_offset_is_read_alone() {
     let code =
         "<?php\nfunction f(PDO $pdo) { $sql = 'SELECT * FROM users'; $pdo->query($sql); echo 'Select a file'; }\n";
+
     let fixture = Fixture::framework(&[PDO, ("src/Test.php", code)]);
     let root = parse(code).syntax();
     let at = code.find("FROM").expect("a query") as u32;
@@ -411,6 +425,7 @@ function report(string $q, int $limit) {
     Db::prepare($query);
 }
 "#;
+
     assert_eq!(
         found(&[PDO, RAXOS, SCAN], code),
         [
@@ -423,8 +438,10 @@ function report(string $q, int $limit) {
 #[test]
 fn dql_reads_like_sql_and_is_left_to_doctrine() {
     use php_index::framework::testing::{DOCTRINE, SYMFONY};
+
     let mut files = SYMFONY.to_vec();
     files.extend_from_slice(DOCTRINE);
+
     let code = r#"<?php
 use Doctrine\ORM\EntityManagerInterface;
 function posts(EntityManagerInterface $em) {
@@ -432,6 +449,7 @@ function posts(EntityManagerInterface $em) {
     $em->createNativeQuery('SELECT id FROM posts WHERE title = :title', $mapping);
 }
 "#;
+
     assert_eq!(
         found(&files, code),
         ["Sink Statements: SELECT id FROM posts WHERE title = :title"]

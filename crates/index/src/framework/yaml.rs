@@ -63,8 +63,10 @@ enum Open {
 
 struct Builder<'a> {
     text: &'a str,
+
     /// The byte offset each character starts at.
     offsets: Vec<usize>,
+
     stack: Vec<Open>,
     root: Option<Node>,
 }
@@ -91,13 +93,16 @@ impl MarkedEventReceiver for Builder<'_> {
         match event {
             Event::Scalar(value, ..) => {
                 let mut start = self.byte_of(&mark);
+
                 if self.text[start..].starts_with(['\'', '"']) {
                     start += 1;
                 }
+
                 let span = Span {
                     start: start as u32,
                     end: (start + value.len()) as u32,
                 };
+
                 self.push(Node::Scalar { value, span });
             }
             Event::SequenceStart(..) => self.stack.push(Open::Seq(Vec::new())),
@@ -125,13 +130,16 @@ impl MarkedEventReceiver for Builder<'_> {
 pub fn parse(text: &str) -> Option<Node> {
     let mut offsets: Vec<usize> = text.char_indices().map(|(offset, _)| offset).collect();
     offsets.push(text.len());
+
     let mut builder = Builder {
         text,
         offsets,
         stack: Vec::new(),
         root: None,
     };
+
     Parser::new_from_str(text).load(&mut builder, false).ok()?;
+
     builder.root
 }
 
@@ -154,10 +162,12 @@ mod tests {
         assert_eq!(&SAMPLE[span.start as usize..span.end as usize], "app.mailer");
         let value = parameters.get("locale").and_then(Node::span).expect("a span");
         assert_eq!(&SAMPLE[value.start as usize..value.end as usize], "en");
+
         let argument = services
             .get("app.mailer")
             .and_then(|node| node.get("arguments"))
             .expect("arguments");
+
         assert_eq!(argument.items()[1].as_str(), Some("@logger"));
     }
 

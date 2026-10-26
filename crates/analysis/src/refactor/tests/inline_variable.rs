@@ -29,6 +29,7 @@ fn works_from_a_read_as_well() {
 #[test]
 fn leaves_off_parentheses_where_the_place_closes_the_value_in() {
     let found = inline("        $sum$0 = $a + $b;\n        foo($sum, [$sum]);\n        return $items[$sum];\n");
+
     assert!(
         found.contains("foo($a + $b, [$a + $b]);\n        return $items[$a + $b];"),
         "{found}"
@@ -52,6 +53,7 @@ fn a_call_moves_to_the_one_read_that_follows_it() {
 #[test]
 fn writes_a_value_into_a_string() {
     let found = inline("        $n$0 = $this->repo->count;\n        echo \"hi {$n} and $n\";\n        return 1;\n");
+
     assert!(
         found.contains("echo \"hi {$this->repo->count} and {$this->repo->count}\";"),
         "{found}"
@@ -68,10 +70,12 @@ fn offers_nothing_for_what_is_assigned_twice_or_not_at_all() {
     assert!(!titles.contains(&"Inline variable".to_string()));
     let titles = offered(&[], &method("        $x$0 = 1;\n        $x++;\n        return $x;\n"));
     assert!(!titles.contains(&"Inline variable".to_string()));
+
     let titles = offered(
         &[],
         &method("        $x$0 = [];\n        $x[] = 1;\n        return count($x);\n"),
     );
+
     assert!(!titles.contains(&"Inline variable".to_string()));
 }
 
@@ -96,10 +100,12 @@ fn refuses_to_move_a_call_past_other_effects() {
         ),
         "Inline variable",
     );
+
     assert_eq!(
         reason,
         "What the value reads or does may change before the variable is read"
     );
+
     let reason = refused(
         &[],
         &method(
@@ -107,7 +113,9 @@ fn refuses_to_move_a_call_past_other_effects() {
         ),
         "Inline variable",
     );
+
     assert_eq!(reason, "The value only runs sometimes where the variable is read");
+
     let reason = refused(
         &[],
         &method(
@@ -115,6 +123,7 @@ fn refuses_to_move_a_call_past_other_effects() {
         ),
         "Inline variable",
     );
+
     assert_eq!(reason, "Code between the assignment and the read may leave first");
 }
 
@@ -125,6 +134,7 @@ fn refuses_a_value_whose_inputs_change_before_the_read() {
         &method("        $sum$0 = $a + $b;\n        $a = 5;\n        return $sum;\n"),
         "Inline variable",
     );
+
     assert_eq!(
         reason,
         "What the value reads or does may change before the variable is read"
@@ -140,6 +150,7 @@ fn refuses_a_read_in_a_loop_whose_body_changes_the_inputs() {
         ),
         "Inline variable",
     );
+
     assert_eq!(
         reason,
         "What the value reads or does may change before the variable is read"

@@ -26,15 +26,20 @@ pub enum TwigKind {
 pub struct TwigCallable {
     pub kind: TwigKind,
     pub name: String,
+
     /// The class of a method, or `None` for a function or a closure.
     pub class: Option<String>,
+
     /// The method of the class, or the function.
     pub target: Option<String>,
+
     /// The parameters Twig fills itself before the arguments: the environment, the charset, the
     /// context.
     pub skipped: usize,
+
     /// Where the name is declared, inside its quotes.
     pub path: PathBuf,
+
     pub span: Span,
 }
 
@@ -69,47 +74,61 @@ impl TwigExtensions {
 impl Section for TwigExtensions {
     fn build(index: &Index) -> Self {
         let mut found = TwigExtensions::default();
+
         let mut paths: Vec<PathBuf> = index
             .all_subtypes(EXTENSION)
             .iter()
             .map(|class| class.file.path.clone())
             .collect();
+
         paths.sort();
         paths.dedup();
+
         for path in paths {
             let Some(text) = index.read_text(&path) else {
                 continue;
             };
+
             if !text.contains("Twig") {
                 continue;
             }
+
             read_extension(&path, &text, &mut found.entries);
         }
+
         for file in index.files() {
             if file.origin != crate::index::Origin::Project {
                 continue;
             }
+
             let marked = index.read_text(&file.path).is_some_and(|text| text.contains("AsTwig"));
+
             if !marked {
                 continue;
             }
+
             for class in &file.symbols().classes {
                 for method in &class.methods {
                     for attribute in &method.attributes {
                         let Some(kind) = attribute_kind(&attribute.name) else {
                             continue;
                         };
+
                         let named = |key: &str| attribute.args.iter().find(|arg| arg.name.as_deref() == Some(key));
+
                         let name = named("name")
                             .or_else(|| attribute.args.iter().find(|arg| arg.name.is_none()))
                             .and_then(|arg| unquote(&arg.value));
+
                         let Some(name) = name else {
                             continue;
                         };
+
                         let skipped = ["needsEnvironment", "needsCharset", "needsContext", "needsIsSandboxed"]
                             .iter()
                             .filter(|key| named(key).is_some_and(|arg| arg.value.eq_ignore_ascii_case("true")))
                             .count();
+
                         found.entries.push(TwigCallable {
                             kind,
                             name,
@@ -123,6 +142,7 @@ impl Section for TwigExtensions {
                 }
             }
         }
+
         found
     }
 
@@ -144,6 +164,7 @@ fn attribute_kind(name: &str) -> Option<TwigKind> {
 fn unquote(value: &str) -> Option<String> {
     let value = value.trim();
     let quote = value.chars().next().filter(|quote| matches!(quote, '\'' | '"'))?;
+
     value.strip_prefix(quote)?.strip_suffix(quote).map(str::to_string)
 }
 
@@ -158,15 +179,19 @@ fn kind_of(class: &str) -> Option<TwigKind> {
 
 fn read_extension(path: &Path, text: &str, out: &mut Vec<TwigCallable>) {
     let root = parse(text).syntax();
+
     for new in root.descendants().filter(|node| node.kind() == NEW_EXPR) {
         let Some(name) = new.children().find(|child| child.kind() == NAME) else {
             continue;
         };
+
         let offset = u32::from(new.text_range().start());
         let resolver = crate::extract::resolver_at(&root, offset);
+
         let Some(kind) = kind_of(&resolver.resolve_class(&name.text().to_string())) else {
             continue;
         };
+
         let arguments: Vec<SyntaxNode> = new
             .children()
             .find(|child| child.kind() == ARGUMENT_LIST)
@@ -177,20 +202,25 @@ fn read_extension(path: &Path, text: &str, out: &mut Vec<TwigCallable>) {
                     .collect()
             })
             .unwrap_or_default();
+
         let Some((twig_name, span)) = arguments.first().and_then(crate::test_facts::string_value) else {
             continue;
         };
+
         let class_of = |node: &SyntaxNode| {
             node.ancestors()
                 .find(|ancestor| matches!(ancestor.kind(), CLASS_DECLARATION | TRAIT_DECLARATION))
                 .and_then(|class| class.children().find(|child| child.kind() == NAME))
                 .map(|class| resolver.resolve_class(&class.text().to_string()))
         };
+
         let (class, target) = arguments
             .get(1)
             .map(|callable| callable_of(callable, &resolver, class_of(&new)))
             .unwrap_or((None, None));
+
         let skipped = arguments.get(2).map_or(0, needs);
+
         out.push(TwigCallable {
             kind,
             name: twig_name,
@@ -224,28 +254,34 @@ fn callable_of(
                 .filter(|child| child.kind() == ARRAY_ITEM)
                 .filter_map(|item| item.children().last())
                 .collect();
+
             let [subject, method] = items.as_slice() else {
                 return (None, None);
             };
+
             let Some((method, _)) = crate::test_facts::string_value(method) else {
                 return (None, None);
             };
+
             let class = match subject.kind() {
                 VARIABLE_EXPR if subject.text() == "$this" => own,
                 SCOPED_ACCESS_EXPR => class_constant_class(subject, resolver, own),
                 _ => crate::test_facts::string_value(subject).map(|(class, _)| resolver.resolve_class(&class)),
             };
+
             (class, Some(method))
         }
         CALL_EXPR => {
             let Some(callee) = node.children().next() else {
                 return (None, None);
             };
+
             let method = callee
                 .children()
                 .filter(|child| child.kind() == NAME)
                 .last()
                 .map(|name| name.text().to_string());
+
             let class = match callee.kind() {
                 PROPERTY_FETCH_EXPR => own,
                 SCOPED_ACCESS_EXPR => callee
@@ -255,6 +291,7 @@ fn callable_of(
                 NAME => return (None, Some(callee.text().to_string())),
                 _ => None,
             };
+
             (class, method)
         }
         _ => (None, None),
@@ -276,6 +313,7 @@ fn class_constant_class(
 ) -> Option<String> {
     let text = node.text().to_string();
     let class = text.strip_suffix("::class")?;
+
     Some(scoped_class(class.trim(), resolver, own))
 }
 
@@ -284,17 +322,21 @@ fn needs(options: &SyntaxNode) -> usize {
     if options.kind() != ARRAY_EXPR {
         return 0;
     }
+
     options
         .children()
         .filter(|child| child.kind() == ARRAY_ITEM)
         .filter(|item| {
             let parts: Vec<SyntaxNode> = item.children().collect();
+
             let [key, value] = parts.as_slice() else {
                 return false;
             };
+
             let named = crate::test_facts::string_value(key).is_some_and(|(key, _)| {
                 matches!(key.as_str(), "needs_environment" | "needs_charset" | "needs_context")
             });
+
             named && value.text().to_string().eq_ignore_ascii_case("true")
         })
         .count()
@@ -328,14 +370,17 @@ impl TwigShapes {
 impl Section for TwigShapes {
     fn build(index: &Index) -> Self {
         let templates = index.section::<Templates>();
+
         let shapes = templates
             .templates
             .iter()
             .filter_map(|template| {
                 let text = index.read_text(&template.path)?;
+
                 Some((template.path.clone(), shape_of(&text)))
             })
             .collect();
+
         TwigShapes { shapes }
     }
 
@@ -348,6 +393,7 @@ impl Section for TwigShapes {
 pub fn shape_of(text: &str) -> TemplateShape {
     let mut shape = TemplateShape::default();
     let mut at = 0;
+
     while let Some(found) = text[at..].find("{%") {
         let start = at + found + 2;
         at = start;
@@ -355,14 +401,17 @@ pub fn shape_of(text: &str) -> TemplateShape {
         let skipped = text[start..].len() - rest.len();
         let inner = rest.trim_start();
         let word_start = start + skipped + (rest.len() - inner.len());
+
         let word: String = inner
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
             .collect();
+
         let after = word_start + word.len();
         let tail = &text[after..];
         let name_offset = after + (tail.len() - tail.trim_start().len());
         let tail = tail.trim_start();
+
         match word.as_str() {
             "extends" if shape.extends.is_none() => {
                 if let Some(quote) = tail.chars().next().filter(|quote| matches!(quote, '\'' | '"')) {
@@ -376,6 +425,7 @@ pub fn shape_of(text: &str) -> TemplateShape {
                     .chars()
                     .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
                     .collect();
+
                 if !name.is_empty() {
                     shape.blocks.push((
                         name.clone(),
@@ -389,6 +439,7 @@ pub fn shape_of(text: &str) -> TemplateShape {
             _ => {}
         }
     }
+
     shape
 }
 
@@ -401,6 +452,7 @@ mod tests {
         let text = "<?php\nnamespace App\\Twig;\nuse Twig\\Extension\\AbstractExtension;\nuse Twig\\{TwigFilter, TwigFunction, TwigTest};\nclass AppExtension extends AbstractExtension {\n    public function getFilters(): array { return [new TwigFilter('md', [$this, 'markdown'], ['is_safe' => ['html'], 'needs_environment' => true]), new TwigFilter('abs', 'abs')]; }\n    public function getFunctions(): array { return [new TwigFunction('path', $this->getPath(...)), new TwigFunction('helper', [Helper::class, 'run'])]; }\n    public function getTests(): array { return [new TwigTest('odd', fn ($x) => $x % 2)]; }\n}\n";
         let mut found = Vec::new();
         read_extension(Path::new("/project/src/Twig/AppExtension.php"), text, &mut found);
+
         let shown: Vec<String> = found
             .iter()
             .map(|entry| {
@@ -414,6 +466,7 @@ mod tests {
                 )
             })
             .collect();
+
         assert_eq!(
             shown,
             [
@@ -432,12 +485,14 @@ mod tests {
             "src/Twig/AppExtension.php",
             "<?php\nnamespace App\\Twig;\nuse Twig\\Attribute\\{AsTwigFilter, AsTwigFunction};\nfinal class AppExtension {\n    #[AsTwigFunction('locales')]\n    public function getLocales(): array {}\n    #[AsTwigFilter(name: 'md', needsEnvironment: true)]\n    public function markdown($env, string $text): string {}\n}\n",
         )]);
+
         let extensions = index.section::<TwigExtensions>();
         let locales = extensions.find(TwigKind::Function, "locales").expect("a function");
         assert_eq!(locales.target.as_deref(), Some("getLocales"));
         let markdown = extensions.find(TwigKind::Filter, "md").expect("a filter");
         assert_eq!(markdown.skipped, 1);
         let mut patterns = TwigExtensions::default();
+
         patterns.entries.push(TwigCallable {
             kind: TwigKind::Function,
             name: "render_*".to_string(),
@@ -447,6 +502,7 @@ mod tests {
             path: PathBuf::new(),
             span: Span::default(),
         });
+
         assert!(patterns.find(TwigKind::Function, "render_esi").is_some());
         assert!(patterns.find(TwigKind::Function, "render_").is_none());
     }

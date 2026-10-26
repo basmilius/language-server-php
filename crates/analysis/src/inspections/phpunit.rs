@@ -12,31 +12,41 @@ use crate::phpunit::strings::{Role, StringTarget, TestString, strings_in};
 
 pub(super) fn run(cx: &Cx) {
     let doubles = cx.on("missing-double-method") || cx.on("double-return-type-mismatch");
+
     if !(cx.on("missing-data-provider") || cx.on("missing-test-dependency") || cx.on("data-provider-arity") || doubles)
     {
         return;
     }
+
     let text = cx.text;
+
     let mentions_doubles =
         doubles && (text.contains("->method(") || text.contains("onlyMethods") || text.contains("PartialMock"));
+
     if !(text.contains("ataProvider") || text.contains("epends") || mentions_doubles) {
         return;
     }
+
     let strings = strings_in(&cx.file);
+
     for string in &strings {
         let StringTarget::Method { class, role } = &string.target else {
             continue;
         };
+
         if !matches!(role, Role::DataProvider | Role::Depends | Role::Mocked) || string.value.is_empty() {
             continue;
         }
+
         check_exists(cx, string, class, *role);
     }
+
     if cx.on("double-return-type-mismatch") {
         for node in cx.nodes.iter().filter(|node| node.kind() == CALL_EXPR) {
             check_return_value(cx, node, &strings);
         }
     }
+
     if cx.on("data-provider-arity") {
         for node in cx.nodes.iter().filter(|node| node.kind() == METHOD_DECLARATION) {
             check_arity(cx, node, &strings);
@@ -48,15 +58,19 @@ fn check_exists(cx: &Cx, string: &TestString, class: &str, role: Role) {
     if !cx.ready || cx.index.class(class).is_none() {
         return;
     }
+
     let receiver = Type::class(class.to_string());
+
     if cx.index.find_method(&receiver, &string.value).is_some() || has_magic_call(cx, &receiver) {
         return;
     }
+
     let (code, what) = match role {
         Role::DataProvider => ("missing-data-provider", "data provider"),
         Role::Mocked => ("missing-double-method", "method"),
         _ => ("missing-test-dependency", "test"),
     };
+
     cx.report(
         code,
         string.range,
@@ -82,39 +96,51 @@ fn check_return_value(cx: &Cx, call: &SyntaxNode, strings: &[TestString]) {
     else {
         return;
     };
+
     let is_will_return = callee
         .children()
         .find(|child| child.kind() == NAME)
         .is_some_and(|name| name.text().to_string().eq_ignore_ascii_case("willReturn"));
+
     let Some(configured) = callee.children().next().filter(|node| node.kind() == CALL_EXPR) else {
         return;
     };
+
     let args = crate::infer::arguments(call);
+
     let [given] = args.as_slice() else {
         return;
     };
+
     let (true, Some(value)) = (is_will_return, given.expr.as_ref()) else {
         return;
     };
+
     let Some(string) = strings.iter().find(|string| {
         matches!(string.target, StringTarget::Method { role: Role::Mocked, .. })
             && configured.text_range().contains_range(string.range)
     }) else {
         return;
     };
+
     let StringTarget::Method { class, .. } = &string.target else {
         return;
     };
+
     let Some(found) = cx.index.find_method(&Type::class(class.clone()), &string.value) else {
         return;
     };
+
     let level = cx.index.level;
+
     let Some(wanted) = found.member.callable.native_return(level) else {
         return;
     };
+
     if matches!(wanted, Type::Void | Type::Never) || wanted.has_template() {
         return;
     }
+
     if wanted
         .members()
         .iter()
@@ -122,11 +148,14 @@ fn check_return_value(cx: &Cx, call: &SyntaxNode, strings: &[TestString]) {
     {
         return;
     }
+
     let analyzer = cx.file.analyzer(call);
     let env = analyzer.env_around(call);
+
     let Some(actual) = super::types::sure_type(cx, &analyzer, &env, value) else {
         return;
     };
+
     if cx.type_mismatch(&actual, wanted, false) {
         cx.report(
             "double-return-type-mismatch",
@@ -147,30 +176,37 @@ fn check_return_value(cx: &Cx, call: &SyntaxNode, strings: &[TestString]) {
 fn arity_of(method: &SyntaxNode) -> Option<(usize, Option<usize>)> {
     let list = child_of(method, PARAMETER_LIST)?;
     let parameters: Vec<SyntaxNode> = list.children().filter(|child| child.kind() == PARAMETER).collect();
+
     let variadic = parameters.iter().any(|parameter| {
         parameter
             .children_with_tokens()
             .any(|element| element.kind() == ELLIPSIS)
     });
+
     let required = parameters
         .iter()
         .filter(|parameter| {
             let has_default = parameter.children_with_tokens().any(|element| element.kind() == ASSIGN);
+
             let is_variadic = parameter
                 .children_with_tokens()
                 .any(|element| element.kind() == ELLIPSIS);
+
             !has_default && !is_variadic
         })
         .count();
+
     Some((required, (!variadic).then_some(parameters.len())))
 }
 
 fn check_arity(cx: &Cx, method: &SyntaxNode, strings: &[TestString]) {
     let range = method.text_range();
+
     let mine: Vec<&TestString> = strings
         .iter()
         .filter(|string| range.contains_range(string.range) || range.contains(string.range.start()))
         .collect();
+
     // A dependency adds its result after the data set, which this does not count.
     if mine.iter().any(|string| {
         matches!(
@@ -183,9 +219,11 @@ fn check_arity(cx: &Cx, method: &SyntaxNode, strings: &[TestString]) {
     }) {
         return;
     }
+
     let Some((required, most)) = arity_of(method) else {
         return;
     };
+
     for string in mine {
         let StringTarget::Method {
             class,
@@ -194,13 +232,16 @@ fn check_arity(cx: &Cx, method: &SyntaxNode, strings: &[TestString]) {
         else {
             continue;
         };
+
         let Some(rows) = provider_rows(cx, class, &string.value) else {
             continue;
         };
+
         for (position, row) in rows.iter().enumerate() {
             let Some(values) = row else {
                 continue;
             };
+
             let message = if *values < required {
                 format!(
                     "Data set #{position} of '{}' has {values} value(s), but the test requires {required}",
@@ -215,7 +256,9 @@ fn check_arity(cx: &Cx, method: &SyntaxNode, strings: &[TestString]) {
             } else {
                 continue;
             };
+
             cx.report("data-provider-arity", string.range, message, super::Fix::None);
+
             break;
         }
     }
@@ -226,29 +269,36 @@ fn check_arity(cx: &Cx, method: &SyntaxNode, strings: &[TestString]) {
 fn provider_rows(cx: &Cx, class: &str, name: &str) -> Option<Vec<Option<usize>>> {
     let receiver = Type::class(class.to_string());
     let found = cx.index.find_method(&receiver, name)?;
+
     if found.class.file.origin == php_index::Origin::Stub {
         return None;
     }
+
     let decl = DeclRef {
         path: found.class.file.path.clone(),
         name_start: found.member.name_span.start,
         name: found.member.name.clone(),
     };
+
     let analyzer = cx.file.analyzer(&cx.root);
     let (_, function) = analyzer.read_declaration(&decl)?;
+
     rows_of(&function)
 }
 
 fn rows_of(function: &SyntaxNode) -> Option<Vec<Option<usize>>> {
     let mut returns = Vec::new();
     let mut yields = Vec::new();
+
     for node in function.descendants() {
         let owner = node.ancestors().skip(1).find(|ancestor| {
             crate::ast::is_function_like(ancestor.kind()) || crate::ast::is_class_like(ancestor.kind())
         });
+
         if owner.as_ref() != Some(function) {
             continue;
         }
+
         match node.kind() {
             RETURN_STATEMENT => returns.push(node),
             YIELD_EXPR => yields.push(node),
@@ -256,28 +306,35 @@ fn rows_of(function: &SyntaxNode) -> Option<Vec<Option<usize>>> {
             _ => {}
         }
     }
+
     if !yields.is_empty() {
         return Some(
             yields
                 .iter()
                 .map(|expression| {
                     let value = expression.children().last()?;
+
                     row_width(&value)
                 })
                 .collect(),
         );
     }
+
     let [only] = returns.as_slice() else {
         return None;
     };
+
     let table = only.children().next().filter(|table| table.kind() == ARRAY_EXPR)?;
     let mut rows = Vec::new();
+
     for item in table.children().filter(|child| child.kind() == ARRAY_ITEM) {
         if item.children_with_tokens().any(|element| element.kind() == ELLIPSIS) {
             return None;
         }
+
         rows.push(item.children().last().and_then(|row| row_width(&row)));
     }
+
     Some(rows)
 }
 
@@ -286,15 +343,20 @@ fn row_width(row: &SyntaxNode) -> Option<usize> {
     if row.kind() != ARRAY_EXPR {
         return None;
     }
+
     let mut count = 0;
+
     for item in row.children().filter(|child| child.kind() == ARRAY_ITEM) {
         let operands = item.children().count();
         let spread = item.children_with_tokens().any(|element| element.kind() == ELLIPSIS);
+
         if operands != 1 || spread {
             return None;
         }
+
         count += 1;
     }
+
     Some(count)
 }
 
@@ -317,6 +379,7 @@ mod tests {
         let source = format!(
             "{HEAD}    #[DataProvider('gone')]\n    public function testA(int $a): void {{}}\n    /** @dataProvider alsoGone */\n    public function testB(int $a): void {{}}\n    public static function here(): iterable {{ return []; }}\n}}\n"
         );
+
         assert_eq!(
             found(&source),
             vec![
@@ -331,6 +394,7 @@ mod tests {
         let source = format!(
             "{HEAD}    public function testFirst(): void {{}}\n    #[Depends('testFirst')]\n    public function testA(): void {{}}\n    #[Depends('testMissing')]\n    public function testB(): void {{}}\n}}\n"
         );
+
         assert_eq!(
             found(&source),
             vec![("missing-test-dependency", "testMissing".to_string())]
@@ -342,6 +406,7 @@ mod tests {
         let source = format!(
             "{HEAD}    #[DataProvider('rows')]\n    public function testA(int $a, int $b): void {{}}\n    public static function rows(): iterable {{ return [[1, 2], [3, 4]]; }}\n}}\n"
         );
+
         assert_eq!(found(&source), vec![]);
     }
 
@@ -350,10 +415,13 @@ mod tests {
         let few = format!(
             "{HEAD}    #[DataProvider('rows')]\n    public function testA(int $a, int $b): void {{}}\n    public static function rows(): iterable {{ return [[1, 2], [3]]; }}\n}}\n"
         );
+
         assert_eq!(found(&few), vec![("data-provider-arity", "rows".to_string())]);
+
         let many = format!(
             "{HEAD}    #[DataProvider('rows')]\n    public function testA(int $a): void {{}}\n    public static function rows(): iterable {{ yield 'one' => [1, 2]; yield 'two' => [3, 4]; }}\n}}\n"
         );
+
         assert_eq!(found(&many), vec![("data-provider-arity", "rows".to_string())]);
     }
 
@@ -362,14 +430,19 @@ mod tests {
         let defaults = format!(
             "{HEAD}    #[DataProvider('rows')]\n    public function testA(int $a, int $b = 2, int ...$rest): void {{}}\n    public static function rows(): iterable {{ return [[1], [1, 2], [1, 2, 3, 4]]; }}\n}}\n"
         );
+
         assert_eq!(found(&defaults), vec![]);
+
         let computed = format!(
             "{HEAD}    #[DataProvider('rows')]\n    public function testA(int $a): void {{}}\n    public static function rows(): iterable {{ return array_map(fn ($x) => [$x, $x], [1]); }}\n}}\n"
         );
+
         assert_eq!(found(&computed), vec![]);
+
         let spread = format!(
             "{HEAD}    #[DataProvider('rows')]\n    public function testA(int $a): void {{}}\n    public static function rows(): iterable {{ return [[...[1, 2]], $x]; }}\n}}\n"
         );
+
         assert_eq!(found(&spread), vec![]);
     }
 
@@ -389,6 +462,7 @@ mod tests {
         let source = format!(
             "{DOUBLE_HEAD}        $mock->method('send')->willReturn(true);\n        $mock->method('gone')->willReturn(true);\n    }}\n}}\n"
         );
+
         assert_eq!(doubles(&source), vec![("missing-double-method", "gone".to_string())]);
     }
 
@@ -397,6 +471,7 @@ mod tests {
         let source = format!(
             "{DOUBLE_HEAD}        $mock->method('count')->willReturn('many');\n        $mock->method('count')->willReturn(3);\n        $mock->method('name')->willReturn(null);\n        $mock->method('send')->willReturn(new \\stdClass());\n        $mock->method('reset')->willReturn(1);\n        $mock->expects($this->once())->method('count')->willReturn([]);\n        $mock->method('send')->willReturn($unknown);\n    }}\n}}\n"
         );
+
         assert_eq!(
             doubles(&source),
             vec![

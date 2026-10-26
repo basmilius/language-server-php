@@ -79,11 +79,13 @@ pub fn run(connection: Connection) -> Result<(), BoxError> {
     let (id, raw) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(raw.clone())?;
     let mut server = Server::new(&connection, &params);
+
     // `lsp-types` has no field for snippet edits yet.
     server.snippet_edits = raw
         .pointer("/capabilities/workspace/workspaceEdit/snippetEditSupport")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+
     let result = InitializeResult {
         capabilities: server.capabilities(),
         server_info: Some(ServerInfo {
@@ -91,6 +93,7 @@ pub fn run(connection: Connection) -> Result<(), BoxError> {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
         }),
     };
+
     // `initialize_finish` waits for and consumes the `initialized` notification.
     let mut result = serde_json::to_value(result)?;
     // `lsp-types` has no field for the type hierarchy provider yet.
@@ -98,6 +101,7 @@ pub fn run(connection: Connection) -> Result<(), BoxError> {
     connection.initialize_finish(id, result)?;
     server.initialized()?;
     let internal = server.internal_receiver.clone();
+
     lsc_server::main_loop(&connection, &internal, &mut server)
 }
 
@@ -106,43 +110,59 @@ pub(crate) struct Server {
     pub(crate) documents: Documents,
     pub(crate) encoding: PositionEncoding,
     pub(crate) settings: Settings,
+
     /// The client pulls diagnostics, so the server does not push them.
     pull_diagnostics: bool,
+
     hierarchical_symbols: bool,
+
     /// The client announced `lineFoldingOnly: false`, so a fold can start and end within a line.
     folding_characters: bool,
+
     configuration_support: bool,
     diagnostic_refresh_support: bool,
     pub(crate) watch_support: bool,
     semantic_refresh_support: bool,
     inlay_refresh_support: bool,
+
     /// The client takes `documentChanges` in a workspace edit.
     pub(crate) document_changes: bool,
+
     /// The client can rename files as part of a workspace edit.
     pub(crate) rename_files: bool,
+
     /// The client can make files as part of a workspace edit.
     pub(crate) create_files: bool,
+
     /// The client can ask for the edit of a code action after the list is shown.
     pub(crate) code_action_resolve: bool,
+
     /// The client takes snippet text edits in a workspace edit.
     pub(crate) snippet_edits: bool,
+
     /// The client takes snippets in completion items.
     pub(crate) snippet_support: bool,
+
     /// The watcher of the schema snapshots is registered with the client.
     pub(crate) snapshot_watch_registered: bool,
+
     /// Documents whose diagnostics are out of date, published once the queue of messages is empty.
     dirty: Vec<Uri>,
+
     /// Questions asked of the client: which document each `workspace/configuration` answer is for.
     pending_configuration: HashMap<RequestId, Uri>,
+
     last_trim: std::time::Instant,
     pub(crate) workspace: Workspace,
     initial_folders: Vec<PathBuf>,
     pub(crate) internal_sender: Sender<Internal>,
     internal_receiver: Receiver<Internal>,
     progress: Progress,
+
     /// What the places that render a template give it, by template, until a file other than the
     /// template itself changes.
     pub(crate) given_cache: HashMap<PathBuf, Vec<(String, php_index::Type)>>,
+
     /// SQL in the strings of PHP documents.
     pub(crate) sql: crate::sql::SqlState,
 }
@@ -165,35 +185,43 @@ fn folders_of(params: &InitializeParams) -> Vec<PathBuf> {
         .flatten()
         .filter_map(|folder| uri_to_path(&folder.uri))
         .collect();
+
     #[allow(deprecated)]
     if folders.is_empty() {
         if let Some(root) = params.root_uri.as_ref().and_then(uri_to_path) {
             folders.push(root);
         }
     }
+
     folders
 }
 
 impl Server {
     fn new(connection: &Connection, params: &InitializeParams) -> Server {
         let capabilities = &params.capabilities;
+
         let settings = params
             .initialization_options
             .as_ref()
             .map(Settings::from_value)
             .unwrap_or_default();
+
         let text_document = capabilities.text_document.as_ref();
+
         let workspace_edit = capabilities
             .workspace
             .as_ref()
             .and_then(|workspace| workspace.workspace_edit.as_ref());
+
         let (internal_sender, internal_receiver) = crossbeam_channel::unbounded();
         let settings_sql = settings.sql.clone();
+
         let workspace = Workspace::new(
             settings.storage_path.clone(),
             settings.stubs_path.clone(),
             settings.php_version.unwrap_or(PhpVersion::DEFAULT),
         );
+
         Server {
             client: Client::new(connection.sender.clone()),
             documents: Documents::default(),
@@ -411,6 +439,7 @@ impl Server {
         if self.last_trim.elapsed() < TRIM_INTERVAL {
             return;
         }
+
         self.last_trim = std::time::Instant::now();
         self.workspace.trim_indexes(KEEP_LOADED_FILES);
     }
@@ -421,6 +450,7 @@ impl Server {
 
     fn request(&mut self, request: Request) -> Result<(), BoxError> {
         let id = request.id.clone();
+
         let document = request
             .params
             .pointer("/textDocument/uri")
@@ -428,7 +458,9 @@ impl Server {
             .and_then(Value::as_str)
             .and_then(|uri| uri.parse::<Uri>().ok())
             .and_then(|uri| uri_to_path(&uri));
+
         let _document = php_analysis::document::enter(document.as_deref());
+
         let response = match request.method.as_str() {
             DocumentSymbolRequest::METHOD => self.answer(id, request.params, Self::document_symbols),
             FoldingRangeRequest::METHOD => self.answer(id, request.params, Self::folding_ranges),
@@ -468,6 +500,7 @@ impl Server {
             ResolveCompletionItem::METHOD => self.answer(id, request.params, Self::resolve_completion),
             method => lsc_server::unsupported(id, method),
         };
+
         self.send(response)
     }
 
@@ -501,13 +534,16 @@ impl Server {
         let document = self.documents.get_mut(&uri)?;
         let symbols = document_symbols(&document.parse().syntax());
         let mapper = document.mapper(encoding);
+
         if hierarchical {
             return Some(DocumentSymbolResponse::Nested(convert::hierarchical_symbols(
                 &mapper, &symbols,
             )));
         }
+
         let mut flat = Vec::new();
         convert::flat_symbols(&mapper, &uri, &symbols, None, &mut flat);
+
         Some(DocumentSymbolResponse::Flat(flat))
     }
 
@@ -518,6 +554,7 @@ impl Server {
         let folds = folding_ranges(&root, &document.text, &document.index);
         let mapper = document.mapper(encoding);
         let mapper = folding_characters.then_some(&mapper);
+
         Some(folds.iter().map(|fold| convert::folding_range(mapper, fold)).collect())
     }
 
@@ -526,6 +563,7 @@ impl Server {
         let document = self.documents.get_mut(&params.text_document.uri)?;
         let root = document.parse().syntax();
         let mapper = document.mapper(encoding);
+
         Some(
             params
                 .positions
@@ -537,6 +575,7 @@ impl Server {
 
     fn pull_diagnostics_for(&mut self, params: DocumentDiagnosticParams) -> Option<DocumentDiagnosticReportResult> {
         let items = self.diagnostics_of(&params.text_document.uri).unwrap_or_default();
+
         Some(DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
             RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
@@ -550,10 +589,12 @@ impl Server {
     fn level_of(&self, uri: &Uri, document_level: Option<PhpVersion>) -> PhpVersion {
         if let Some(path) = uri_to_path(uri) {
             let project = self.workspace.project_for(&path);
+
             if project.level_from_composer {
                 return project.level;
             }
         }
+
         document_level
             .or(self.settings.php_version)
             .unwrap_or(PhpVersion::DEFAULT)
@@ -561,18 +602,24 @@ impl Server {
 
     fn diagnostics_of(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
         let document = self.documents.get(uri)?;
+
         if document.state.blade || document.state.twig || document.state.yaml {
             return self.template_diagnostics(uri);
         }
+
         let _document = php_analysis::document::enter(uri_to_path(uri).as_deref());
         let level = self.level_of(uri, self.documents.get(uri)?.state.level);
+
         let mut items: Vec<lsp_types::Diagnostic> = self.inspect_document(uri, |env, mapper, parse| {
             let mut found = diagnostics(parse, level);
             found.extend(inspect(env).into_iter().map(|finding| finding.diagnostic));
             found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
+
             found.iter().map(|found| convert::diagnostic(mapper, found)).collect()
         })?;
+
         items.extend(self.sql_diagnostics(uri));
+
         Some(items)
     }
 
@@ -580,27 +627,33 @@ impl Server {
     fn template_diagnostics(&mut self, uri: &Uri) -> Option<Vec<lsp_types::Diagnostic>> {
         let path = uri_to_path(uri);
         let given = self.template_given(uri);
+
         // A package's template reads keys the package's users may set; only the project's own are judged.
         let ready = path.as_ref().is_some_and(|path| {
             self.workspace.is_ready(path)
                 && self.workspace.project_for(path).origin_of(path) == php_index::Origin::Project
         });
+
         let encoding = self.encoding;
         let document = self.documents.get(uri)?;
+
         let settings = document
             .state
             .inspections
             .clone()
             .or_else(|| self.settings.inspections.clone())
             .unwrap_or_default();
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let found = if document.state.yaml {
             match &path {
                 Some(path) if php_analysis::yaml::is_config(&project.index, path) => {
                     let loadable = |class: &str| composer_loads(project, class);
+
                     php_analysis::yaml::diagnostics(&project.index, path, &document.text, &settings, ready, &loadable)
                 }
                 _ => Vec::new(),
@@ -617,7 +670,9 @@ impl Server {
                 ready,
             )
         };
+
         let mapper = document.mapper(encoding);
+
         Some(found.iter().map(|found| convert::diagnostic(&mapper, found)).collect())
     }
 
@@ -646,25 +701,30 @@ impl Server {
         document.parse();
         let parse = document.cached()?;
         let root = parse.syntax();
+
         let settings = document
             .state
             .inspections
             .clone()
             .or_else(|| self.settings.inspections.clone())
             .unwrap_or_default();
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let names = &self.workspace.stub_names;
         let has_class = |name: &str| names.has_class(name) || composer_loads(project, name);
         let has_function = |name: &str| names.has_function(name);
         let has_constant = |name: &str| names.has_constant(name);
+
         let externals = Externals {
             class: &has_class,
             function: &has_function,
             constant: &has_constant,
         };
+
         let env = InspectionEnv {
             index: &project.index,
             text: &document.text,
@@ -673,7 +733,9 @@ impl Server {
             ready,
             externals: &externals,
         };
+
         let mapper = document.mapper(encoding);
+
         Some(run(&env, &mapper, parse, project))
     }
 
@@ -685,14 +747,17 @@ impl Server {
                 self.documents.open(item.uri.clone(), item.version, item.text);
                 let is_blade = item.language_id == "blade" || item.uri.as_str().ends_with(".blade.php");
                 let is_twig = item.language_id == "twig" || item.uri.as_str().ends_with(".twig");
+
                 let is_yaml = item.language_id == "yaml"
                     || item.uri.as_str().ends_with(".yaml")
                     || item.uri.as_str().ends_with(".yml");
+
                 if let Some(document) = self.documents.get_mut(&item.uri) {
                     document.state.blade = is_blade;
                     document.state.twig = is_twig && !is_blade;
                     document.state.yaml = is_yaml && !is_twig && !is_blade;
                 }
+
                 self.sync_symbols(&item.uri);
                 self.request_configuration(&item.uri)?;
                 self.mark_dirty(item.uri);
@@ -700,11 +765,14 @@ impl Server {
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 let uri = params.text_document.uri;
+
                 if let Some(document) = self.documents.get_mut(&uri) {
                     document.apply_changes(params.text_document.version, &params.content_changes, self.encoding);
+
                     if let Some(path) = uri_to_path(&uri) {
                         self.given_cache.retain(|template, _| *template == path);
                     }
+
                     self.mark_dirty(uri);
                 }
             }
@@ -716,6 +784,7 @@ impl Server {
                 self.given_cache.clear();
                 self.dirty.retain(|dirty| *dirty != uri);
                 self.reindex_from_disk(&uri);
+
                 if !self.pull_diagnostics {
                     self.publish(uri, None, Vec::new())?;
                 }
@@ -730,22 +799,26 @@ impl Server {
             }
             DidChangeWorkspaceFolders::METHOD => {
                 let params: DidChangeWorkspaceFoldersParams = serde_json::from_value(notification.params)?;
+
                 for folder in params.event.removed {
                     if let Some(path) = uri_to_path(&folder.uri) {
                         self.workspace.remove_folder(&path);
                     }
                 }
+
                 for folder in params.event.added {
                     if let Some(path) = uri_to_path(&folder.uri) {
                         self.open_folder(&path);
                     }
                 }
+
                 if self.sql.forget_files() {
                     self.scan_sql_files();
                 }
             }
             _ => {}
         }
+
         Ok(())
     }
 
@@ -758,7 +831,9 @@ impl Server {
                     kind: None,
                 })
                 .to_vec();
+
             let options = DidChangeWatchedFilesRegistrationOptions { watchers };
+
             self.client.request::<RegisterCapability>(RegistrationParams {
                 registrations: vec![Registration {
                     id: "php-watched-files".to_string(),
@@ -767,16 +842,21 @@ impl Server {
                 }],
             })?;
         }
+
         self.workspace.start_stubs_job(&self.internal_sender);
+
         if self.workspace.storage.is_some() || self.workspace.stubs_override.is_some() {
             self.job_started();
         }
+
         for folder in std::mem::take(&mut self.initial_folders) {
             self.open_folder(&folder);
         }
+
         if crate::sql::config::resolve(self.sql.setting.as_ref(), None, None).enabled {
             self.scan_sql_files();
         }
+
         Ok(())
     }
 
@@ -790,6 +870,7 @@ impl Server {
             self.workspace.start_project_job(&root, &self.internal_sender);
             self.job_started();
         }
+
         for root in change.restart {
             self.restart_project(&root);
         }
@@ -820,9 +901,11 @@ impl Server {
                 IndexEvent::Files(files) => {
                     self.given_cache.clear();
                     let count = files.len();
+
                     if let Some(project) = self.workspace.project_by_root(&root) {
                         project.apply(files);
                     }
+
                     self.job_progress(count, 0);
                 }
                 IndexEvent::Persisted(moved) => {
@@ -837,9 +920,11 @@ impl Server {
                     self.sql.changed();
                     self.find_project_dialect(&root);
                     self.resync_open_documents();
+
                     for uri in self.documents.uris() {
                         self.mark_dirty(uri);
                     }
+
                     self.log(
                         MessageType::INFO,
                         format!(
@@ -851,6 +936,7 @@ impl Server {
                             stats.total.as_millis()
                         ),
                     );
+
                     self.job_finished();
                     self.refresh_pulled_diagnostics()?;
                     self.refresh_editor_features()?;
@@ -875,6 +961,7 @@ impl Server {
                     MessageType::WARNING,
                     format!("The PHP standard library stubs are not available: {message}"),
                 );
+
                 self.job_finished();
             }
             Internal::StubsEvent(event) => match event {
@@ -889,19 +976,24 @@ impl Server {
                     self.workspace.apply_stubs();
                     self.sql.changed();
                     self.resync_open_documents();
+
                     self.log(
                         MessageType::INFO,
                         format!("Read {} stub files in {} ms", stats.files, stats.total.as_millis()),
                     );
+
                     self.job_finished();
+
                     for uri in self.documents.uris() {
                         self.mark_dirty(uri);
                     }
+
                     self.refresh_pulled_diagnostics()?;
                     self.refresh_editor_features()?;
                 }
             },
         }
+
         Ok(())
     }
 
@@ -911,6 +1003,7 @@ impl Server {
             if let Some(document) = self.documents.get_mut(&uri) {
                 document.state.indexed_version = None;
             }
+
             self.sync_symbols(&uri);
         }
     }
@@ -920,36 +1013,46 @@ impl Server {
         let Some(path) = uri_to_path(uri) else {
             return;
         };
+
         let Some(document) = self.documents.get_mut(uri) else {
             return;
         };
+
         if document.state.indexed_version == Some(document.version) {
             return;
         }
+
         if document.state.twig || document.state.yaml {
             document.state.indexed_version = Some(document.version);
             let project = self.workspace.project_for_mut(&path);
             project.words.update(&path, &document.text);
+
             project
                 .index
                 .set_open_text(&path, Some(std::sync::Arc::from(document.text.as_str())));
+
             return;
         }
+
         let symbols = php_index::extract::extract(
             &document.parse().syntax(),
             php_index::extract::ExtractOptions::default(),
         );
+
         document.state.indexed_version = Some(document.version);
         let project = self.workspace.project_for_mut(&path);
         let origin = project.origin_of(&path);
+
         if origin == php_index::Origin::Project {
             project.words.update(&path, &document.text);
         }
+
         if project.index.frameworks().any() {
             project
                 .index
                 .set_open_text(&path, Some(std::sync::Arc::from(document.text.as_str())));
         }
+
         project.index.set_file(path, origin, std::sync::Arc::new(symbols));
     }
 
@@ -958,18 +1061,23 @@ impl Server {
         let Some(path) = uri_to_path(uri) else {
             return;
         };
+
         let project = self.workspace.project_for_mut(&path);
         let origin = project.origin_of(&path);
+
         if origin == php_index::Origin::Project {
             project.words.update_from_disk(&path);
         }
+
         project.index.set_open_text(&path, None);
+
         if path
             .extension()
             .is_none_or(|extension| !extension.eq_ignore_ascii_case("php"))
         {
             return;
         }
+
         match index_file(&path, origin) {
             Some(symbols) => project.index.set_file(path, origin, std::sync::Arc::new(symbols)),
             None => project.index.remove_file(&path),
@@ -981,15 +1089,19 @@ impl Server {
         let mut composer_roots: Vec<PathBuf> = Vec::new();
         let mut folders: Vec<PathBuf> = Vec::new();
         let mut sql_changed = false;
+
         for change in params.changes {
             let Some(path) = uri_to_path(&change.uri) else {
                 continue;
             };
+
             sql_changed |= self.sql.file_changed(&path, change.typ == FileChangeType::DELETED);
+
             let name = path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
+
             // `composer dump-autoload` writes the class map again without touching the other two.
             if name == "composer.json" || name == "installed.json" || name == "autoload_classmap.php" {
                 if name == "composer.json" {
@@ -999,63 +1111,83 @@ impl Server {
                         }
                     }
                 }
+
                 if let Some(position) = self.workspace.project_position(&path) {
                     let root = self.workspace.projects[position].root.clone();
+
                     if !composer_roots.contains(&root) {
                         composer_roots.push(root);
                     }
                 }
+
                 continue;
             }
+
             if path
                 .extension()
                 .is_none_or(|extension| !extension.eq_ignore_ascii_case("php"))
             {
                 // A `.env`, a translation or a template: what the framework layer read from it is read again.
                 let project = self.workspace.project_for_mut(&path);
+
                 if project.index.frameworks().any() && project.contains(&path) {
                     project.index.framework_file_changed(&path);
                 }
+
                 let project = self.workspace.project_for(&path);
+
                 let searched =
                     php_analysis::twig::is_template(&path) || php_analysis::yaml::is_config(&project.index, &path);
+
                 if searched && self.documents.get(&change.uri).is_none() {
                     self.workspace.project_for_mut(&path).words.update_from_disk(&path);
                 }
+
                 continue;
             }
+
             if self.documents.get(&change.uri).is_some() {
                 continue;
             }
+
             let project = self.workspace.project_for_mut(&path);
             let origin = project.origin_of(&path);
+
             match origin {
                 php_index::Origin::Project => project.words.update_from_disk(&path),
                 php_index::Origin::Vendor => project.package_words.update_from_disk(&path),
                 php_index::Origin::Stub => {}
             }
+
             if change.typ == FileChangeType::DELETED {
                 project.index.remove_file(&path);
             } else if let Some(symbols) = index_file(&path, origin) {
                 project.index.set_file(path, origin, std::sync::Arc::new(symbols));
             }
         }
+
         let mut change = FolderChange::default();
+
         for folder in folders {
             let found = self.workspace.sync_nested(&folder);
             change.start.extend(found.start);
             change.restart.extend(found.restart);
         }
+
         for root in composer_roots {
             let known = self.workspace.projects.iter().any(|project| project.root == root);
+
             if known && !change.start.contains(&root) && !change.restart.contains(&root) {
                 change.restart.push(root);
             }
         }
+
         self.apply_folder_change(change);
+
         if sql_changed {
             self.sql_settled()?;
         }
+
         Ok(())
     }
 
@@ -1065,7 +1197,9 @@ impl Server {
         for uri in self.documents.uris() {
             self.mark_dirty(uri);
         }
+
         self.refresh_pulled_diagnostics()?;
+
         self.refresh_editor_features()
     }
 
@@ -1074,24 +1208,29 @@ impl Server {
         if !self.workspace.projects.iter().any(|project| project.root == root) {
             return;
         }
+
         let default_level = self.workspace.default_level;
         let stubs: Vec<StubFile> = std::mem::take(&mut self.workspace.stubs);
         let stubs_loaded = self.workspace.stubs_loaded;
         self.workspace.indexed.remove(root);
+
         if let Some(project) = self.workspace.project_by_root(root) {
             project.reload_composer(default_level);
             project.reset_index();
             project.words = php_index::words::WordIndex::default();
             project.package_words = php_index::words::WordIndex::default();
+
             if stubs_loaded {
                 let extensions = project.extensions();
                 project.index.set_stubs(&stubs, &extensions);
             }
         }
+
         self.workspace.stubs = stubs;
         self.workspace.start_project_job(root, &self.internal_sender);
         self.job_started();
         self.resync_open_documents();
+
         for uri in self.documents.uris() {
             self.mark_dirty(uri);
         }
@@ -1103,46 +1242,60 @@ impl Server {
     /// document, since its answer may differ per folder; one that only pushes sets the default.
     fn configuration_changed(&mut self, settings: &Value) -> Result<(), BoxError> {
         let pushed = Settings::from_value(settings);
+
         if pushed.hint_parameter_names.is_some() {
             self.settings.hint_parameter_names = pushed.hint_parameter_names;
         }
+
         if pushed.hint_closure_types.is_some() {
             self.settings.hint_closure_types = pushed.hint_closure_types;
         }
+
         if pushed.hint_property_types.is_some() {
             self.settings.hint_property_types = pushed.hint_property_types;
         }
+
         if pushed.inspections.is_some() {
             self.settings.inspections = pushed.inspections;
         }
+
         if pushed.format.is_some() {
             self.settings.format = pushed.format;
         }
+
         if pushed.usages_packages.is_some() {
             self.settings.usages_packages = pushed.usages_packages;
         }
+
         if pushed.completion_call_arguments.is_some() {
             self.settings.completion_call_arguments = pushed.completion_call_arguments;
         }
+
         if pushed.sql.is_some() {
             self.settings.sql = pushed.sql.clone();
             self.sql.setting = pushed.sql;
             self.sql.changed();
         }
+
         self.refresh_editor_features()?;
+
         if pushed.php_version.is_some() || !self.configuration_support {
             self.settings.php_version = pushed.php_version;
+
             self.workspace
                 .set_default_level(pushed.php_version.unwrap_or(PhpVersion::DEFAULT));
         }
+
         if self.configuration_support {
             for uri in self.documents.uris() {
                 self.request_configuration(&uri)?;
             }
         }
+
         for uri in self.documents.uris() {
             self.mark_dirty(uri);
         }
+
         Ok(())
     }
 
@@ -1150,14 +1303,17 @@ impl Server {
         if !self.configuration_support {
             return Ok(());
         }
+
         let params = ConfigurationParams {
             items: vec![ConfigurationItem {
                 scope_uri: Some(uri.clone()),
                 section: Some(SECTION.to_string()),
             }],
         };
+
         let id = self.client.request::<WorkspaceConfiguration>(params)?;
         self.pending_configuration.insert(id, uri.clone());
+
         Ok(())
     }
 
@@ -1165,24 +1321,31 @@ impl Server {
         if self.progress.response(&self.client, &response) {
             return Ok(());
         }
+
         let Some(uri) = self.pending_configuration.remove(&response.id) else {
             return Ok(());
         };
+
         let Some(document) = self.documents.get_mut(&uri) else {
             return Ok(());
         };
+
         let answer = response
             .response_result
             .ok()
             .and_then(|result| result.as_array().and_then(|items| items.first().cloned()))
             .map(|item| Settings::from_value(&item));
+
         let level = answer.as_ref().and_then(|settings| settings.php_version);
         let format = answer.as_ref().and_then(|settings| settings.format.clone());
         document.state.format = format;
         document.state.usages_packages = answer.as_ref().and_then(|settings| settings.usages_packages);
+
         document.state.completion_call_arguments =
             answer.as_ref().and_then(|settings| settings.completion_call_arguments);
+
         let sql = answer.as_ref().and_then(|settings| settings.sql.clone());
+
         if document.state.sql != sql {
             document.state.sql = sql;
             self.sql.changed();
@@ -1190,16 +1353,20 @@ impl Server {
             self.refresh_pulled_diagnostics()?;
             self.refresh_editor_features()?;
         }
+
         let Some(document) = self.documents.get_mut(&uri) else {
             return Ok(());
         };
+
         let inspections = answer.and_then(|settings| settings.inspections);
+
         if document.state.level != level || document.state.inspections != inspections {
             document.state.level = level;
             document.state.inspections = inspections;
             self.mark_dirty(uri);
             self.refresh_pulled_diagnostics()?;
         }
+
         Ok(())
     }
 
@@ -1208,9 +1375,11 @@ impl Server {
         if self.semantic_refresh_support {
             self.client.request::<SemanticTokensRefresh>(())?;
         }
+
         if self.inlay_refresh_support {
             self.client.request::<InlayHintRefreshRequest>(())?;
         }
+
         Ok(())
     }
 
@@ -1218,6 +1387,7 @@ impl Server {
         if self.pull_diagnostics && self.diagnostic_refresh_support {
             self.client.request::<WorkspaceDiagnosticRefresh>(())?;
         }
+
         Ok(())
     }
 
@@ -1230,14 +1400,18 @@ impl Server {
     fn publish_dirty(&mut self) -> Result<(), BoxError> {
         if self.pull_diagnostics {
             self.dirty.clear();
+
             return Ok(());
         }
+
         for uri in std::mem::take(&mut self.dirty) {
             let version = self.documents.get_mut(&uri).map(|document| document.version);
+
             if let Some(items) = self.diagnostics_of(&uri) {
                 self.publish(uri, version, items)?;
             }
         }
+
         Ok(())
     }
 
@@ -1271,8 +1445,10 @@ impl Handler for Server {
         if !self.watch_support && self.sql.snapshots_changed() {
             self.sql_settled()?;
         }
+
         self.publish_dirty()?;
         self.trim_indexes();
+
         Ok(())
     }
 }

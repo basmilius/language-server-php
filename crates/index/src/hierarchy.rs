@@ -22,15 +22,21 @@ pub struct AliasRule {
 #[derive(Clone)]
 pub struct Ancestor<'a> {
     pub class: Class<'a>,
+
     /// The class's own template names bound to the types it was reached with.
     pub subst: Arc<HashMap<String, Type>>,
+
     /// What `self` is in its members: the class itself, or the class using a trait.
     pub self_name: Name,
+
     pub via_trait: bool,
+
     /// Reached through a `@mixin` of a doc comment, which lends members without being inherited.
     pub mixin: bool,
+
     /// Lowercase names of methods that `insteadof` takes away from this trait.
     pub excluded: Vec<String>,
+
     pub aliases: Vec<AliasRule>,
 }
 
@@ -41,8 +47,10 @@ pub struct Found<'a, T: Clone> {
     pub member: Cow<'a, T>,
     pub subst: Arc<HashMap<String, Type>>,
     pub self_name: Name,
+
     /// Found through a `@mixin`, so a call to it goes through the receiver's magic methods.
     pub mixin: bool,
+
     /// What `static` and `$this` stand for in the member when it is not the type it was found on: a
     /// call a model forwards to its builder returns the builder.
     pub static_as: Option<Type>,
@@ -63,19 +71,23 @@ impl Index {
         let Some(found) = self.class(class) else {
             return Vec::new();
         };
+
         let Some(doc) = found.decl.doc.as_deref() else {
             return Vec::new();
         };
+
         let mut out: Vec<(String, Type)> = doc
             .type_aliases
             .iter()
             .map(|alias| (alias.name.clone(), alias.ty.clone()))
             .collect();
+
         for import in &doc.type_imports {
             if let Some(ty) = self.imported_alias(&import.class, &import.name, 0) {
                 out.push((import.alias.clone(), ty));
             }
         }
+
         out
     }
 
@@ -88,11 +100,14 @@ impl Index {
     pub fn type_alias(&self, class: &str, name: &str, depth: usize) -> Option<(Class<'_>, crate::model::TypeAlias)> {
         let found = self.class(class)?;
         let doc = found.decl.doc.as_deref()?;
+
         if let Some(alias) = doc.type_aliases.iter().find(|alias| alias.name == name) {
             return Some((found, alias.clone()));
         }
+
         // An alias the class imports itself, under the name asked for.
         let import = doc.type_imports.iter().find(|import| import.alias == name)?;
+
         (depth < 4).then(|| self.type_alias(&import.class, &import.name, depth + 1))?
     }
 
@@ -101,6 +116,7 @@ impl Index {
     pub fn ancestors(&self, ty: &Type) -> Vec<Ancestor<'_>> {
         let mut out = Vec::new();
         let mut seen = HashMap::new();
+
         match ty {
             Type::Class { .. } => self.walk(ty, false, None, Vec::new(), Vec::new(), &mut out, &mut seen, 0),
             Type::Union(members) | Type::Intersection(members) => {
@@ -112,7 +128,9 @@ impl Index {
             }
             _ => {}
         }
+
         let mut mixins = Vec::new();
+
         for ancestor in &out {
             if let Some(doc) = &ancestor.class.decl.doc {
                 for mixin in &doc.mixins {
@@ -120,7 +138,9 @@ impl Index {
                 }
             }
         }
+
         let first_mixin = out.len();
+
         // What one way down bound stays bound: a mixin met later does not rebind a template the
         // class's own hierarchy, or a mixin before it, left open (the query builder's
         // `BuildsQueries<stdClass>` is no answer for the `BuildsQueries<TModel>` of a relation).
@@ -129,17 +149,22 @@ impl Index {
                 *bound = true;
             }
         };
+
         settle(&mut seen);
+
         for mixin in mixins {
             self.walk(&mixin, false, None, Vec::new(), Vec::new(), &mut out, &mut seen, 0);
             settle(&mut seen);
         }
+
         for ancestor in &mut out[first_mixin..] {
             ancestor.mixin = true;
         }
+
         if self.framework.frameworks.eloquent {
             crate::framework::eloquent::bind_factory_model(self, &mut out);
         }
+
         out
     }
 
@@ -158,34 +183,44 @@ impl Index {
         let Type::Class { name, args } = ty else {
             return;
         };
+
         if depth > MAX_DEPTH {
             return;
         }
+
         let Some(class) = self.class(name) else {
             return;
         };
+
         // A class met again is walked again only when the first time left a template unbound (or gave
         // none at all) and this way down binds it, as a child that names the interface its raw parent
         // implements. It then keeps its place and takes the better answer.
         let wanted = class.decl.doc.iter().flat_map(|doc| doc.templates.iter()).count();
         let bound = args.len() >= wanted && args.iter().all(|arg| !arg.has_template());
+
         let revisited = match seen.entry(name.to_ascii_lowercase()) {
             Entry::Occupied(mut visited) => {
                 if visited.get().0 || !bound {
                     return;
                 }
+
                 visited.get_mut().0 = true;
+
                 Some(visited.get().1)
             }
             Entry::Vacant(vacant) => {
                 vacant.insert((bound, out.len()));
+
                 None
             }
         };
+
         let mut subst = HashMap::new();
+
         if class.decl.doc.as_ref().is_some_and(|doc| !doc.type_imports.is_empty()) {
             subst.extend(self.type_aliases(&class.decl.name));
         }
+
         for (index, template) in class.decl.doc.iter().flat_map(|doc| doc.templates.iter()).enumerate() {
             if let Some(arg) = args.get(index) {
                 subst.insert(template.name.clone(), arg.clone());
@@ -193,8 +228,10 @@ impl Index {
                 subst.insert(template.name.clone(), default.clone());
             }
         }
+
         let subst = Arc::new(subst);
         let self_name = using.map_or_else(|| class.decl.name.clone(), str::to_string);
+
         match revisited {
             Some(at) => out[at].subst = subst.clone(),
             None => out.push(Ancestor {
@@ -210,11 +247,14 @@ impl Index {
 
         for usage in &class.decl.trait_uses {
             let trait_type = usage.ty.substitute(&subst, None, None);
+
             let Type::Class { name: trait_name, .. } = &trait_type else {
                 continue;
             };
+
             let mut excluded = Vec::new();
             let mut aliases = Vec::new();
+
             for adaptation in &usage.adaptations {
                 match adaptation {
                     Adaptation::InsteadOf {
@@ -242,6 +282,7 @@ impl Index {
                     }
                 }
             }
+
             self.walk(
                 &trait_type,
                 true,
@@ -253,6 +294,7 @@ impl Index {
                 depth + 1,
             );
         }
+
         for parent in &class.decl.extends {
             self.walk(
                 &parent.substitute(&subst, None, None),
@@ -265,6 +307,7 @@ impl Index {
                 depth + 1,
             );
         }
+
         // An `@implements` naming an interface the class only inherits is the way a child binds the
         // templates of a parent that is written raw.
         let documented = class
@@ -279,6 +322,7 @@ impl Index {
                     .iter()
                     .any(|declared| matches!((declared, documented), (Type::Class { name: left, .. }, Type::Class { name: right, .. }) if left.eq_ignore_ascii_case(right)))
             });
+
         for interface in class.decl.implements.iter().chain(documented) {
             self.walk(
                 &interface.substitute(&subst, None, None),
@@ -297,6 +341,7 @@ impl Index {
         if child.eq_ignore_ascii_case(parent) {
             return true;
         }
+
         self.ancestors(&Type::class(child))
             .iter()
             .any(|ancestor| ancestor.class.decl.name.eq_ignore_ascii_case(parent))
@@ -323,36 +368,46 @@ impl Index {
         let ancestors = self.ancestors(ty);
         let mut out: Vec<Found<'_, Method>> = Vec::new();
         let mut names = HashSet::new();
+
         for ancestor in &ancestors {
             let decl = ancestor.class.decl;
+
             for method in &decl.methods {
                 if !method.availability.contains(self.level) {
                     continue;
                 }
+
                 let lower = method.name.to_ascii_lowercase();
+
                 if only.is_some_and(|only| {
                     !lower.eq_ignore_ascii_case(only) && ancestor.aliases.iter().all(|rule| rule.method != lower)
                 }) {
                     continue;
                 }
+
                 for rule in ancestor.aliases.iter().filter(|rule| rule.method == lower) {
                     if let Some(alias) = &rule.alias {
                         let mut aliased = method.clone();
                         aliased.name = alias.clone();
+
                         if let Some(visibility) = rule.visibility {
                             aliased.visibility = visibility;
                         }
+
                         push_method(&mut out, &mut names, ancestor, Cow::Owned(aliased));
                     }
                 }
+
                 if ancestor.excluded.contains(&lower) {
                     continue;
                 }
+
                 let restyled = ancestor
                     .aliases
                     .iter()
                     .find(|rule| rule.method == lower && rule.alias.is_none())
                     .and_then(|rule| rule.visibility);
+
                 match restyled {
                     Some(visibility) => {
                         let mut method = method.clone();
@@ -362,15 +417,18 @@ impl Index {
                     None => push_method(&mut out, &mut names, ancestor, Cow::Borrowed(method)),
                 }
             }
+
             if let Some(doc) = &decl.doc {
                 for pseudo in &doc.methods {
                     if only.is_some_and(|only| !pseudo.name.eq_ignore_ascii_case(only)) {
                         continue;
                     }
+
                     push_method(&mut out, &mut names, ancestor, Cow::Owned(pseudo_method(pseudo, decl)));
                 }
             }
         }
+
         if let Some(first) = ancestors
             .first()
             .filter(|first| first.class.decl.kind == ClassKind::Enum)
@@ -379,9 +437,11 @@ impl Index {
                 push_method(&mut out, &mut names, first, Cow::Owned(synthetic));
             }
         }
+
         if framework && self.framework.frameworks.any() {
             crate::framework::extend_methods(self, &ancestors, only, &mut out, &mut names);
         }
+
         out
     }
 
@@ -406,16 +466,20 @@ impl Index {
         let ancestors = self.ancestors(ty);
         let mut out = Vec::new();
         let mut names = HashSet::new();
+
         for ancestor in &ancestors {
             let decl = ancestor.class.decl;
+
             for property in &decl.properties {
                 if only.is_some_and(|only| property.name != only) {
                     continue;
                 }
+
                 if property.availability.contains(self.level) && names.insert(property.name.clone()) {
                     out.push(found_in(ancestor, Cow::Borrowed(property)));
                 }
             }
+
             if let Some(doc) = &decl.doc {
                 for pseudo in &doc.properties {
                     if names.insert(pseudo.name.clone()) {
@@ -423,6 +487,7 @@ impl Index {
                     }
                 }
             }
+
             if decl.kind == ClassKind::Enum && !ancestor.via_trait {
                 for property in enum_properties(decl) {
                     if names.insert(property.name.clone()) {
@@ -431,9 +496,11 @@ impl Index {
                 }
             }
         }
+
         if self.framework.frameworks.any() {
             crate::framework::extend_properties(self, &ancestors, only, &mut out, &mut names);
         }
+
         out
     }
 
@@ -447,6 +514,7 @@ impl Index {
         let ancestors = self.ancestors(ty);
         let mut out = Vec::new();
         let mut names = HashSet::new();
+
         for ancestor in &ancestors {
             for constant in &ancestor.class.decl.constants {
                 if constant.availability.contains(self.level) && names.insert(constant.name.clone()) {
@@ -454,6 +522,7 @@ impl Index {
                 }
             }
         }
+
         out
     }
 
@@ -587,10 +656,13 @@ fn enum_properties(decl: &ClassDecl) -> Vec<Property> {
         name_span: decl.name_span,
         span: decl.span,
     };
+
     let mut out = vec![make("name", Type::String)];
+
     if let Some(backing) = &decl.backing {
         out.push(make("value", backing.clone()));
     }
+
     out
 }
 
@@ -616,8 +688,10 @@ fn enum_methods(decl: &ClassDecl) -> Vec<Method> {
         name_span: decl.name_span,
         span: decl.span,
     };
+
     let own = Type::class(decl.name.clone());
     let mut out = vec![make("cases", Vec::new(), Type::List(Box::new(own.clone())))];
+
     if decl.backing.is_some() {
         let value = Param {
             name: "value".to_string(),
@@ -633,9 +707,11 @@ fn enum_methods(decl: &ClassDecl) -> Vec<Method> {
             availability: Availability::default(),
             span: decl.name_span,
         };
+
         out.push(make("from", vec![value.clone()], own.clone()));
         out.push(make("tryFrom", vec![value], own.nullable()));
     }
+
     out
 }
 
@@ -649,11 +725,13 @@ mod tests {
 
     fn index(text: &str) -> Index {
         let mut index = Index::new(PhpVersion::V8_4);
+
         index.set_file(
             PathBuf::from("/a.php"),
             Origin::Project,
             Arc::new(extract(&parse(text).syntax(), ExtractOptions::default())),
         );
+
         index
     }
 
@@ -667,17 +745,21 @@ class P { public function fromParent() {} public function over() {} }
 class C extends P implements I { use T; public function own() {} public function over() {} }
 "#,
         );
+
         let names: Vec<String> = index
             .ancestors(&Type::class("C"))
             .iter()
             .map(|ancestor| ancestor.class.decl.name.clone())
             .collect();
+
         assert_eq!(names, vec!["C", "T", "P", "I"]);
+
         let methods: Vec<String> = index
             .methods(&Type::class("C"))
             .iter()
             .map(|found| format!("{}::{}", found.class.decl.name, found.member.name))
             .collect();
+
         assert_eq!(
             methods,
             vec![
@@ -702,19 +784,24 @@ class UserBox extends Box {}
 class User {}
 "#,
         );
+
         let found = index.find_method(&Type::class("UserBox"), "get").unwrap();
         let ret = found.member.callable.doc_ret.clone().unwrap();
         assert_eq!(found.resolve(&ret), Type::class("User"));
         let property = index.find_property(&Type::class("UserBox"), "value").unwrap();
+
         assert_eq!(
             found.resolve(property.member.doc_ty.as_ref().unwrap()),
             Type::class("User")
         );
+
         let direct = Type::Class {
             name: "Box".into(),
             args: vec![Type::Int],
         };
+
         let found = index.find_method(&direct, "get").unwrap();
+
         assert_eq!(
             found.resolve(&found.member.callable.doc_ret.clone().unwrap()),
             Type::Int
@@ -730,6 +817,7 @@ trait B { public function hello() {} }
 class C { use A, B { A::hello insteadof B; B::hello as protected greet; other as private; } }
 "#,
         );
+
         let methods = index.methods(&Type::class("C"));
         let hello = methods.iter().find(|found| found.member.name == "hello").unwrap();
         assert_eq!(hello.class.decl.name, "A");
@@ -752,7 +840,9 @@ class Helper { public function help() {} }
 class Model {}
 "#,
         );
+
         assert!(index.find_property(&Type::class("Model"), "magic").is_some());
+
         assert!(
             index
                 .find_method(&Type::class("Model"), "make")
@@ -760,6 +850,7 @@ class Model {}
                 .member
                 .is_static
         );
+
         assert!(index.find_method(&Type::class("Model"), "help").is_some());
     }
 

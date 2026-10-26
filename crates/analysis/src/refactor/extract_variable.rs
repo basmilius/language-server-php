@@ -29,16 +29,21 @@ fn is_sensible(expr: &SyntaxNode) -> bool {
         ),
         _ => true,
     };
+
     if !kind_ok || !is_replaceable(expr) {
         return false;
     }
+
     let Some(parent) = expr.parent() else {
         return false;
     };
+
     let whole_statement = parent.kind() == EXPR_STATEMENT;
+
     let assigned_whole = parent.kind() == ASSIGN_EXPR
         && parent.children().nth(1).as_ref() == Some(expr)
         && parent.parent().is_some_and(|grand| grand.kind() == EXPR_STATEMENT);
+
     !whole_statement && !assigned_whole
 }
 
@@ -50,6 +55,7 @@ pub(crate) fn is_replaceable(expr: &SyntaxNode) -> bool {
 pub(super) fn offer<'a>(rcx: &'a Rcx<'a>, out: &mut Vec<Refactor<'a>>) {
     let cx = &rcx.cx;
     let explicit = !rcx.range.is_empty();
+
     let candidates: Vec<SyntaxNode> = if explicit {
         expression_of_selection(&cx.root, cx.text, rcx.range)
             .into_iter()
@@ -60,15 +66,20 @@ pub(super) fn offer<'a>(rcx: &'a Rcx<'a>, out: &mut Vec<Refactor<'a>>) {
             .filter(|expr| is_sensible(expr) && hoist_site(expr).is_ok())
             .collect()
     };
+
     let Some(outermost) = candidates.last().cloned() else {
         return;
     };
+
     if explicit && hoist_site(&outermost).is_err() {
         out.push(single(rcx, &outermost, "Extract variable".to_string(), false));
+
         return;
     }
+
     out.push(single(rcx, &outermost, "Extract variable".to_string(), false));
     let count = occurrences(&outermost).map_or(0, |found| found.len());
+
     if count > 1 {
         out.push(single(
             rcx,
@@ -77,6 +88,7 @@ pub(super) fn offer<'a>(rcx: &'a Rcx<'a>, out: &mut Vec<Refactor<'a>>) {
             true,
         ));
     }
+
     for inner in candidates.iter().rev().skip(1).take(MAX_INNER) {
         out.push(single(
             rcx,
@@ -96,8 +108,10 @@ fn preview(text: &str, expr: &SyntaxNode) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
+
     if source.chars().count() > 32 {
         let cut: String = source.chars().take(31).collect();
+
         format!("{cut}...")
     } else {
         source
@@ -108,6 +122,7 @@ fn single<'a>(rcx: &'a Rcx<'a>, expr: &SyntaxNode, title: String, all: bool) -> 
     let (from, to) = (start(expr), end(expr));
     let id = format!("extract-variable{}@{from}-{to}", if all { "-all" } else { "" });
     let expr = expr.clone();
+
     Refactor::new(id, title, RefactorKind::Extract, true, move || extract(rcx, &expr, all))
 }
 
@@ -117,39 +132,49 @@ fn occurrences(expr: &SyntaxNode) -> Result<Vec<SyntaxNode>, String> {
     if has_side_effects(expr) {
         return Err("An expression that does something cannot be run once for all its places".to_string());
     }
+
     let scope = scope_of(expr);
     let wanted = token_text(expr);
+
     let mut found: Vec<SyntaxNode> = scope
         .descendants()
         .filter(|node| node.kind() == expr.kind() && super::exprs::is_expression(node) && token_text(node) == wanted)
         .filter(|node| is_replaceable(node) && same_function(node, expr))
         .collect();
+
     found.sort_by_key(start);
     let mut kept: Vec<SyntaxNode> = Vec::new();
+
     for node in found {
         if kept.last().is_some_and(|last| end(&node) <= end(last)) {
             continue;
         }
+
         kept.push(node);
     }
+
     let Some(first) = kept.first() else {
         return Ok(kept);
     };
+
     let site = hoist_site(first)?;
     let from = start(&site.statement);
     let container = site.container.clone();
     let reads = super::exprs::variables_in(expr);
+
     let stateful = expr.descendants().any(|node| {
         matches!(
             node.kind(),
             PROPERTY_FETCH_EXPR | INDEX_EXPR | STATIC_PROPERTY_EXPR | SCOPED_ACCESS_EXPR | CALL_EXPR
         )
     });
+
     kept.retain(|node| {
         container.text_range().contains_range(node.text_range())
             && start(node) >= from
             && !invalidated_before(&scope, node, from, &reads, stateful)
     });
+
     Ok(kept)
 }
 
@@ -160,22 +185,28 @@ fn same_function(node: &SyntaxNode, expr: &SyntaxNode) -> bool {
 /// Whether the value of the expression may differ between where the variable is assigned and a place.
 fn invalidated_before(scope: &SyntaxNode, place: &SyntaxNode, from: u32, reads: &[String], stateful: bool) -> bool {
     let mut to = start(place);
+
     let loops = place.ancestors().filter(|node| {
         matches!(
             node.kind(),
             WHILE_STATEMENT | DO_WHILE_STATEMENT | FOR_STATEMENT | FOREACH_STATEMENT
         ) && start(node) >= from
     });
+
     let mut origin = from;
+
     if let Some(outer) = loops.last() {
         origin = start(&outer);
         to = to.max(end(&outer));
     }
+
     scope.descendants().any(|node| {
         let at = start(&node);
+
         if at < origin || at >= to || at < from && at < origin {
             return false;
         }
+
         match node.kind() {
             VARIABLE_EXPR => {
                 is_write_target(&node)
@@ -202,22 +233,28 @@ fn reads_by_reference(call: &SyntaxNode, reads: &[String]) -> bool {
 fn extract(rcx: &Rcx<'_>, expr: &SyntaxNode, all: bool) -> Result<Change, String> {
     let cx = &rcx.cx;
     replaceable(expr)?;
+
     if expr.parent().is_some_and(|parent| parent.kind() == ARGUMENT)
         && super::scope::by_reference_variables(cx, &scope_of(expr)).contains(&start(expr))
     {
         return Err("The expression is taken by reference".to_string());
     }
+
     {
         let analyzer = cx.file.analyzer(expr);
         let env = analyzer.env_around(expr);
+
         if analyzer.type_of(expr, &env) == php_index::Type::Never {
             return Err("The expression never returns, so nothing could use its value".to_string());
         }
     }
+
     let places = if all { occurrences(expr)? } else { vec![expr.clone()] };
+
     let Some(first) = places.first() else {
         return Err("There is nothing to replace".to_string());
     };
+
     let site = hoist_site(first)?;
     let taken = taken_variables(&scope_of(expr));
     let name = unique(&variable_name(cx, first), &taken);
@@ -225,14 +262,17 @@ fn extract(rcx: &Rcx<'_>, expr: &SyntaxNode, all: bool) -> Result<Change, String
     let declaration = format!("${} = {value};", focus(&name));
     let insertion = insertion_before(cx.text, &site.statement, &declaration);
     let mut draft = Draft::new(rcx.renv);
+
     draft.here(TextEdit {
         start: insertion.offset,
         end: insertion.offset,
         new_text: insertion.text,
     });
+
     for place in &places {
         draft.here(replace(place.text_range(), format!("${name}")));
     }
+
     draft.finish()
 }
 
@@ -243,5 +283,6 @@ fn value_text(text: &str, expr: &SyntaxNode) -> String {
             return super::exprs::text_slice(text, &inner).to_string();
         }
     }
+
     super::exprs::text_slice(text, expr).to_string()
 }

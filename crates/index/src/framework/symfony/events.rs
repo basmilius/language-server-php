@@ -13,10 +13,13 @@ const EVENT: &str = "Symfony\\Contracts\\EventDispatcher\\Event";
 pub struct EventName {
     /// What is passed to the dispatcher: `kernel.request` or the class of the event.
     pub name: String,
+
     /// The constant that holds it, such as `KernelEvents::REQUEST`.
     pub constant: Option<String>,
+
     /// The class of the event the name stands for.
     pub event_class: Option<String>,
+
     pub path: PathBuf,
     pub span: Span,
 }
@@ -35,20 +38,25 @@ impl EventNames {
 impl Section for EventNames {
     fn build(index: &Index) -> Self {
         let mut found = EventNames::default();
+
         for class in index.class_names() {
             if class.file.origin == Origin::Stub || !class.summary.name.ends_with("Events") {
                 continue;
             }
+
             let Some(loaded) = class.load() else {
                 continue;
             };
+
             for constant in &loaded.decl.constants {
                 let Some(doc) = &constant.doc else {
                     continue;
                 };
+
                 let Some(tag) = doc.tags.iter().find(|tag| tag.name == "Event") else {
                     continue;
                 };
+
                 let Some(value) = constant
                     .value
                     .as_ref()
@@ -56,6 +64,7 @@ impl Section for EventNames {
                 else {
                     continue;
                 };
+
                 let event_class = tag
                     .text
                     .trim()
@@ -64,6 +73,7 @@ impl Section for EventNames {
                     .trim_matches('"')
                     .trim_start_matches('\\')
                     .to_string();
+
                 found.events.push(EventName {
                     name: value,
                     constant: Some(format!(
@@ -77,6 +87,7 @@ impl Section for EventNames {
                 });
             }
         }
+
         for class in index.all_subtypes(EVENT) {
             if class.file.origin == Origin::Project || class.decl.name.contains("\\Event\\") {
                 found.events.push(EventName {
@@ -88,6 +99,7 @@ impl Section for EventNames {
                 });
             }
         }
+
         found
     }
 
@@ -117,13 +129,16 @@ mod tests {
                 "<?php namespace App\\Event; class OrderPlaced extends \\Symfony\\Contracts\\EventDispatcher\\Event {}",
             ),
         ]);
+
         let events = index.section::<EventNames>();
         let request = events.find("kernel.request").expect("an event");
         assert_eq!(request.constant.as_deref(), Some("KernelEvents::REQUEST"));
+
         assert_eq!(
             request.event_class.as_deref(),
             Some("Symfony\\Component\\HttpKernel\\Event\\RequestEvent")
         );
+
         assert!(events.find("x").is_none());
         assert!(events.find("App\\Event\\OrderPlaced").is_some());
     }

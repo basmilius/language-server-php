@@ -53,29 +53,37 @@ pub struct FileHits {
 pub struct References {
     /// The name under the position.
     pub range: TextRange,
+
     /// What the name stands for. A promoted constructor parameter stands for a variable, a
     /// parameter and a property at once.
     pub symbols: Vec<Symbol>,
+
     pub files: Vec<FileHits>,
 }
 
 /// The symbols under a position, with the range of the name they were found on.
 pub fn symbols_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
     let ctx = FileContext::new(index, root);
+
     if let Some(found) = crate::phpunit::strings::symbols_at_string(&ctx, offset) {
         return Some(found);
     }
+
     if let Some(found) = key_symbol_at(index, root, offset) {
         return Some(found);
     }
+
     if let Some(found) = symbols_in_text_at(index, root, offset) {
         return Some(found);
     }
+
     let token = token_at(root, offset)?;
     let symbols = symbols_of_token(&ctx, &token);
+
     if symbols.is_empty() {
         return None;
     }
+
     Some((ast::last_segment_of_token(&token), symbols))
 }
 
@@ -83,6 +91,7 @@ pub fn symbols_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(Text
 /// field of DQL, a validation rule.
 fn symbols_in_text_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
     use php_syntax::SyntaxKind::{DOC_COMMENT, STRING_LITERAL};
+
     let in_text = match root.token_at_offset(php_syntax::TextSize::from(offset)) {
         php_syntax::TokenAtOffset::None => false,
         php_syntax::TokenAtOffset::Single(token) => matches!(token.kind(), DOC_COMMENT | STRING_LITERAL),
@@ -90,13 +99,16 @@ fn symbols_in_text_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(
             .iter()
             .any(|token| matches!(token.kind(), DOC_COMMENT | STRING_LITERAL)),
     };
+
     if !in_text {
         return None;
     }
+
     let analyzer = crate::infer::Analyzer::new(index, root, offset);
     let found = analyzer.targets_at(offset);
     let range = found.first()?.range;
     let symbols = crate::refs::from_targets(&analyzer, found.into_iter().map(|found| found.target).collect());
+
     (!symbols.is_empty()).then_some((range, symbols))
 }
 
@@ -105,10 +117,13 @@ fn key_symbol_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextR
     if !index.frameworks().any() {
         return None;
     }
+
     let key = crate::frameworks::keys::key_at(&crate::infer::Analyzer::new(index, root, offset), offset)?;
+
     if key.kind == php_index::framework::keys::KeyKind::Relation {
         let segment = crate::frameworks::relations::segment_at(index, &key, offset)?;
         let relation = segment.relation?;
+
         return Some((
             segment.range,
             vec![Symbol::Method {
@@ -117,6 +132,7 @@ fn key_symbol_at(index: &Index, root: &SyntaxNode, offset: u32) -> Option<(TextR
             }],
         ));
     }
+
     Some((
         key.range,
         vec![Symbol::Key {
@@ -133,7 +149,9 @@ fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(Tex
     if !index.frameworks().any() {
         return None;
     }
+
     use php_syntax::SyntaxKind::{ATTRIBUTE, CLASS_DECLARATION, METHOD_DECLARATION, NAME, STRING_LITERAL};
+
     let string = match current.root.token_at_offset(php_syntax::TextSize::from(offset)) {
         php_syntax::TokenAtOffset::None => None,
         php_syntax::TokenAtOffset::Single(token) => Some(token),
@@ -142,6 +160,7 @@ fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(Tex
         }
     }
     .filter(|token| token.kind() == STRING_LITERAL)?;
+
     let key = |kind, name| {
         vec![Symbol::Key {
             kind,
@@ -149,29 +168,38 @@ fn declared_key_at(index: &Index, current: &Current, offset: u32) -> Option<(Tex
             scope: None,
         }]
     };
+
     if let Some((table, name, span)) = php_index::framework::keys::column_declared_at(index, current.path, offset) {
         let column = Symbol::Key {
             kind: php_index::framework::keys::KeyKind::Column,
             name,
             scope: Some(table),
         };
+
         return Some((range_of(span.start, span.end), vec![column]));
     }
+
     if let Some((kind, name, span)) = php_index::framework::keys::declared_at(index, current.path, offset) {
         return Some((range_of(span.start, span.end), key(kind, name)));
     }
+
     let literal = string.parent()?;
     let (value, span) = php_index::test_facts::string_value(&literal)?;
     let attribute = literal.ancestors().find(|node| node.kind() == ATTRIBUTE)?;
+
     let owner = attribute
         .ancestors()
         .find(|node| matches!(node.kind(), METHOD_DECLARATION | CLASS_DECLARATION))?;
+
     let name = owner.children().find(|child| child.kind() == NAME)?;
+
     let owner_span = php_index::Span {
         start: u32::from(name.text_range().start()),
         end: u32::from(name.text_range().end()),
     };
+
     let (kind, name) = php_index::framework::keys::declared_by(index, current.path, owner_span, &value)?;
+
     Some((range_of(span.start, span.end), key(kind, name)))
 }
 
@@ -185,13 +213,17 @@ pub fn symbols_in_current(
     if crate::twig::is_template(current.path) {
         return crate::twig::symbols_at(index, Some(current.path), current.text, offset);
     }
+
     if crate::yaml::is_config(index, current.path) {
         return crate::yaml::symbols_at(index, current.path, current.text, offset);
     }
+
     if crate::blade::is_template(current.path) {
         let given = crate::blade::data::given(index, sources, current.path);
+
         return crate::blade::symbols_at(index, Some(current.path), current.text, &given, offset);
     }
+
     symbols_at(index, current.root, offset).or_else(|| declared_key_at(index, current, offset))
 }
 
@@ -199,6 +231,7 @@ pub fn symbols_in_current(
 pub fn references_at(index: &Index, sources: &dyn Sources, current: &Current, offset: u32) -> Option<References> {
     let (range, symbols) = symbols_in_current(index, sources, current, offset)?;
     let files = hits_of_symbols(index, sources, current, &symbols);
+
     Some(References { range, symbols, files })
 }
 
@@ -215,50 +248,62 @@ fn hits_in_text(
     if crate::yaml::is_config(index, path) {
         return crate::yaml::hits(index, path, text, query);
     }
+
     if crate::twig::is_template(path) {
         let given = if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
             crate::twig::data::given(index, sources, path)
         } else {
             Vec::new()
         };
+
         return crate::twig::hits(index, Some(path), text, &given, query);
     }
+
     if crate::blade::is_template(path) {
         let typed = matches!(
             query.symbol,
             Symbol::Method { .. } | Symbol::Property { .. } | Symbol::ClassConst { .. } | Symbol::Parameter { .. }
         );
+
         let given = if typed {
             crate::blade::data::given(index, sources, path)
         } else {
             Vec::new()
         };
+
         return crate::blade::hits(index, Some(path), text, &given, query);
     }
+
     let parsed;
+
     let root = match root {
         Some(root) => root,
         None => {
             parsed = parse(text).syntax();
+
             &parsed
         }
     };
+
     hits_in_file(&FileContext::new(index, root), text, query)
 }
 
 /// The places that name any of the symbols, by file.
 pub fn hits_of_symbols(index: &Index, sources: &dyn Sources, current: &Current, symbols: &[Symbol]) -> Vec<FileHits> {
     let mut merged: BTreeMap<PathBuf, Vec<Hit>> = BTreeMap::new();
+
     for symbol in symbols {
         for found in hits_of_symbol(index, sources, current, symbol) {
             merged.entry(found.path).or_default().extend(found.hits);
         }
     }
+
     merged
         .into_iter()
         .map(|(path, mut hits)| {
             hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
             hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
+
             FileHits { path, hits }
         })
         .filter(|found| !found.hits.is_empty())
@@ -269,20 +314,25 @@ fn hits_of_symbol(index: &Index, sources: &dyn Sources, current: &Current, symbo
     if let Symbol::Variable { name, scope } = symbol {
         let hits = if crate::blade::is_template(current.path) {
             let query = Query::new(index, symbol.clone());
+
             crate::blade::hits(index, Some(current.path), current.text, &[], &query)
         } else {
             variable_hits(&FileContext::new(index, current.root), *scope, name)
         };
+
         return vec![FileHits {
             path: current.path.to_path_buf(),
             hits,
         }];
     }
+
     let query = Query::new(index, symbol.clone());
     let mut out = find_hits(index, sources, Some(current), &query);
+
     if matches!(symbol, Symbol::Parameter { .. }) {
         out.extend(parameter_body_hits(index, sources, current, &query));
     }
+
     out
 }
 
@@ -295,21 +345,26 @@ pub fn find_hits(index: &Index, sources: &dyn Sources, current: Option<&Current>
         .flat_map(|word| sources.candidates(word))
         .filter(|path| current.is_none_or(|current| path != current.path))
         .collect();
+
     paths.sort();
     paths.dedup();
+
     let mut out: Vec<FileHits> = paths
         .par_iter()
         .filter_map(|path| {
             let text = sources.text(path)?;
             let hits = hits_in_text(index, sources, path, &text, None, query);
+
             (!hits.is_empty()).then(|| FileHits {
                 path: path.clone(),
                 hits,
             })
         })
         .collect();
+
     if let Some(current) = current {
         let own = hits_in_text(index, sources, current.path, current.text, Some(current.root), query);
+
         if !own.is_empty() {
             out.push(FileHits {
                 path: current.path.to_path_buf(),
@@ -317,6 +372,7 @@ pub fn find_hits(index: &Index, sources: &dyn Sources, current: Option<&Current>
             });
         }
     }
+
     out
 }
 
@@ -325,23 +381,31 @@ fn parameter_body_hits(index: &Index, sources: &dyn Sources, current: &Current, 
     let Symbol::Parameter { name, .. } = &query.symbol else {
         return Vec::new();
     };
+
     let mut out = Vec::new();
+
     for declaration in declarations(index, query) {
         if crate::blade::is_template(&declaration.path) {
             continue;
         }
+
         let owned;
+
         let (text, root): (&str, SyntaxNode) = if declaration.path == current.path {
             (current.text, current.root.clone())
         } else {
             let Some(text) = sources.text(&declaration.path) else {
                 continue;
             };
+
             owned = text;
+
             (owned.as_str(), parse(&owned).syntax())
         };
+
         let _ = text;
         let span = range_of(declaration.span.start, declaration.span.end);
+
         let function = match root.covering_element(span) {
             php_syntax::SyntaxElement::Node(node) => node,
             php_syntax::SyntaxElement::Token(token) => match token.parent() {
@@ -349,11 +413,14 @@ fn parameter_body_hits(index: &Index, sources: &dyn Sources, current: &Current, 
                 None => continue,
             },
         };
+
         let Some(function) = ast::enclosing_function(&function) else {
             continue;
         };
+
         let ctx = FileContext::new(index, &root);
         let hits = variable_hits(&ctx, (ast::start(&function), ast::end(&function)), name);
+
         if !hits.is_empty() {
             out.push(FileHits {
                 path: declaration.path.clone(),
@@ -361,6 +428,7 @@ fn parameter_body_hits(index: &Index, sources: &dyn Sources, current: &Current, 
             });
         }
     }
+
     out
 }
 
@@ -369,8 +437,10 @@ pub fn highlights_at(index: &Index, sources: &dyn Sources, current: &Current, of
     let Some((_, symbols)) = symbols_in_current(index, sources, current, offset) else {
         return Vec::new();
     };
+
     let ctx = FileContext::new(index, current.root);
     let mut hits: Vec<Hit> = Vec::new();
+
     for symbol in &symbols {
         match symbol {
             Symbol::Variable { name, scope } if !crate::blade::is_template(current.path) => {
@@ -378,6 +448,7 @@ pub fn highlights_at(index: &Index, sources: &dyn Sources, current: &Current, of
             }
             other => {
                 let query = Query::new(index, other.clone());
+
                 hits.extend(hits_in_text(
                     index,
                     sources,
@@ -389,7 +460,9 @@ pub fn highlights_at(index: &Index, sources: &dyn Sources, current: &Current, of
             }
         }
     }
+
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
+
     hits
 }

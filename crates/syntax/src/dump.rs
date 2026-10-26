@@ -9,6 +9,7 @@ use crate::{SyntaxElement, SyntaxNode};
 pub struct DumpOptions {
     /// Whitespace and comments.
     pub trivia: bool,
+
     /// The byte range of every element.
     pub ranges: bool,
 }
@@ -17,24 +18,31 @@ pub struct DumpOptions {
 pub fn dump(node: &SyntaxNode, options: DumpOptions) -> String {
     let mut out = String::new();
     write_element(&mut out, &SyntaxElement::Node(node.clone()), 0, options);
+
     out
 }
 
 fn write_element(out: &mut String, element: &SyntaxElement, depth: usize, options: DumpOptions) {
     let kind = element.kind();
+
     if kind.is_trivia() && !options.trivia {
         return;
     }
+
     let indent = "  ".repeat(depth);
+
     let range = if options.ranges {
         let range = element.text_range();
+
         format!("@{}..{}", u32::from(range.start()), u32::from(range.end()))
     } else {
         String::new()
     };
+
     match element {
         SyntaxElement::Node(node) => {
             let _ = writeln!(out, "{indent}{}{range}", kind.name());
+
             for child in node.children_with_tokens() {
                 write_element(out, &child, depth + 1, options);
             }
@@ -51,11 +59,13 @@ pub fn dump_compact(node: &SyntaxNode) -> String {
     let mut out = String::new();
     write_compact(&mut out, node, 0);
     out.push('\n');
+
     out
 }
 
 fn is_container(kind: crate::SyntaxKind) -> bool {
     use crate::SyntaxKind::*;
+
     matches!(
         kind,
         SOURCE_FILE | BLOCK | CLASS_BODY | STATEMENT_LIST | TRAIT_ADAPTATIONS | PROPERTY_HOOK_LIST
@@ -65,15 +75,18 @@ fn is_container(kind: crate::SyntaxKind) -> bool {
 fn write_compact(out: &mut String, node: &SyntaxNode, depth: usize) {
     let multiline = is_container(node.kind());
     let _ = write!(out, "({}", node.kind().name());
+
     for child in node.children_with_tokens() {
         if child.kind().is_trivia() {
             continue;
         }
+
         if multiline {
             let _ = write!(out, "\n{}", "  ".repeat(depth + 1));
         } else {
             out.push(' ');
         }
+
         match child {
             SyntaxElement::Node(child) => write_compact(out, &child, depth + 1),
             SyntaxElement::Token(token) => {
@@ -81,5 +94,6 @@ fn write_compact(out: &mut String, node: &SyntaxNode, depth: usize) {
             }
         }
     }
+
     out.push(')');
 }

@@ -30,36 +30,46 @@ impl CoreAliases {
 impl Section for CoreAliases {
     fn build(index: &Index) -> Self {
         let mut aliases = CoreAliases::default();
+
         let Some(application) = index.class(APPLICATION) else {
             return aliases;
         };
+
         let Some(method) = application.decl.method("registerCoreContainerAliases") else {
             return aliases;
         };
+
         let Some(tree) = tree_of(index, &application.file.path) else {
             return aliases;
         };
+
         let Some(declaration) = super::source::method_at(&tree, method.name_span.start) else {
             return aliases;
         };
+
         let Some(list) = declaration.descendants().find(|node| node.kind() == ARRAY_EXPR) else {
             return aliases;
         };
+
         for (key, value) in array_items(&list).unwrap_or_default() {
             let Some(Literal::Text(alias, _)) = key.as_ref().and_then(literal_of) else {
                 continue;
             };
+
             let Some(first) = array_items(&value).and_then(|items| items.into_iter().next()) else {
                 continue;
             };
+
             let class = match literal_of(&first.1) {
                 Some(Literal::Class(name)) => Some(name),
                 _ => self_class(&first.1, application.decl.name.as_str()),
             };
+
             if let Some(class) = class {
                 aliases.classes.insert(alias, class);
             }
         }
+
         aliases
     }
 
@@ -71,6 +81,7 @@ impl Section for CoreAliases {
 /// `self::class` inside the application stands for the application.
 fn self_class(node: &php_syntax::SyntaxNode, application: &str) -> Option<Name> {
     let text = node.text().to_string();
+
     (text.replace(' ', "") == "self::class").then(|| application.to_string())
 }
 
@@ -78,6 +89,7 @@ fn self_class(node: &php_syntax::SyntaxNode, application: &str) -> Option<Name> 
 /// with a literal name, else one of the framework's own aliases.
 pub fn class_of(index: &Index, name: &str) -> Option<Name> {
     let frameworks = index.frameworks();
+
     if frameworks.symfony {
         if let Some(class) = index
             .section::<super::symfony::services::Services>()
@@ -86,9 +98,11 @@ pub fn class_of(index: &Index, name: &str) -> Option<Name> {
             return Some(class);
         }
     }
+
     if !(frameworks.laravel || frameworks.facades) {
         return None;
     }
+
     index
         .section::<Bindings>()
         .class_of(name)
@@ -100,6 +114,7 @@ pub fn type_of(index: &Index, name: &str) -> Option<Type> {
 }
 
 const SERVICE_PROVIDER: &str = "Illuminate\\Support\\ServiceProvider";
+
 const BINDING_METHODS: [&str; 7] = [
     "bind",
     "singleton",
@@ -160,14 +175,17 @@ impl Section for Bindings {
     fn build(index: &Index) -> Self {
         let mut bindings = Bindings::default();
         let mut providers = Vec::new();
+
         for provider in index.all_subtypes(SERVICE_PROVIDER) {
             if provider.file.origin == Origin::Project && !providers.contains(&provider.file.path) {
                 providers.push(provider.file.path.clone());
             }
         }
+
         let root = index.framework_root();
         let app = root.join("app");
         let mut others: Vec<std::path::PathBuf> = vec![root.join("bootstrap").join("app.php")];
+
         others.extend(
             index
                 .files()
@@ -175,26 +193,33 @@ impl Section for Bindings {
                 .map(|file| file.path.clone())
                 .filter(|path| !providers.contains(path)),
         );
+
         for path in &providers {
             if let Some(tree) = tree_of(index, path) {
                 bindings.read_properties(&tree);
+
                 for node in tree.descendants().filter(|node| node.kind() == CALL_EXPR) {
                     bindings.read_call(&node);
                 }
             }
         }
+
         for path in others {
             let Some(text) = index.read_text(&path) else {
                 continue;
             };
+
             if !BINDING_WORDS.iter().any(|word| text.contains(word)) {
                 continue;
             }
+
             let tree = php_syntax::parse(&text).syntax();
+
             for node in tree.descendants().filter(|node| node.kind() == CALL_EXPR) {
                 bindings.read_call(&node);
             }
         }
+
         bindings
     }
 
@@ -211,9 +236,11 @@ impl Bindings {
                 .children_with_tokens()
                 .filter_map(|child| child.into_token())
                 .any(|token| token.kind() == VARIABLE && matches!(token.text(), "$bindings" | "$singletons"));
+
             if !named {
                 continue;
             }
+
             if let Some(array) = element.children().find(|child| child.kind() == ARRAY_EXPR) {
                 self.read_map(&array);
             }
@@ -228,6 +255,7 @@ impl Bindings {
                 Some(Literal::Text(text, _)) => text.trim_start_matches('\\').to_string(),
                 None => continue,
             };
+
             if let Some(class) = concrete_of(&value) {
                 self.bind(name, class);
             }
@@ -238,40 +266,51 @@ impl Bindings {
         let Some(callee) = call.children().next() else {
             return;
         };
+
         let Some(method) = callee.children().filter(|child| child.kind() == NAME).last() else {
             return;
         };
+
         let method = method.text().to_string().to_ascii_lowercase();
         let args = argument_expressions(call);
+
         if matches!(method.as_str(), "withbindings" | "withsingletons") && callee.kind() == PROPERTY_FETCH_EXPR {
             if let Some(array) = args.first().filter(|node| node.kind() == ARRAY_EXPR) {
                 self.read_map(array);
             }
+
             return;
         }
+
         if !is_container(&callee) {
             return;
         }
+
         if method == "alias" {
             if let (Some(Literal::Class(class)), Some(Literal::Text(alias, _))) =
                 (args.first().and_then(literal_of), args.get(1).and_then(literal_of))
             {
                 self.bind(alias, class);
             }
+
             return;
         }
+
         if !BINDING_METHODS.contains(&method.as_str()) {
             return;
         }
+
         let abstract_name = match args.first().and_then(literal_of) {
             Some(Literal::Class(class)) => class,
             Some(Literal::Text(text, _)) => text.trim_start_matches('\\').to_string(),
             None => return,
         };
+
         let concrete = match args.get(1) {
             None => Some(abstract_name.clone()).filter(|name| name.contains('\\')),
             Some(node) => concrete_of(node),
         };
+
         if let Some(concrete) = concrete {
             self.bind(abstract_name, concrete);
         }
@@ -288,6 +327,7 @@ fn is_container(callee: &SyntaxNode) -> bool {
                 .next()
                 .map(|node| node.text().to_string().replace(char::is_whitespace, ""))
                 .unwrap_or_default();
+
             matches!(
                 receiver.trim_start_matches('\\'),
                 "$this->app"
@@ -303,6 +343,7 @@ fn is_container(callee: &SyntaxNode) -> bool {
             .find(|child| child.kind() == NAME)
             .is_some_and(|name| {
                 let class = resolver_for(callee).resolve_class(&name.text().to_string());
+
                 class.eq_ignore_ascii_case("Illuminate\\Support\\Facades\\App") || class.eq_ignore_ascii_case("App")
             }),
         _ => false,
@@ -315,29 +356,35 @@ fn concrete_of(node: &SyntaxNode) -> Option<Name> {
     match node.kind() {
         NEW_EXPR => {
             let class = node.children().find(|child| child.kind() == NAME)?;
+
             Some(resolver_for(node).resolve_class(&class.text().to_string())).filter(|name| name != "static")
         }
         CLOSURE_EXPR | ARROW_FUNCTION_EXPR => {
             let resolver = resolver_for(node);
             let (callable, _) = crate::extract::callable_at(node, &resolver, None);
+
             if let Some(Type::Class { name, .. }) = callable.ret {
                 return Some(name);
             }
+
             let returned = if node.kind() == ARROW_FUNCTION_EXPR {
                 node.children().last()
             } else {
                 returned_expression(node)
             }?;
+
             concrete_of(&returned)
         }
         CALL_EXPR => {
             let callee = node.children().next()?;
             let method = callee.children().find(|child| child.kind() == NAME)?;
+
             if callee.kind() != PROPERTY_FETCH_EXPR
                 || !matches!(method.text().to_string().as_str(), "make" | "get" | "makeWith")
             {
                 return None;
             }
+
             match argument_expressions(node).first().and_then(literal_of)? {
                 Literal::Class(class) => Some(class),
                 Literal::Text(..) => None,

@@ -56,6 +56,7 @@ class Str { public static function slug(string $s): string { return $s; } }
 fn run(fixture: Fixture, code: &str) -> CompletionList {
     let fixture = fixture.with_current(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     complete(&fixture.index, &text, offset, CompletionOptions::default())
 }
 
@@ -73,15 +74,19 @@ fn item<'a>(list: &'a CompletionList, label: &str) -> &'a CompletionItem {
 fn applied(code: &str, item: &CompletionItem) -> String {
     let mut text = code.replacen(CURSOR, "", 1);
     let mut edits: Vec<(u32, u32, &str)> = vec![(item.edit.start, item.edit.end, item.edit.new_text.as_str())];
+
     edits.extend(
         item.additional_edits
             .iter()
             .map(|edit| (edit.start, edit.end, edit.new_text.as_str())),
     );
+
     edits.sort_by_key(|edit| std::cmp::Reverse(edit.0));
+
     for (start, end, new_text) in edits {
         text.replace_range(start as usize..end as usize, new_text);
     }
+
     text
 }
 
@@ -91,6 +96,7 @@ fn completes_instance_members_by_visibility() {
         project(),
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) {\n    $u->$0\n}\n",
     );
+
     let names = labels(&outside);
     assert!(names.contains(&"name") && names.contains(&"posts") && names.contains(&"save"));
     assert!(!names.contains(&"secret") && !names.contains(&"hidden"), "{names:?}");
@@ -112,13 +118,16 @@ fn members_open_up_inside_the_class_and_its_children() {
         project(),
         "<?php\nnamespace App\\Models;\nclass User2 extends User {\n    public function go() {\n        $this->$0\n    }\n}\n",
     );
+
     let names = labels(&inside);
     assert!(names.contains(&"secret") && names.contains(&"guarded"));
     assert!(!names.contains(&"hidden") && !names.contains(&"internal"), "{names:?}");
+
     let own = run(
         project(),
         "<?php\nnamespace App\\Models;\nclass Self1 extends User {\n    private int $mine = 1;\n    public function go() {\n        $this->mi$0\n    }\n}\n",
     );
+
     assert_eq!(labels(&own), vec!["mine"]);
 }
 
@@ -128,11 +137,14 @@ fn filters_by_prefix_and_camel_humps() {
         project(),
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) {\n    $u->po$0\n}\n",
     );
+
     assert_eq!(labels(&list), vec!["posts"]);
+
     let humps = run(
         project(),
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) {\n    $u->oP$0\n}\n",
     );
+
     assert_eq!(labels(&humps), vec!["oldPosts"]);
 }
 
@@ -140,10 +152,12 @@ fn filters_by_prefix_and_camel_humps() {
 fn completes_static_members_constants_and_cases() {
     let list = run(project(), "<?php\nuse App\\Models\\User;\nUser::$0\n");
     let names = labels(&list);
+
     assert!(
         names.contains(&"find") && names.contains(&"boot") && names.contains(&"ROLE") && names.contains(&"$count"),
         "{names:?}"
     );
+
     assert!(!names.contains(&"posts"), "instance methods are not offered after ::");
     assert!(names.contains(&"class"));
     let enum_list = run(project(), "<?php\nuse App\\Models\\Role;\nRole::$0\n");
@@ -161,11 +175,14 @@ fn parent_and_self_offer_instance_methods_too() {
         project(),
         "<?php\nnamespace App\\Models;\nclass Child extends User {\n    public function go() {\n        parent::$0\n    }\n}\n",
     );
+
     let names = labels(&list);
+
     assert!(
         names.contains(&"posts") && names.contains(&"guarded") && names.contains(&"find"),
         "{names:?}"
     );
+
     assert!(!names.contains(&"internal"));
 }
 
@@ -175,11 +192,14 @@ fn completes_through_chains_and_nullsafe() {
         project(),
         "<?php\nuse App\\Models\\User;\nfunction f() {\n    User::find(1)?->$0\n}\n",
     );
+
     assert!(labels(&list).contains(&"name"));
+
     let instance = run(
         project(),
         "<?php\nuse App\\Models\\User;\nfunction f() {\n    $u = new User();\n    $u->$0\n    $other = 1;\n}\n",
     );
+
     assert!(labels(&instance).contains(&"posts"));
 }
 
@@ -201,16 +221,21 @@ fn a_class_in_the_same_namespace_or_already_imported_needs_no_import() {
         project(),
         "<?php\nnamespace App\\Models;\nclass X {\n    function f() { Us$0 }\n}\n",
     );
+
     assert!(item(&same, "User").additional_edits.is_empty());
+
     let imported = run(
         project(),
         "<?php\nnamespace App\\Http;\nuse App\\Models\\User;\nclass X {\n    function f() { Us$0 }\n}\n",
     );
+
     assert!(item(&imported, "User").additional_edits.is_empty());
+
     let global = run(
         Fixture::new(&[("a.php", "<?php\nclass Plain {}\n")]),
         "<?php\nnamespace App;\nclass X {\n    function f() { Pla$0 }\n}\n",
     );
+
     assert_eq!(item(&global, "Plain").additional_edits.len(), 1);
     assert_eq!(item(&global, "Plain").additional_edits[0].new_text, "\nuse Plain;\n\n");
 }
@@ -221,6 +246,7 @@ fn a_clashing_short_name_is_written_in_full() {
         project(),
         "<?php\nnamespace App;\nuse Other\\Thing;\nclass X {\n    function f() { Th$0 }\n}\n",
     );
+
     let thing = item(&list, "Thing");
     assert_eq!(thing.edit.new_text, "\\Vendor\\Pkg\\Thing");
     assert!(thing.additional_edits.is_empty());
@@ -231,22 +257,28 @@ fn filters_class_contexts() {
     let new = run(project(), "<?php\nnew $0\n");
     let _ = new;
     let new = run(project(), "<?php\n$x = new M$0\n");
+
     assert!(
         !labels(&new).contains(&"Model"),
         "abstract classes cannot be instantiated"
     );
+
     let new = run(project(), "<?php\n$x = new Us$0\n");
+
     assert_eq!(
         item(&new, "User").detail.as_deref(),
         Some("(public readonly int $id = 0, string $label = '')")
     );
+
     let implements = run(project(), "<?php\nclass A implements H$0\n");
     assert_eq!(labels(&implements), vec!["HasName"]);
     let extends = run(project(), "<?php\nclass A extends Se$0\n");
+
     assert!(
         !labels(&extends).contains(&"Sealed"),
         "final classes cannot be extended"
     );
+
     let traits = run(project(), "<?php\nclass A { use St$0 }\n");
     assert_eq!(labels(&traits), vec!["Stamps"]);
     let attributes = run(project(), "<?php\n#[Ro$0]\nclass A {}\n");
@@ -263,8 +295,10 @@ fn catch_offers_throwables() {
             "<?php\ninterface Throwable {}\nclass Exception implements Throwable {}\nclass Error implements Throwable {}\nclass Elephant {}\n",
         )],
     );
+
     let list = run(fixture, "<?php\ntry {} catch (E$0) {}\n");
     let names = labels(&list);
+
     assert!(
         names.contains(&"Exception") && names.contains(&"Error") && !names.contains(&"Elephant"),
         "{names:?}"
@@ -277,13 +311,17 @@ fn completes_variables_in_scope() {
         project(),
         "<?php\nuse App\\Models\\User;\nfunction f(User $user, int $count) {\n    $local = 1;\n    $u$0\n}\n",
     );
+
     assert_eq!(item(&list, "$user").detail.as_deref(), Some("User"));
     assert!(!labels(&list).contains(&"$count"));
+
     let all = run(
         project(),
         "<?php\nfunction f(int $count) {\n    $local = 'x';\n    $$0\n}\n",
     );
+
     assert!(labels(&all).contains(&"$count") && labels(&all).contains(&"$local"));
+
     assert_eq!(
         item(&all, "$local").edit.start as usize,
         "<?php\nfunction f(int $count) {\n    $local = 'x';\n    ".len()
@@ -310,6 +348,7 @@ fn global_functions_need_no_import() {
         &[],
         &[("standard.php", "<?php\nfunction strlen(string $string): int {}\n")],
     );
+
     let list = run(fixture, "<?php\nnamespace App;\nfunction f() {\n    strl$0\n}\n");
     assert!(item(&list, "strlen").additional_edits.is_empty());
     assert_eq!(item(&list, "strlen").edit.new_text, "strlen");
@@ -321,6 +360,7 @@ fn offers_named_arguments() {
         project(),
         "<?php\nuse function App\\Support\\helper_one;\nhelper_one(1, $0);\n",
     );
+
     let named = item(&list, "b:");
     assert_eq!(named.kind, ItemKind::Parameter);
     assert_eq!(named.edit.new_text, "b: ");
@@ -359,10 +399,12 @@ fn offers_keywords_by_place() {
     assert!(labels(&types).contains(&"int"));
     let returns = run(project(), "<?php\nfunction f(): vo$0 {}\n");
     assert!(labels(&returns).contains(&"void"));
+
     let args = run(
         project(),
         "<?php\nfunction f(): int { return 1; }\nfunction g($a) { $a = tr$0 }\n",
     );
+
     assert!(labels(&args).contains(&"true"));
 }
 
@@ -377,9 +419,11 @@ fn stays_quiet_in_comments_and_strings() {
 #[test]
 fn limits_the_list_and_says_so() {
     let mut source = String::from("<?php\n");
+
     for number in 0..400 {
         source.push_str(&format!("class Item{number} {{}}\n"));
     }
+
     let list = complete(
         &Fixture::new(&[("many.php", &source)]).index,
         "<?php\nIte",
@@ -389,6 +433,7 @@ fn limits_the_list_and_says_so() {
             ..CompletionOptions::default()
         },
     );
+
     assert_eq!(list.items.len(), 50);
     assert!(list.incomplete);
 }
@@ -407,6 +452,7 @@ fn completes_the_signature_of_a_method_to_override() {
     let describe = item(&list, "describe");
     assert_eq!(describe.kind, ItemKind::Method);
     assert_eq!(describe.description.as_deref(), Some("Base"));
+
     assert_eq!(
         applied(code, describe),
         "<?php\nnamespace App;\n\nuse Lib\\Base;\n\nclass Page extends Base\n{\n    public function describe(int $depth = 1): string\n    {\n        return parent::describe($depth);\n    }\n}\n"
@@ -421,10 +467,12 @@ fn offers_what_can_be_overridden_and_nothing_else() {
     assert!(names.contains(&"describe") && names.contains(&"make") && names.contains(&"__construct"));
     assert!(names.contains(&"render") && names.contains(&"handle"), "{names:?}");
     assert!(!names.contains(&"hook"), "already declared");
+
     assert!(
         !names.contains(&"secret") && !names.contains(&"sealed"),
         "private and final stay"
     );
+
     assert_eq!(names[0], "handle", "what must be implemented comes first: {names:?}");
     assert_eq!(names[1], "render");
 }
@@ -434,6 +482,7 @@ fn imports_the_classes_a_signature_names_and_adds_missing_modifiers() {
     let code = "<?php\nnamespace App;\n\nuse Lib\\Base;\n\nclass Page extends Base\n{\n    function han$0\n}\n";
     let list = run(override_project(), code);
     let handle = item(&list, "handle");
+
     assert_eq!(
         applied(code, handle),
         "<?php\nnamespace App;\n\nuse Lib\\Base;\nuse Lib\\Handler;\nuse Lib\\Request;\nuse Lib\\Response;\n\nclass Page extends Base\n{\n    public function handle(Request $request, ?Handler $next = null, int ...$flags): ?Response\n    {\n        \n    }\n}\n"
@@ -472,14 +521,17 @@ fn a_string_that_starts_a_qualified_name_completes_classes() {
         ),
         ("User.php", "<?php\nnamespace App\\Models;\nclass User {}\n"),
     ]);
+
     let labels = |code: &str| -> Vec<String> {
         let (offset, text) = lsc_text::testing::cursor(code);
+
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| format!("{} {}", item.label, item.edit.new_text))
             .collect()
     };
+
     assert_eq!(
         labels("<?php\n$a = 'App\\Http\\$0';\n"),
         [
@@ -487,10 +539,12 @@ fn a_string_that_starts_a_qualified_name_completes_classes() {
             "App\\Http\\Home App\\Http\\Home"
         ]
     );
+
     assert_eq!(
         labels("<?php\n$a = \"\\\\App\\\\Mo$0\";\n"),
         ["App\\Models\\User App\\\\Models\\\\User"]
     );
+
     assert!(
         labels("<?php\n$a = 'App$0';\n")
             .iter()
@@ -541,18 +595,22 @@ fn a_comparison_with_an_enum_offers_its_cases_first() {
     let pending = item(&list, "ScanStatus::Pending");
     assert_eq!(pending.kind, ItemKind::EnumMember);
     assert_eq!(pending.detail.as_deref(), Some("= 'pending'"));
+
     assert_eq!(
         applied(code, pending),
         "<?php\nnamespace App\\Http;\nuse App\\Data\\ScanStatus;\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    if ($t->status === ScanStatus::Pending) {}\n}\n"
     );
+
     assert!(
         !names.contains(&"Ticket"),
         "a comparison is not an instanceof: {names:?}"
     );
+
     let typed = run(
         tickets(),
         "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    if ($t->status !== Che$0) {}\n}\n",
     );
+
     assert_eq!(labels(&typed).first(), Some(&"ScanStatus::Checkin"));
 }
 
@@ -562,6 +620,7 @@ fn instanceof_still_offers_classes() {
         tickets(),
         "<?php\nuse App\\Data\\Ticket;\nfunction f($t) {\n    if ($t instanceof $0) {}\n}\n",
     );
+
     assert!(labels(&list).contains(&"Ticket"), "{:?}", labels(&list));
 }
 
@@ -569,42 +628,53 @@ fn instanceof_still_offers_classes() {
 fn assignments_arguments_returns_and_match_expect_their_type() {
     let first = |code: &str| {
         let list = run(tickets(), code);
+
         labels(&list).first().map(|label| label.to_string())
     };
+
     let pending = Some("ScanStatus::Pending".to_string());
+
     assert_eq!(
         first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->previous = $0\n}\n"),
         pending
     );
+
     assert_eq!(
         first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark($0);\n}\n"),
         pending
     );
+
     assert_eq!(
         first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark(notify: true, status: $0);\n}\n"),
         pending
     );
+
     assert_eq!(
         first("<?php\nuse App\\Data\\ScanStatus;\nfunction f(): ScanStatus {\n    return $0\n}\n"),
         pending
     );
+
     assert_eq!(
         first(
             "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    return match ($t->status) {\n        $0\n    };\n}\n"
         ),
         pending
     );
+
     assert_eq!(
         first(
             "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    switch ($t->status) {\n        case $0\n    }\n}\n"
         ),
         pending
     );
+
     let nullable = run(
         tickets(),
         "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->previous = $0\n}\n",
     );
+
     assert_eq!(labels(&nullable)[2], "null", "{:?}", labels(&nullable));
+
     assert_eq!(
         first(
             "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark(App\\Data\\ScanStatus::Pending, $0);\n}\n"
@@ -619,19 +689,23 @@ fn completes_the_keys_of_a_shape() {
         tickets(),
         "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    Ticket::chart()['$0'];\n}\n",
     );
+
     assert_eq!(labels(&quoted), vec!["current", "previous", "total"]);
     assert_eq!(item(&quoted, "total").description.as_deref(), Some("optional"));
     let nested_code = "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    $chart = Ticket::chart();\n    $chart['current'][0]['va$0'];\n}\n";
     let nested = run(tickets(), nested_code);
     assert_eq!(labels(&nested), vec!["value"]);
     assert_eq!(item(&nested, "value").detail.as_deref(), Some("float"));
+
     assert_eq!(
         applied(nested_code, item(&nested, "value")),
         nested_code.replace("['va$0']", "['value']")
     );
+
     let bare_code = "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    Ticket::chart()[$0];\n}\n";
     let bare = run(tickets(), bare_code);
     assert_eq!(labels(&bare)[..3], ["current", "previous", "total"]);
+
     assert_eq!(
         applied(bare_code, item(&bare, "current")),
         bare_code.replace("[$0]", "['current']")
@@ -644,6 +718,7 @@ fn completes_named_arguments_of_an_attribute() {
         project(),
         "<?php\nuse App\\Models\\Route;\n#[Route(pa$0)]\nfunction f() {}\n",
     );
+
     assert_eq!(labels(&list).first(), Some(&"path:"), "{:?}", labels(&list));
 }
 
@@ -682,6 +757,7 @@ abstract class Base { public function __construct(string $a) {} }
 fn run_calls(code: &str, call_snippets: bool) -> CompletionList {
     let fixture = calls().with_current(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     complete(
         &fixture.index,
         &text,
@@ -696,6 +772,7 @@ fn run_calls(code: &str, call_snippets: bool) -> CompletionList {
 fn call_text(code: &str, label: &str) -> (String, CallInsert) {
     let list = run_calls(code, true);
     let found = item(&list, label);
+
     (found.edit.new_text.clone(), found.call)
 }
 
@@ -704,6 +781,7 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
     let prefix = "<?php\nnamespace App;\nfunction f() {\n    ";
     let suffix = "$0\n}\n";
     let at = |label: &str| call_text(&format!("{prefix}{label}{suffix}"), label);
+
     assert_eq!(
         at("plain"),
         (
@@ -711,6 +789,7 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
             CallInsert::SnippetWithParameters
         )
     );
+
     assert_eq!(
         at("with_default"),
         (
@@ -718,11 +797,14 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
             CallInsert::SnippetWithParameters
         )
     );
+
     assert_eq!(
         at("only_optional"),
         ("only_optional($1)$0".into(), CallInsert::SnippetWithParameters)
     );
+
     assert_eq!(at("nothing"), ("nothing()$0".into(), CallInsert::Snippet));
+
     assert_eq!(
         at("by_reference"),
         (
@@ -730,14 +812,17 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
             CallInsert::SnippetWithParameters
         )
     );
+
     assert_eq!(
         at("printf"),
         ("printf(${1:\\$format})$0".into(), CallInsert::SnippetWithParameters)
     );
+
     assert_eq!(
         at("sort"),
         ("sort(${1:\\$array})$0".into(), CallInsert::SnippetWithParameters)
     );
+
     assert_eq!(at("time"), ("time()$0".into(), CallInsert::Snippet));
 }
 
@@ -757,14 +842,17 @@ fn snippet_text_escapes_what_the_grammar_reserves() {
 #[test]
 fn methods_get_arguments_after_arrows_and_scope_operators() {
     let instance = "<?php\nnamespace App;\nfunction f(Service $service) {\n    $service->";
+
     assert_eq!(
         call_text(&format!("{instance}ru$0\n}}\n"), "run").0,
         "run(${1:\\$times})$0"
     );
+
     assert_eq!(
         call_text(&format!("{instance}res$0\n}}\n"), "reset"),
         ("reset()$0".into(), CallInsert::Snippet)
     );
+
     let nullsafe = "<?php\nnamespace App;\nfunction f(?Service $service) {\n    $service?->ru$0\n}\n";
     assert_eq!(call_text(nullsafe, "run").0, "run(${1:\\$times})$0");
     let scoped = "<?php\nnamespace App;\nfunction f() {\n    Service::ma$0\n}\n";
@@ -779,14 +867,17 @@ fn a_constructor_gets_its_arguments_after_new() {
             name,
         )
     };
+
     assert_eq!(
         new("Service"),
         ("Service(${1:\\$id})$0".into(), CallInsert::SnippetWithParameters)
     );
+
     assert_eq!(new("Bare"), ("Bare()$0".into(), CallInsert::Snippet));
     let qualified = call_text("<?php\nfunction f() {\n    new \\App\\Serv$0\n}\n", "Service");
     assert_eq!(qualified.0, "\\\\App\\\\Service(${1:\\$id})$0");
     let list = run_calls("<?php\nnamespace App;\nfunction f() {\n    new Ba$0\n}\n", true);
+
     assert!(
         !labels(&list).contains(&"Base"),
         "abstract classes are not offered after new"
@@ -798,10 +889,12 @@ fn nothing_is_added_when_parentheses_follow_the_cursor() {
     for after in ["(", "  (", "\n    ("] {
         let code =
             format!("<?php\nnamespace App;\nfunction f(Service $service) {{\n    $service->ru$0{after}1);\n}}\n");
+
         let list = run_calls(&code, true);
         assert_eq!(item(&list, "run").edit.new_text, "run");
         assert_eq!(item(&list, "run").call, CallInsert::None);
     }
+
     let function = run_calls("<?php\nnamespace App;\nfunction f() {\n    plai$0(...);\n}\n", true);
     assert_eq!(item(&function, "plain").edit.new_text, "plain");
 }
@@ -818,17 +911,21 @@ fn names_that_are_not_calls_stay_bare() {
         ("<?php\nnamespace App;\nfunction f(Servi$0 $x) {}\n", "Service"),
         ("<?php\nnamespace App;\nclass X extends Servi$0 {}\n", "Service"),
     ];
+
     for (code, _) in cases {
         let list = run_calls(code, true);
+
         for found in &list.items {
             assert_eq!(found.call, CallInsert::None, "{code}: {}", found.label);
             assert!(!found.edit.new_text.contains('('), "{code}: {}", found.edit.new_text);
         }
     }
+
     let string = run_calls(
         "<?php\nnamespace App;\nfunction f() {\n    function_exists('plai$0');\n}\n",
         true,
     );
+
     assert!(string.items.is_empty(), "{:?}", labels(&string));
 }
 
@@ -838,10 +935,12 @@ fn nothing_changes_without_the_option() {
     let found = item(&list, "plain");
     assert_eq!(found.edit.new_text, "plain");
     assert_eq!(found.call, CallInsert::None);
+
     let method = run_calls(
         "<?php\nnamespace App;\nfunction f(Service $s) {\n    $s->ru$0\n}\n",
         false,
     );
+
     assert_eq!(item(&method, "run").edit.new_text, "run");
 }
 
@@ -851,6 +950,7 @@ fn label_filter_and_sort_text_stay_the_same() {
     let on = run_calls(code, true);
     let off = run_calls(code, false);
     let (on, off) = (item(&on, "plain"), item(&off, "plain"));
+
     assert_eq!(
         (&on.label, &on.filter_text, &on.sort_text),
         (&off.label, &off.filter_text, &off.sort_text)
@@ -875,6 +975,7 @@ fn simple_interpolation_gets_no_call_but_braced_interpolation_does() {
     let heredoc = "<?php\nnamespace App;\nfunction f(Service $service) {\n    echo <<<TXT\n$service->ru$0\nTXT;\n}\n";
     assert_eq!(item(&run_calls(heredoc, true), "run").call, CallInsert::None);
     let braced = "<?php\nnamespace App;\nfunction f(Service $service) {\n    echo \"{$service->ru$0}\";\n}\n";
+
     assert_eq!(
         item(&run_calls(braced, true), "run").edit.new_text,
         "run(${1:\\$times})$0"
@@ -908,10 +1009,12 @@ fn with_test_declarations() -> Fixture {
 fn ranked_in(root: &str, code: &str, limit: usize) -> CompletionList {
     let fixture = with_test_declarations().with_current(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     let options = CompletionOptions {
         limit,
         ..CompletionOptions::default()
     };
+
     crate::completion::complete_in(&fixture.index, Some(std::path::Path::new(root)), &text, offset, options)
 }
 

@@ -18,12 +18,15 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
         if !overlaps(finding.diagnostic.range, input.range) {
             continue;
         }
+
         let range = finding.diagnostic.range;
+
         match &finding.fix {
             Fix::None => {}
             Fix::Import { name, kind, at } => imports_for(input, cx, position, name, *kind, *at, out),
             Fix::RemoveImport { range: target } => {
                 let target = *target;
+
                 out.push(fix(
                     position,
                     "remove-import",
@@ -36,6 +39,7 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             }
             Fix::RemoveDeclaration { range: target } => {
                 let target = *target;
+
                 out.push(fix(
                     position,
                     "remove-declaration",
@@ -52,11 +56,13 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
                 pure,
             } => {
                 let (statement, prefix, pure) = (*statement, *prefix, *pure);
+
                 let title = if pure {
                     "Remove unused variable"
                 } else {
                     "Remove the assignment, keep the call"
                 };
+
                 out.push(fix(
                     position,
                     "remove-assignment",
@@ -75,6 +81,7 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             }
             Fix::RemoveRange { range: target } => {
                 let target = *target;
+
                 out.push(fix(
                     position,
                     "remove-unreachable",
@@ -87,6 +94,7 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             }
             Fix::ReplaceAssignment { operator } => {
                 let operator = *operator;
+
                 for (id, title, text, preferred) in [
                     ("assign-identical", "Replace '=' with '==='", "===", true),
                     ("assign-equal", "Replace '=' with '=='", "==", false),
@@ -104,6 +112,7 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             }
             Fix::RemoveDocLine { range: target } => {
                 let target = *target;
+
                 out.push(fix(
                     position,
                     "remove-doc-line",
@@ -116,6 +125,7 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             }
             Fix::ImplementMembers { class } => {
                 let class = *class;
+
                 out.push(fix(
                     position,
                     "implement-members",
@@ -135,11 +145,13 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             } => {
                 let (class, name, is_static, is_method, at) =
                     (class.clone(), name.clone(), *is_static, *is_method, *at);
+
                 let title = if is_method {
                     format!("Create method '{name}()'")
                 } else {
                     format!("Create property '${name}'")
                 };
+
                 out.push(fix(
                     position,
                     &format!("create-member:{name}"),
@@ -163,6 +175,7 @@ pub(super) fn quick_fixes<'a>(input: &'a ActionInput<'a>, cx: &'a Cx<'a>, out: &
             }
             Fix::Visibility { member, to } => {
                 let (member, to) = (*member, *to);
+
                 out.push(fix(
                     position,
                     &format!("visibility:{to}"),
@@ -212,13 +225,16 @@ fn imports_for<'a>(
     let candidates = import_candidates(input.env.index, name, kind, &namespace);
     let sole = candidates.len() == 1;
     let range = input.findings[finding].diagnostic.range;
+
     for candidate in candidates {
         let for_edit = candidate.clone();
+
         let title = match kind {
             UseKind::Class => format!("Import '{candidate}'"),
             UseKind::Function => format!("Import function '{candidate}'"),
             UseKind::Constant => format!("Import constant '{candidate}'"),
         };
+
         out.push(fix(
             finding,
             &format!("import:{candidate}"),
@@ -228,6 +244,7 @@ fn imports_for<'a>(
             Box::new(move || import_one(cx.text, &cx.root, at, &for_edit, kind).into_iter().collect()),
             range,
         ));
+
         if kind == UseKind::Class && !candidate.contains('\\') && !namespace.is_empty() {
             out.push(fix(
                 finding,
@@ -254,6 +271,7 @@ fn remove_doc_tag(text: &str, tag: TextRange) -> TextEdit {
     let before = &text[line_from..start];
     let after_end = line_end(text, end);
     let after = text[end..after_end].trim();
+
     if before.trim().trim_start_matches('*').trim().is_empty() && after.is_empty() {
         return TextEdit {
             start: line_from as u32,
@@ -261,7 +279,9 @@ fn remove_doc_tag(text: &str, tag: TextRange) -> TextEdit {
             new_text: String::new(),
         };
     }
+
     let trailing = text[end..].len() - text[end..].trim_start_matches(' ').len();
+
     TextEdit {
         start: start as u32,
         end: (end + trailing) as u32,
@@ -278,13 +298,16 @@ fn strict_types_edit(cx: &Cx) -> Vec<TextEdit> {
     else {
         return Vec::new();
     };
+
     let at = u32::from(open.text_range().end());
     let rest = &cx.text[at as usize..];
     let blank_follows = rest.starts_with('\n') || rest.starts_with("\r\n");
+
     let text = if blank_follows {
         "\ndeclare(strict_types=1);\n"
     } else {
         "\ndeclare(strict_types=1);\n\n"
     };
+
     vec![insert(at, text)]
 }

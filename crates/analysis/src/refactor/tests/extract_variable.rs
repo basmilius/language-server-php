@@ -29,10 +29,12 @@ fn the_cursor_picks_the_outermost_expression_that_is_worth_a_name() {
 #[test]
 fn the_names_come_from_the_expression() {
     let found = extract("        $name = $this->repo->find$0User($a)->name();\n        return 1;\n");
+
     assert!(
         found.contains("$user = $this->repo->findUser($a);\n        $name = $user->name();"),
         "{found}"
     );
+
     let found = extract("        return count(«$this->repo->findUser($a)->name()»);\n");
     assert!(found.contains("$name = $this->repo->findUser($a)->name();"), "{found}");
     let found = extract("        foo(«new \\DateTime()»);\n        return 1;\n");
@@ -47,6 +49,7 @@ fn the_names_come_from_the_expression() {
 fn offers_the_inner_expressions_as_well() {
     let titles = offered(&[], &method("        return strlen($this->repo->name$0()) + 1;\n"));
     assert!(titles.contains(&"Extract variable".to_string()), "{titles:?}");
+
     assert!(
         titles.iter().any(|title| title.starts_with("Extract variable from '")),
         "{titles:?}"
@@ -57,10 +60,12 @@ fn offers_the_inner_expressions_as_well() {
 fn replaces_every_equal_expression_in_reach() {
     let source = method("        $x = «$a * $b» + 1;\n        $y = $a * $b + 2;\n        return $x + $y;\n");
     let titles = offered(&[], &source);
+
     assert!(
         titles.contains(&"Extract variable, replacing all 2 occurrences".to_string()),
         "{titles:?}"
     );
+
     assert_eq!(
         applied(&[], &source, "Extract variable, replacing all 2 occurrences"),
         method("        $int = $a * $b;\n        $x = $int + 1;\n        $y = $int + 2;\n        return $x + $y;\n")
@@ -71,6 +76,7 @@ fn replaces_every_equal_expression_in_reach() {
 fn an_occurrence_after_the_inputs_changed_is_left_alone() {
     let source =
         method("        $x = «$a * $b» + 1;\n        $a = 5;\n        $y = $a * $b + 2;\n        return $x + $y;\n");
+
     assert!(
         !offered(&[], &source)
             .iter()
@@ -83,6 +89,7 @@ fn an_expression_with_effects_is_not_run_once_for_two_places() {
     let source = method(
         "        $x = «$this->repo->findUser($a)» ?? null;\n        $y = $this->repo->findUser($a);\n        return 1;\n",
     );
+
     assert!(
         !offered(&[], &source)
             .iter()
@@ -104,6 +111,7 @@ fn goes_in_front_of_the_condition_it_was_taken_from() {
 fn works_inside_a_closure_body() {
     let found =
         extract("        $f = function () use ($a) {\n            return «$a * 3»;\n        };\n        return 1;\n");
+
     assert!(
         found.contains("            $int = $a * 3;\n            return $int;"),
         "{found}"
@@ -158,6 +166,7 @@ fn refuses_what_only_runs_sometimes() {
             "The left side of ?? may be undefined, which a variable would report",
         ),
     ];
+
     for (body, reason) in cases {
         assert_eq!(refused(&[], &method(body), "Extract variable"), reason, "{body}");
     }
@@ -172,12 +181,15 @@ fn refuses_to_reorder_effects() {
         ),
         "Extract variable",
     );
+
     assert!(reason.starts_with("The expression only runs"), "{reason}");
+
     let reason = refused(
         &[],
         &method("        return foo($this->repo->name(), «$this->repo->name()»);\n"),
         "Extract variable",
     );
+
     assert_eq!(reason, "Moving the expression out would change the order things run in");
 }
 
@@ -192,10 +204,12 @@ fn keeps_comments_and_neighbors_as_they_are() {
     let found = extract(
         "        // first\n        $x = 1;   // trailing\n\n        /* about this */\n        return («$a + $b») * $x; // done\n",
     );
+
     assert!(
         found.contains("        // first\n        $x = 1;   // trailing\n"),
         "{found}"
     );
+
     assert!(
         found.contains("/* about this */\n        $int = $a + $b;\n        return ($int) * $x; // done"),
         "{found}"
@@ -206,10 +220,12 @@ fn keeps_comments_and_neighbors_as_they_are() {
 fn keeps_the_line_endings_the_file_has() {
     let source = method("        return («$a + $b») * 2;\n").replace('\n', "\r\n");
     let found = applied(&[], &source, "Extract variable");
+
     assert!(
         found.contains("$int = $a + $b;\r\n        return ($int) * 2;"),
         "{found:?}"
     );
+
     assert!(
         !found.replace("\r\n", "").contains('\n'),
         "a bare line feed came in: {found:?}"
@@ -219,12 +235,15 @@ fn keeps_the_line_endings_the_file_has() {
 #[test]
 fn writes_with_the_indent_of_the_options_and_leaves_multibyte_text_alone() {
     let source = "<?php\nfunction f($a)\n{\n\treturn strlen(«'héllo ' . $a») + 1;\n}\n";
+
     let tabs = php_format::FormatOptions {
         indent: php_format::Indent::Tab,
         ..php_format::FormatOptions::default()
     };
+
     let outcome = super::run_with(super::Setup::PLAIN, &[], source, "Extract variable", &tabs);
     let done = outcome.result.expect("offered").expect("done");
+
     assert_eq!(
         done.text,
         "<?php\nfunction f($a)\n{\n\t$string = 'héllo ' . $a;\n\treturn strlen($string) + 1;\n}\n"
@@ -238,5 +257,6 @@ fn refuses_what_a_call_takes_by_reference() {
         &method("        preg_match('/a/', 'abc', «$items»);\n        return 1;\n"),
         "Extract variable",
     );
+
     assert_eq!(reason, "The expression is taken by reference");
 }

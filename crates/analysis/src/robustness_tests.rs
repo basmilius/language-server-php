@@ -53,25 +53,32 @@ fn every_prefix_of_a_file_is_answered() {
     let fixture = Fixture::with_level(PhpVersion::V8_4, &[("sample.php", SAMPLE)], &[]);
     let path = Path::new("/project/current.php");
     let mut cut = 0;
+
     while cut <= SAMPLE.len() {
         if !SAMPLE.is_char_boundary(cut) {
             cut += 1;
+
             continue;
         }
+
         let text = &SAMPLE[..cut];
         let root = parse(text).syntax();
         let length = text.len() as u32;
+
         for token in semantic_tokens(&fixture.index, &root, None) {
             assert!(token.end <= length && token.start < token.end, "prefix {cut}");
         }
+
         let half = TextRange::new(TextSize::from(length / 3), TextSize::from(length));
         let _ = semantic_tokens(&fixture.index, &root, Some(half));
         let _ = inlay_hints(&fixture.index, &root, None, HintOptions::default());
+
         let current = Current {
             path,
             text,
             root: &root,
         };
+
         for offset in [length.saturating_sub(1), length, length / 2] {
             let _ = signature_help(&fixture.index, &root, offset);
             let _ = highlights_at(&fixture.index, &crate::references::NoSources, &current, offset);
@@ -79,6 +86,7 @@ fn every_prefix_of_a_file_is_answered() {
             let _ = prepare_call_hierarchy(&fixture.index, &root, offset);
             let _ = prepare_type_hierarchy(&fixture.index, &root, offset);
         }
+
         cut += 7;
     }
 }

@@ -30,6 +30,7 @@ impl ClassAliases {
             let Some(Literal::Text(alias, _)) = key.as_ref().and_then(literal_of) else {
                 continue;
             };
+
             if let Some(Literal::Class(class)) = literal_of(&value) {
                 self.by_alias.insert(alias.to_ascii_lowercase(), class);
             }
@@ -40,6 +41,7 @@ impl ClassAliases {
 impl Section for ClassAliases {
     fn build(index: &Index) -> Self {
         let mut aliases = ClassAliases::default();
+
         if let Some(facade) = index.class(FACADE) {
             if let Some(method) = facade.decl.method("defaultAliases") {
                 if let Some(tree) = tree_of(index, &facade.file.path) {
@@ -51,7 +53,9 @@ impl Section for ClassAliases {
                 }
             }
         }
+
         let config = index.framework_root().join("config").join("app.php");
+
         if let Some(tree) = tree_of(index, &config) {
             for item in tree.descendants().filter(|node| node.kind() == ARRAY_ITEM) {
                 let is_aliases = item
@@ -59,14 +63,17 @@ impl Section for ClassAliases {
                     .next()
                     .and_then(|key| crate::test_facts::string_value(&key))
                     .is_some_and(|(key, _)| key == "aliases");
+
                 if !is_aliases {
                     continue;
                 }
+
                 for array in item.descendants().filter(|node| node.kind() == ARRAY_EXPR) {
                     aliases.read(&array);
                 }
             }
         }
+
         aliases
     }
 
@@ -96,6 +103,7 @@ mod tests {
             ),
             ("app/Facades/Theme.php", "<?php namespace App\\Facades; class Theme {}"),
         ]);
+
         let name = |alias: &str| index.class(alias).map(|class| class.decl.name.clone());
         assert_eq!(name("DB").as_deref(), Some("Illuminate\\Support\\Facades\\DB"));
         assert_eq!(name("\\Str").as_deref(), Some("Illuminate\\Support\\Str"));

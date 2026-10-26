@@ -42,13 +42,16 @@ pub(crate) struct Mark {
 pub(crate) struct Layout {
     /// The text before each significant token. The first is the text before the first token.
     pub gaps: Vec<String>,
+
     /// The text after the last token.
     pub tail: String,
+
     pub line: Vec<usize>,
     pub end_line: Vec<usize>,
     pub column: Vec<usize>,
     pub end_column: Vec<usize>,
     pub marks: Vec<Mark>,
+
     /// The level a new line would have after the probed token.
     pub probe_level: Option<usize>,
 }
@@ -68,6 +71,7 @@ struct Writer<'a, 'b> {
 
 pub(crate) fn lay_out(m: &Model, options: &FormatOptions, forced: &Forced, probe: Option<usize>) -> Layout {
     let eol = if m.text.contains("\r\n") { "\r\n" } else { "\n" };
+
     let mut writer = Writer {
         m,
         options,
@@ -85,7 +89,9 @@ pub(crate) fn lay_out(m: &Model, options: &FormatOptions, forced: &Forced, probe
         column: 0,
         indent: 0,
     };
+
     let count = m.sig.len();
+
     let mut layout = Layout {
         gaps: Vec::with_capacity(count),
         tail: String::new(),
@@ -96,12 +102,14 @@ pub(crate) fn lay_out(m: &Model, options: &FormatOptions, forced: &Forced, probe
         marks: Vec::new(),
         probe_level: None,
     };
+
     for position in 0..count {
         let gap = if position == 0 {
             m.text[..m.leaf(0).start].to_string()
         } else {
             writer.gap(position - 1, Some(position))
         };
+
         writer.advance(&gap);
         layout.gaps.push(gap);
         let leaf = m.leaf(position);
@@ -114,14 +122,17 @@ pub(crate) fn lay_out(m: &Model, options: &FormatOptions, forced: &Forced, probe
         writer.mark(&mut layout, position);
         writer.bracket(position);
         writer.pop_items(position);
+
         if probe == Some(position) {
             layout.probe_level = Some(writer.level_after());
         }
     }
+
     layout.tail = match count {
         0 => m.text.to_string(),
         _ => writer.gap(count - 1, None),
     };
+
     layout
 }
 
@@ -136,6 +147,7 @@ fn is_opener(kind: SyntaxKind) -> bool {
 impl Writer<'_, '_> {
     fn advance(&mut self, text: &str) {
         let tab = self.options.indent.width();
+
         for character in text.chars() {
             match character {
                 '\n' => {
@@ -150,6 +162,7 @@ impl Writer<'_, '_> {
 
     fn frame(&mut self) -> &mut Frame {
         let last = self.frames.len() - 1;
+
         &mut self.frames[last]
     }
 
@@ -157,6 +170,7 @@ impl Writer<'_, '_> {
         let (line, indent) = (self.line, self.indent);
         let m = self.m;
         let frame = self.frame();
+
         for _ in &m.starts[position] {
             frame.items.push(Item { line, indent });
         }
@@ -165,6 +179,7 @@ impl Writer<'_, '_> {
     fn pop_items(&mut self, position: usize) {
         let ends = self.m.ends[position];
         let frame = self.frame();
+
         for _ in 0..ends {
             frame.items.pop();
         }
@@ -174,10 +189,13 @@ impl Writer<'_, '_> {
         if self.m.leaf(position).opaque.is_some() {
             return;
         }
+
         let kind = self.m.kind(position);
+
         if is_opener(kind) {
             let id = self.next_frame;
             self.next_frame += 1;
+
             let open_indent = match self.aligns_with_owner(position) {
                 true => self.frames[self.frames.len() - 1]
                     .items
@@ -185,6 +203,7 @@ impl Writer<'_, '_> {
                     .map_or(self.indent, |item| item.indent),
                 false => self.indent,
             };
+
             self.frames.push(Frame {
                 open_indent,
                 open_line: self.line,
@@ -198,6 +217,7 @@ impl Writer<'_, '_> {
 
     fn mark(&self, layout: &mut Layout, position: usize) {
         let m = self.m;
+
         let kind = match (m.kind(position), m.parent(position)) {
             (ASSIGN, ASSIGN_EXPR) if self.options.align_assignments && m.grandparent(position) == EXPR_STATEMENT => {
                 MarkKind::Assign
@@ -205,11 +225,14 @@ impl Writer<'_, '_> {
             (FAT_ARROW, ARRAY_ITEM) if self.options.align_array_arrows => MarkKind::Arrow,
             _ => return,
         };
+
         let node_start = usize::from(m.leaf(position).parent.text_range().start());
         let first = m.sig.partition_point(|&leaf| m.leaves[leaf].start < node_start);
+
         if layout.line[first.min(position)] != layout.line[position] || layout.gaps[position].contains('\n') {
             return;
         }
+
         layout.marks.push(Mark {
             position,
             line: layout.line[position],
@@ -223,14 +246,17 @@ impl Writer<'_, '_> {
     fn level_of(&self, position: usize) -> usize {
         let frame = &self.frames[self.frames.len() - 1];
         let kind = self.m.kind(position);
+
         if is_closer(kind) && self.frames.len() > 1 && self.m.leaf(position).opaque.is_none() {
             return frame.open_indent;
         }
+
         if self.aligns_with_owner(position) {
             if let Some(item) = frame.items.last() {
                 return item.indent;
             }
         }
+
         self.inner_level(self.line + 1)
     }
 
@@ -241,6 +267,7 @@ impl Writer<'_, '_> {
         let mut distinct = 0;
         let mut last = None;
         let nested = self.frames.len() > 1;
+
         for item in frame
             .items
             .iter()
@@ -251,11 +278,13 @@ impl Writer<'_, '_> {
                 last = Some(item.line);
             }
         }
+
         let base = if self.frames.len() > 1 {
             frame.open_indent + 1
         } else {
             0
         };
+
         base + distinct
     }
 
@@ -266,6 +295,7 @@ impl Writer<'_, '_> {
     /// Tokens that sit under the start of the statement or declaration they belong to.
     fn aligns_with_owner(&self, position: usize) -> bool {
         let m = self.m;
+
         match m.kind(position) {
             ELSE_KW | ELSEIF_KW | CATCH_KW | FINALLY_KW | ENDIF_KW | ENDWHILE_KW | ENDFOR_KW | ENDFOREACH_KW
             | ENDSWITCH_KW | ENDDECLARE_KW => true,
@@ -280,10 +310,13 @@ impl Writer<'_, '_> {
 
     fn newline(&self, blank: usize, level: usize) -> String {
         let mut out = String::new();
+
         for _ in 0..=blank {
             out.push_str(self.eol);
         }
+
         out.push_str(&self.unit.repeat(level));
+
         out
     }
 
@@ -293,17 +326,22 @@ impl Writer<'_, '_> {
         let from = m.sig[p] + 1;
         let to = n.map_or(m.leaves.len(), |n| m.sig[n]);
         let trivia = &m.leaves[from..to];
+
         let inside_string = n.is_some_and(
             |n| matches!((m.leaf(p).opaque, m.leaf(n).opaque), (Some(left), Some(right)) if left == right),
         );
+
         if inside_string {
             return m.text[trivia.first().map_or(0, |leaf| leaf.start)..trivia.last().map_or(0, |leaf| leaf.end)]
                 .to_string();
         }
+
         let mut segments: Vec<String> = vec![String::new()];
         let mut comments: Vec<&str> = Vec::new();
+
         for leaf in trivia {
             let text = &m.text[leaf.start..leaf.end];
+
             if leaf.kind == WHITESPACE {
                 if let Some(last) = segments.last_mut() {
                     last.push_str(text);
@@ -313,33 +351,43 @@ impl Writer<'_, '_> {
                 segments.push(String::new());
             }
         }
+
         if n.is_none() && matches!(m.kind(p), CLOSE_TAG | INLINE_HTML | HALT_DATA | OPEN_TAG) {
             return m.text[m.leaf(p).end..].to_string();
         }
+
         let mut chosen = match n {
             Some(n) => rule(m, self.options, self.forced, p, n),
             None => Rule::BreakTight,
         };
+
         if !comments.is_empty() && matches!(chosen, Rule::Join | Rule::JoinTight) {
             chosen = Rule::Keep;
         }
+
         let open_tag_text = (m.kind(p) == OPEN_TAG).then(|| &m.text[m.leaf(p).start..m.leaf(p).end]);
+
         if open_tag_text.is_some_and(|text| text.ends_with('\n')) {
             segments[0].insert(0, '\n');
         }
+
         let newlines: Vec<usize> = segments.iter().map(|segment| segment.matches('\n').count()).collect();
         let wants_break = matches!(chosen, Rule::Break | Rule::BreakTight | Rule::BreakBlank(_));
         let tail = n.is_none();
         let mut breaks: Vec<bool> = newlines.iter().map(|count| *count > 0).collect();
         let last = segments.len() - 1;
+
         let ends_in_line_comment = comments
             .last()
             .is_some_and(|comment| comment.starts_with("//") || comment.starts_with('#'));
+
         let before_close_tag = n.is_some_and(|n| m.kind(n) == CLOSE_TAG);
         let line_comment_ends_gap = !comments.is_empty() && ends_in_line_comment && !before_close_tag;
+
         if line_comment_ends_gap || tail || wants_break && !breaks.iter().any(|flag| *flag) {
             breaks[last] = true;
         }
+
         let first_break = breaks.iter().position(|flag| *flag);
         let last_break = breaks.iter().rposition(|flag| *flag);
 
@@ -352,6 +400,7 @@ impl Writer<'_, '_> {
         }
 
         let level_n = n.map(|n| self.level_of(n)).unwrap_or(0);
+
         let level_comment = match n {
             Some(n) if is_closer(m.kind(n)) && self.frames.len() > 1 && m.leaf(n).opaque.is_none() => {
                 self.inner_level(self.line + 1)
@@ -359,12 +408,16 @@ impl Writer<'_, '_> {
             Some(_) => level_n,
             None => 0,
         };
+
         let mut out = String::new();
+
         for (index, segment) in segments.iter().enumerate() {
             let level = if index == last { level_n } else { level_comment };
+
             if breaks[index] {
                 let original = newlines[index];
                 let kept = original.saturating_sub(1).min(1);
+
                 let blank = if Some(index) == first_break {
                     match chosen {
                         Rule::BreakBlank(count) => count,
@@ -376,25 +429,31 @@ impl Writer<'_, '_> {
                 } else {
                     kept
                 };
+
                 if tail && index == last {
                     out.push_str(self.eol);
                 } else {
                     let text = self.newline(blank, level);
+
                     let consumed = match open_tag_text {
                         Some(tag) if index == 0 && tag.ends_with('\n') => text.strip_prefix(self.eol),
                         Some(tag) if index == 0 && tag.ends_with('\r') => text.strip_prefix('\r'),
                         _ => None,
                     };
+
                     out.push_str(consumed.unwrap_or(&text));
                 }
             } else {
                 out.push_str(segment);
             }
+
             if breaks[index] {
                 self.indent = level;
             }
+
             if let Some(comment) = comments.get(index) {
                 let old_indent = segment.rsplit('\n').next().unwrap_or_default();
+
                 if breaks[index] {
                     out.push_str(&reindent(comment, old_indent, &self.unit.repeat(level)));
                 } else {
@@ -402,6 +461,7 @@ impl Writer<'_, '_> {
                 }
             }
         }
+
         out
     }
 }
@@ -411,9 +471,12 @@ fn reindent(comment: &str, old: &str, new: &str) -> String {
     if !comment.contains('\n') {
         return comment.to_string();
     }
+
     let mut out = String::with_capacity(comment.len());
+
     for (index, line) in comment.split_inclusive('\n').enumerate() {
         let trimmed = line.trim_start_matches([' ', '\t']);
+
         if index == 0 || line.trim().is_empty() {
             out.push_str(line);
         } else if let Some(rest) = line.strip_prefix(old) {
@@ -427,5 +490,6 @@ fn reindent(comment: &str, old: &str, new: &str) -> String {
             out.push_str(line);
         }
     }
+
     out
 }

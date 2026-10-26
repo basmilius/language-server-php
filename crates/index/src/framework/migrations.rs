@@ -20,6 +20,7 @@ pub struct Column {
     pub ty: ColumnType,
     pub nullable: bool,
     pub path: PathBuf,
+
     /// The name inside its quotes, in the migration that added the column.
     pub span: Span,
 }
@@ -53,18 +54,22 @@ impl Tables {
 impl Section for Tables {
     fn build(index: &Index) -> Self {
         let root = index.framework_root();
+
         let files: Vec<PathBuf> = index
             .files_below(&root.join("database").join("migrations"))
             .into_iter()
             .filter(|path| path.extension().is_some_and(|ext| ext == "php"))
             .collect();
+
         let mut tables = Tables::default();
         tables.read_schema_dump(index);
+
         for path in files {
             if let Some(text) = index.read_text(&path) {
                 tables.read(&path, &text);
             }
         }
+
         tables
     }
 
@@ -77,26 +82,33 @@ impl Tables {
     /// The schema dump `schema:dump` writes, which stands for the migrations before it.
     fn read_schema_dump(&mut self, index: &Index) {
         let dir = index.framework_root().join("database").join("schema");
+
         let mut dumps: Vec<PathBuf> = index
             .files_in(&dir)
             .into_iter()
             .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
             .collect();
+
         dumps.sort_by_key(|path| {
             !path
                 .file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with("mysql"))
         });
+
         let Some(path) = dumps.first() else {
             return;
         };
+
         let Some(text) = index.read_text(path) else {
             return;
         };
+
         let mut table: Option<String> = None;
         let mut offset = 0usize;
+
         for line in text.split_inclusive('\n') {
             let trimmed = line.trim();
+
             if let Some(rest) = trimmed.strip_prefix("CREATE TABLE") {
                 let name = rest
                     .trim_start()
@@ -107,6 +119,7 @@ impl Tables {
                     .unwrap_or("")
                     .trim()
                     .trim_matches(['`', '"', '[', ']']);
+
                 let name = name.rsplit('.').next().unwrap_or(name).trim_matches(['`', '"']);
                 table = Some(name.to_string());
                 self.tables.insert(name.to_string(), Table::default());
@@ -115,6 +128,7 @@ impl Tables {
             } else if let Some(table) = &table {
                 if let Some(column) = dump_column(trimmed) {
                     let start = offset + line.find(column.name.as_str()).unwrap_or(0);
+
                     if let Some(found) = self.tables.get_mut(table) {
                         found.columns.push(Column {
                             span: Span {
@@ -127,23 +141,29 @@ impl Tables {
                     }
                 }
             }
+
             offset += line.len();
         }
     }
 
     fn read(&mut self, path: &Path, text: &str) {
         let tree = parse(text).syntax();
+
         for node in tree.descendants() {
             let Some((class, method, call)) = static_call_parts(&node) else {
                 continue;
             };
+
             if class.trim_start_matches('\\').rsplit('\\').next() != Some("Schema") || in_down(&call) {
                 continue;
             }
+
             let args = argument_expressions(&call);
+
             let Some((table, _)) = args.first().and_then(string_value) else {
                 continue;
             };
+
             match method.to_ascii_lowercase().as_str() {
                 "create" => {
                     self.tables.insert(table.clone(), Table::default());
@@ -172,6 +192,7 @@ impl Tables {
         else {
             return;
         };
+
         let Some(variable) = closure
             .descendants()
             .find(|node| node.kind() == PARAMETER)
@@ -185,32 +206,41 @@ impl Tables {
         else {
             return;
         };
+
         let rules = schema_rules();
+
         for statement in closure.descendants() {
             if !matches!(statement.kind(), EXPR_STATEMENT | RETURN_STATEMENT) && statement.kind() != ARROW_FUNCTION_EXPR
             {
                 continue;
             }
+
             let expression = match statement.kind() {
                 ARROW_FUNCTION_EXPR => statement.children().last(),
                 _ => statement.children().next(),
             };
+
             let Some((base, links)) = expression.as_ref().and_then(variable_chain) else {
                 continue;
             };
+
             if base != variable {
                 continue;
             }
+
             let Some(first) = links.first() else {
                 continue;
             };
+
             let Some(rule) = rules.get(&first.name.to_ascii_lowercase()) else {
                 continue;
             };
+
             let nullable_chain = links
                 .iter()
                 .skip(1)
                 .any(|link| link.name == "nullable" && !link.args.first().is_some_and(|arg| arg.text() == "false"));
+
             let changes = links.iter().any(|link| link.name == "change");
             self.apply(table, path, first, rule, nullable_chain, changes);
         }
@@ -218,13 +248,16 @@ impl Tables {
 
     fn apply(&mut self, table: &str, path: &Path, link: &Link, rule: &SchemaRule, chain_nullable: bool, change: bool) {
         let first_text = link.args.first().and_then(string_value);
+
         let default_name = |default: &Option<String>| {
             first_text
                 .clone()
                 .or_else(|| default.clone().map(|name| (name, Span::default())))
         };
+
         let set = |tables: &mut Tables, name: String, span: Span, ty: ColumnType, nullable: bool| {
             let table = tables.tables.entry(table.to_string()).or_default();
+
             let column = Column {
                 name,
                 ty,
@@ -232,6 +265,7 @@ impl Tables {
                 path: path.to_path_buf(),
                 span,
             };
+
             match table.columns.iter_mut().find(|existing| existing.name == column.name) {
                 Some(existing) => {
                     if change {
@@ -244,6 +278,7 @@ impl Tables {
                 None => table.columns.push(column),
             }
         };
+
         match rule {
             SchemaRule::Column {
                 ty,
@@ -269,16 +304,20 @@ impl Tables {
             SchemaRule::ForeignFor => {
                 let named = link.args.get(1).and_then(string_value);
                 let model = link.args.first().map(|arg| arg.text().to_string());
+
                 let name = named.map(|(name, _)| name).or_else(|| {
                     let class = model?.strip_suffix("::class")?.rsplit('\\').next()?.trim().to_string();
+
                     Some(format!("{}_id", super::inflect::snake(&class)))
                 });
+
                 if let Some(name) = name {
                     set(self, name, Span::default(), ColumnType::Int, chain_nullable);
                 }
             }
             SchemaRule::Drop { default_name: default } => {
                 let mut names: Vec<String> = Vec::new();
+
                 for arg in &link.args {
                     if let Some((name, _)) = string_value(arg) {
                         names.push(name);
@@ -286,15 +325,18 @@ impl Tables {
                         names.extend(argument_array_strings(arg));
                     }
                 }
+
                 if link.args.is_empty() {
                     names.extend(default.clone());
                 }
+
                 self.remove(table, &names);
             }
             SchemaRule::Drops(names) => self.remove(table, names),
             SchemaRule::Rename => {
                 let from = first_text.map(|(name, _)| name);
                 let to = link.args.get(1).and_then(string_value);
+
                 if let (Some(from), Some((to, span))) = (from, to) {
                     if let Some(column) = self
                         .tables
@@ -320,23 +362,29 @@ impl Tables {
 /// A column line of a `CREATE TABLE` in a schema dump, in the quoting of MySQL, PostgreSQL and SQLite.
 fn dump_column(line: &str) -> Option<Column> {
     let first = line.chars().next()?;
+
     if !matches!(first, '`' | '"' | '[') {
         return None;
     }
+
     let close = match first {
         '[' => ']',
         quote => quote,
     };
+
     let rest = &line[1..];
     let end = rest.find(close)?;
     let name = &rest[..end];
     let after = rest[end + 1..].trim_start();
+
     let word = after
         .split(|c: char| c.is_whitespace() || c == '(' || c == ',')
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
+
     let tiny_bool = word == "tinyint" && after.to_ascii_lowercase().starts_with("tinyint(1)");
+
     let ty = match word.as_str() {
         "tinyint" if tiny_bool => ColumnType::Bool,
         "bool" | "boolean" => ColumnType::Bool,
@@ -350,8 +398,10 @@ fn dump_column(line: &str) -> Option<Column> {
         | "set" | "uuid" | "blob" | "binary" | "varbinary" | "time" | "character" => ColumnType::String,
         _ => ColumnType::Mixed,
     };
+
     let upper = after.to_ascii_uppercase();
     let nullable = !upper.contains("NOT NULL") && !upper.contains("PRIMARY KEY") && !upper.contains("AUTO_INCREMENT");
+
     Some(Column {
         name: name.to_string(),
         ty,
@@ -445,6 +495,7 @@ return new class extends Migration {
         let tables = tables(&[("database/migrations/2020_01_01_000000_create_users.php", USERS)]);
         let users = tables.table("users").expect("a table");
         let names: Vec<&str> = users.columns.iter().map(|column| column.name.as_str()).collect();
+
         assert_eq!(
             names,
             [
@@ -460,6 +511,7 @@ return new class extends Migration {
                 "updated_at"
             ]
         );
+
         assert_eq!(users.column("id").map(|column| column.ty), Some(ColumnType::Int));
         assert!(users.column("email_verified_at").is_some_and(|column| column.nullable));
         assert!(!users.column("name").is_some_and(|column| column.nullable));
@@ -472,15 +524,18 @@ return new class extends Migration {
             ("database/migrations/2020_01_01_000000_create_users.php", USERS),
             ("database/migrations/2021_01_01_000000_alter_users.php", ALTER),
         ]);
+
         let users = tables.table("users").expect("a table");
         assert!(users.column("name").is_none());
         assert!(users.column("full_name").is_some());
         assert!(users.column("team_id").is_none());
         assert!(users.column("nickname").is_some_and(|column| column.nullable));
+
         assert_eq!(
             users.column("settings").map(|column| column.ty),
             Some(ColumnType::Array)
         );
+
         assert!(users.column("email").is_some_and(|column| column.nullable));
     }
 
@@ -496,8 +551,10 @@ return new class extends Migration {
                 "<?php Schema::table('threads', function (Blueprint $table) { $table->string('slug')->nullable(); });",
             ),
         ]);
+
         let threads = tables.table("threads").expect("a table");
         let names: Vec<&str> = threads.columns.iter().map(|column| column.name.as_str()).collect();
+
         assert_eq!(
             names,
             [
@@ -510,19 +567,24 @@ return new class extends Migration {
                 "slug"
             ]
         );
+
         assert_eq!(
             threads.column("id").map(|column| (column.ty, column.nullable)),
             Some((ColumnType::Int, false))
         );
+
         assert_eq!(
             threads.column("solution_reply_id").map(|column| column.nullable),
             Some(true)
         );
+
         assert_eq!(
             threads.column("is_open").map(|column| column.ty),
             Some(ColumnType::Bool)
         );
+
         assert_eq!(threads.column("meta").map(|column| column.ty), Some(ColumnType::Array));
+
         assert_eq!(
             threads.column("created_at").map(|column| column.ty),
             Some(ColumnType::Datetime)
@@ -535,6 +597,7 @@ return new class extends Migration {
             "database/migrations/1.php",
             "<?php Schema::create('a', function (Blueprint $t) { $t->id(); }); Schema::create('b', fn (Blueprint $t) => $t->id()); Schema::drop('a');",
         )]);
+
         assert!(tables.table("a").is_none());
         assert!(tables.table("b").is_some());
     }

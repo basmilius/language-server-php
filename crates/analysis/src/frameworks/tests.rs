@@ -17,6 +17,7 @@ class User extends Model {
 
 fn project() -> Fixture {
     let mut files = ELOQUENT.to_vec();
+
     files.extend_from_slice(&[
         ("app/Models/User.php", USER),
         (
@@ -28,6 +29,7 @@ fn project() -> Fixture {
             "<?php Schema::create('users', function (Blueprint $table) { $table->id(); $table->string('name'); });",
         ),
     ]);
+
     Fixture::framework(&files)
 }
 
@@ -36,6 +38,7 @@ fn var(code: &str, name: &str) -> String {
     let fixture = project().with_current(code);
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     analyzer
         .env_at(offset)
         .get(name)
@@ -71,6 +74,7 @@ fn a_collection_of_models_types_its_closures() {
 
 fn container_project() -> Fixture {
     let mut files = php_index::framework::testing::CONTAINER.to_vec();
+
     files.extend_from_slice(&[
         (
             "app/Mailer.php",
@@ -130,6 +134,7 @@ app()->bind('twice', StripeGateway::class);
 "#,
         ),
     ]);
+
     Fixture::framework(&files)
 }
 
@@ -146,6 +151,7 @@ fn container_var(code: &str, name: &str) -> String {
     let fixture = container_project().with_current(code);
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     analyzer
         .env_at(offset)
         .get(name)
@@ -187,6 +193,7 @@ mod keys {
 
     fn project() -> Fixture {
         let mut files = HELPERS.to_vec();
+
         files.extend_from_slice(&[
             ("config/app.php", CONFIG_APP),
             (
@@ -198,12 +205,14 @@ mod keys {
             ("lang/en/messages.php", "<?php return ['welcome' => 'Welcome'];"),
             (".env", "APP_NAME=Laravel\nAPP_DEBUG=true\n"),
         ]);
+
         Fixture::framework(&files)
     }
 
     fn completions(code: &str) -> Vec<String> {
         let fixture = project().with_current(code);
         let (offset, text) = lsc_text::testing::cursor(code);
+
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -216,16 +225,19 @@ mod keys {
         let (text, root, offset) = split_cursor(code);
         let analyzer = Analyzer::new(&fixture.index, &root, offset);
         let _ = text;
+
         analyzer
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 let found = source
                     .get(place.span.start as usize..place.span.end as usize)
                     .unwrap_or("")
                     .to_string();
+
                 (
                     path.strip_prefix("/project")
                         .unwrap_or(&path)
@@ -242,6 +254,7 @@ mod keys {
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -250,6 +263,7 @@ mod keys {
             ready: true,
             externals: &externals,
         };
+
         inspect(&env)
             .into_iter()
             .map(|finding| {
@@ -269,14 +283,17 @@ mod keys {
             completions("<?php config('app.$0');"),
             ["app.locale", "app.name", "app.nested", "app.nested.a"]
         );
+
         assert_eq!(completions("<?php route('$0');"), ["about", "home"]);
         assert_eq!(completions("<?php view('mail.$0');"), ["mail.invoice"]);
         assert_eq!(completions("<?php __('messages.$0');"), ["messages.welcome"]);
         assert_eq!(completions("<?php env('APP_$0');"), ["APP_DEBUG", "APP_NAME"]);
+
         assert_eq!(
             completions("<?php Illuminate\\Support\\Facades\\Config::get('app.na$0');"),
             ["app.name"]
         );
+
         assert_eq!(
             completions("<?php Illuminate\\Support\\Facades\\View::make('wel$0');"),
             ["welcome"]
@@ -286,6 +303,7 @@ mod keys {
     #[test]
     fn completes_and_follows_the_fields_a_form_request_validates() {
         let mut files = HELPERS.to_vec();
+
         files.extend_from_slice(&[
             (
                 "vendor/laravel/FormRequest.php",
@@ -296,28 +314,34 @@ mod keys {
                 "<?php namespace App\\Http\\Requests; use Illuminate\\Foundation\\Http\\FormRequest; class StoreUserRequest extends FormRequest { public function rules(): array { return ['name' => 'required', 'email' => 'email']; } }",
             ),
         ]);
+
         let code = "<?php use App\\Http\\Requests\\StoreUserRequest;\nfunction store(StoreUserRequest $request) { $request->input('$0'); }";
         let fixture = Fixture::framework(&files).with_current(code);
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["email", "name"]);
         let code = "<?php use App\\Http\\Requests\\StoreUserRequest;\nfunction store(StoreUserRequest $request) { $request->input('em$0ail'); }";
         let fixture = Fixture::framework(&files).with_current(code);
         let (_, root, offset) = split_cursor(code);
         let places = Analyzer::new(&fixture.index, &root, offset).definitions(offset);
         assert_eq!(places.len(), 1);
+
         assert!(
             places[0]
                 .path
                 .as_ref()
                 .is_some_and(|path| path.ends_with("StoreUserRequest.php"))
         );
+
         let other = "<?php function f($bag) { $bag->input('em$0ail'); }";
         let (_, root, offset) = split_cursor(other);
+
         assert!(
             Analyzer::new(&fixture.index, &root, offset)
                 .definitions(offset)
@@ -337,14 +361,17 @@ mod keys {
             definitions("<?php config('app.na$0me');"),
             [("config/app.php".to_string(), "name".to_string())]
         );
+
         assert_eq!(
             definitions("<?php route('ho$0me');"),
             [("routes/web.php".to_string(), "home".to_string())]
         );
+
         assert_eq!(
             definitions("<?php view('mail.inv$0oice');"),
             [("resources/views/mail/invoice.blade.php".to_string(), String::new())]
         );
+
         assert_eq!(
             definitions("<?php env('APP_DE$0BUG');"),
             [(".env".to_string(), "APP_DEBUG".to_string())]
@@ -356,6 +383,7 @@ mod keys {
         let found = findings(
             "<?php config('app.nam'); route('hom'); view('welcom'); __('messages.welcom'); config('app.name'); route('home'); view('mail.invoice'); __('Hello world.');",
         );
+
         assert_eq!(
             found,
             [
@@ -372,6 +400,7 @@ mod keys {
         let found = findings(
             "<?php config('app.nope', 'fallback'); Illuminate\\Support\\Facades\\Config::has('app.nope'); Illuminate\\Support\\Facades\\Route::has('nope'); view('pkg::thing'); config('other.key'); $key = 'app.nope'; config($key); config('app.name' . 'x'); strlen('app.nam');",
         );
+
         assert_eq!(found, []);
     }
 }
@@ -379,6 +408,7 @@ mod keys {
 #[test]
 fn the_logged_in_user_is_the_model_the_configuration_names() {
     let mut files = ELOQUENT.to_vec();
+
     files.extend_from_slice(&[
         (
             "vendor/laravel/Auth.php",
@@ -402,6 +432,7 @@ fn the_logged_in_user_is_the_model_the_configuration_names() {
             "<?php use App\\Models\\User; return ['providers' => ['users' => ['model' => env('AUTH_MODEL', User::class)]]];",
         ),
     ]);
+
     let code = "<?php use Illuminate\\Support\\Facades\\Auth;\nfunction f(\\Illuminate\\Http\\Request $request) { $a = Auth::user(); $b = $request->user(); $posts = $a->posts; $c = auth()->user(); $0 }";
     let fixture = Fixture::framework(&files).with_current(code);
     let (_, root, offset) = split_cursor(code);
@@ -425,6 +456,7 @@ fn the_builder_of_a_scope_is_typed_whatever_the_method_writes() {
 #[test]
 fn a_factory_makes_the_model_it_is_named_after() {
     let mut files = ELOQUENT.to_vec();
+
     files.extend_from_slice(&[
         (
             "app/Models/Widget.php",
@@ -443,6 +475,7 @@ fn a_factory_makes_the_model_it_is_named_after() {
             "<?php namespace Database\\Factories; use App\\Models\\Gadget; use Illuminate\\Database\\Eloquent\\Factories\\Factory; class GadgetFactory extends Factory { protected $model = Gadget::class; }",
         ),
     ]);
+
     let code = "<?php use App\\Models\\{Widget, Gadget};\n$a = Widget::factory()->create(); $b = Widget::factory()->makeOne(); $c = Gadget::factory()->makeOne(); $0";
     let fixture = Fixture::framework(&files).with_current(code);
     let (_, root, offset) = split_cursor(code);
@@ -474,6 +507,7 @@ mod symfony {
     fn project() -> Fixture {
         let mut files = SYMFONY.to_vec();
         files.extend_from_slice(DOCTRINE);
+
         files.extend_from_slice(&[
             ("config/services.yaml", SERVICES),
             ("config/bundles.php", "<?php return [];"),
@@ -494,12 +528,14 @@ mod symfony {
                 "<?php namespace App\\Repository;\nuse App\\Entity\\User;\nuse Doctrine\\Bundle\\DoctrineBundle\\Repository\\ServiceEntityRepository;\n/** @extends ServiceEntityRepository<User> */\nclass UserRepository extends ServiceEntityRepository {}",
             ),
         ]);
+
         Fixture::framework(&files)
     }
 
     fn completions(code: &str) -> Vec<String> {
         let fixture = project().with_current(code);
         let (offset, text) = lsc_text::testing::cursor(code);
+
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -510,15 +546,18 @@ mod symfony {
     fn places(code: &str) -> Vec<String> {
         let fixture = project().with_current(code);
         let (_, root, offset) = split_cursor(code);
+
         Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 let text = source
                     .get(place.span.start as usize..place.span.end as usize)
                     .unwrap_or("");
+
                 format!("{}:{text}", path.strip_prefix("/project").unwrap_or(&path).display())
             })
             .collect()
@@ -528,6 +567,7 @@ mod symfony {
         let fixture = project().with_current(code);
         let (_, root, offset) = split_cursor(code);
         let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
         analyzer
             .env_at(offset)
             .get(name)
@@ -539,6 +579,7 @@ mod symfony {
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -547,6 +588,7 @@ mod symfony {
             ready: true,
             externals: &externals,
         };
+
         inspect(&env)
             .into_iter()
             .filter(|finding| finding.diagnostic.code.starts_with("unknown-"))
@@ -567,14 +609,17 @@ mod symfony {
         let code = |call: &str| format!("{CONTROLLER_PREFIX}{call}\n    }}\n}}");
         assert_eq!(completions(&code("$this->generateUrl('$0');")), ["blog_index"]);
         assert_eq!(completions(&code("$this->redirectToRoute('blog_$0');")), ["blog_index"]);
+
         assert_eq!(
             completions(&code("$this->render('blog/$0');")),
             ["blog/index.html.twig"]
         );
+
         assert_eq!(
             places(&code("$this->render('blog/in$0dex.html.twig');")),
             ["templates/blog/index.html.twig:"]
         );
+
         assert_eq!(
             places(&code("$this->generateUrl('blog_ind$0ex');")),
             ["src/Controller/BlogController.php:index"]
@@ -585,11 +630,14 @@ mod symfony {
     fn parameters_services_and_environment_variables_come_from_the_container_configuration() {
         let code = |call: &str| format!("{CONTROLLER_PREFIX}{call}\n    }}\n}}");
         assert_eq!(completions(&code("$this->getParameter('app.$0');")), ["app.admin"]);
+
         assert_eq!(
             places(&code("$this->getParameter('app.ad$0min');")),
             ["config/services.yaml:app.admin"]
         );
+
         let autowire = "<?php namespace App;\nuse Symfony\\Component\\DependencyInjection\\Attribute\\Autowire;\nclass S { public function __construct(#[Autowire('%app.ad$0min%')] string $a, #[Autowire(env: 'APP_SE$1CRET')] string $b, #[Autowire(param: 'app.ad$2min')] string $c, #[Autowire(service: 'app.mai$3ler')] $d) {} }";
+
         for (position, expected) in [
             ("$0", "config/services.yaml:app.admin"),
             ("$1", ".env:APP_SECRET"),
@@ -597,14 +645,17 @@ mod symfony {
             ("$3", "config/services.yaml:app.mailer"),
         ] {
             let mut text = autowire.to_string();
+
             for other in ["$0", "$1", "$2", "$3"] {
                 if other != position {
                     text = text.replace(other, "");
                 }
             }
+
             let text = text.replace(position, CURSOR);
             assert_eq!(places(&text), [expected], "{position}");
         }
+
         assert_eq!(
             completions(
                 "<?php namespace App;\nuse Symfony\\Component\\DependencyInjection\\Attribute\\Autowire;\nclass S { public function __construct(#[Autowire('%env(APP_$0)%')] string $a) {} }"
@@ -618,11 +669,13 @@ mod symfony {
         let code = "<?php use Symfony\\Component\\DependencyInjection\\ContainerInterface;\nfunction f(ContainerInterface $container) { $a = $container->get('app.alias'); $b = $container->get('app.mailer'); $c = $container->get(\\App\\Service\\Mailer::class); $d = $container->get('nope'); $0 }";
         assert_eq!(var(code, "a"), "Mailer");
         assert_eq!(var(code, "b"), "Mailer");
+
         assert_eq!(
             var(code, "c"),
             "Mailer|object",
             "the declared type says the service may be another object"
         );
+
         assert_eq!(var(code, "d"), "object");
     }
 
@@ -639,6 +692,7 @@ mod symfony {
     fn the_fields_of_an_entity_complete_in_the_criteria_of_a_finder() {
         let code = "<?php use App\\Entity\\User;\nfunction f(\\App\\Repository\\UserRepository $repo) { $repo->findBy(['$0' => 1]); }";
         assert_eq!(completions(code), ["email", "firstName"]);
+
         assert_eq!(
             places(
                 "<?php function f(\\App\\Repository\\UserRepository $repo) { $repo->findOneBy(['first$0Name' => 1]); }"
@@ -650,9 +704,11 @@ mod symfony {
     #[test]
     fn reports_the_routes_and_templates_the_project_certainly_lacks() {
         let code = |call: &str| format!("{CONTROLLER_PREFIX}{call}\n    }}\n}}");
+
         let found = unknown(&code(
             "$this->generateUrl('blog_nope'); $this->generateUrl('blog_index'); $this->render('blog/nope.html.twig'); $this->render('blog/index.html.twig'); $this->render('@Bundle/x.html.twig'); $this->getParameter('nope');",
         ));
+
         assert_eq!(
             found,
             [
@@ -664,6 +720,7 @@ mod symfony {
 
     fn with_events() -> Fixture {
         let mut files = SYMFONY.to_vec();
+
         files.extend_from_slice(&[
             (
                 "vendor/symfony/KernelEvents.php",
@@ -683,12 +740,14 @@ mod symfony {
             ),
             ("translations/messages.en.yaml", "app:\n    title: Title\n"),
         ]);
+
         Fixture::framework(&files)
     }
 
     fn event_completions(code: &str) -> Vec<String> {
         let fixture = with_events().with_current(code);
         let (offset, text) = lsc_text::testing::cursor(code);
+
         complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
@@ -718,7 +777,9 @@ mod symfony {
     fn translation_keys_complete_and_lead_to_their_file() {
         let code =
             "<?php function f(\\Symfony\\Contracts\\Translation\\TranslatorInterface $t) { $t->trans('app.$0'); }";
+
         let mut files = SYMFONY.to_vec();
+
         files.extend_from_slice(&[
             (
                 "vendor/symfony/Translator.php",
@@ -726,13 +787,16 @@ mod symfony {
             ),
             ("translations/messages.en.yaml", "app:\n    title: Title\n"),
         ]);
+
         let fixture = Fixture::framework(&files).with_current(code);
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["app.title"]);
     }
 }
@@ -780,18 +844,21 @@ mod usages {
     fn usages(path: &str, find: &str) -> (Vec<String>, Vec<String>) {
         let mut files = HELPERS.to_vec();
         let mut edited = None;
+
         for (file, text) in FILES {
             if *file == path {
                 let at = text.find(find).expect("the text to find") + 1;
                 edited = Some((at, text.to_string()));
             }
         }
+
         let (offset, text) = edited.expect("the file is a fixture");
         files.extend_from_slice(FILES);
         let fixture = Fixture::framework(&files);
         let sources = Files(fixture.sources.clone());
         let full = PathBuf::from("/project").join(path);
         let root = php_syntax::parse(&text).syntax();
+
         let found = references_at(
             &fixture.index,
             &sources,
@@ -802,17 +869,21 @@ mod usages {
             },
             offset as u32,
         );
+
         let Some(found) = found else {
             return (Vec::new(), Vec::new());
         };
+
         let show = |path: &PathBuf, start: u32, end: u32| {
             let source = &fixture.sources[path];
+
             format!(
                 "{}: {}",
                 path.strip_prefix("/project").unwrap_or(path).display(),
                 &source[start as usize..end as usize]
             )
         };
+
         let mut hits: Vec<String> = found
             .files
             .iter()
@@ -822,7 +893,9 @@ mod usages {
                     .map(|hit| show(&file.path, u32::from(hit.range.start()), u32::from(hit.range.end())))
             })
             .collect();
+
         hits.sort();
+
         let declared = found
             .symbols
             .iter()
@@ -835,13 +908,16 @@ mod usages {
                 )
             })
             .collect();
+
         let _ = CURSOR;
+
         (hits, declared)
     }
 
     #[test]
     fn a_route_is_used_in_code_and_templates() {
         let (hits, declared) = usages("app/Http/Controllers/AboutController.php", "home");
+
         assert_eq!(
             hits,
             [
@@ -850,6 +926,7 @@ mod usages {
                 "resources/views/layout.blade.php: home",
             ]
         );
+
         assert_eq!(declared, ["routes/web.php: home"]);
     }
 
@@ -863,6 +940,7 @@ mod usages {
     #[test]
     fn a_config_key_is_one_key_and_not_its_children() {
         let (hits, declared) = usages("app/Http/Controllers/HomeController.php", "app.name");
+
         assert_eq!(
             hits,
             [
@@ -871,6 +949,7 @@ mod usages {
                 "tests/ConfigTest.php: app.name",
             ]
         );
+
         assert_eq!(declared, ["config/app.php: name"]);
         let (from_file, _) = usages("config/app.php", "name");
         assert_eq!(from_file, hits);
@@ -879,6 +958,7 @@ mod usages {
     #[test]
     fn views_and_translations_count_their_directives() {
         let (views, _) = usages("app/Http/Controllers/HomeController.php", "welcome'");
+
         assert_eq!(
             views,
             [
@@ -886,7 +966,9 @@ mod usages {
                 "resources/views/layout.blade.php: welcome",
             ]
         );
+
         let (translations, _) = usages("resources/views/layout.blade.php", "messages.welcome");
+
         assert_eq!(
             translations,
             [
@@ -905,6 +987,7 @@ mod usages {
         let path = PathBuf::from("/project/src/Controller/BlogController.php");
         let root = php_syntax::parse(controller).syntax();
         let offset = controller.find("'index'").expect("the name") as u32 + 2;
+
         let found = references_at(
             &fixture.index,
             &Files(fixture.sources.clone()),
@@ -916,10 +999,12 @@ mod usages {
             offset,
         )
         .expect("a route");
+
         assert_eq!(
             format!("{:?}", found.symbols),
             "[Key { kind: Route, name: \"blog_index\", scope: None }]"
         );
+
         assert_eq!(found.files.iter().map(|file| file.hits.len()).sum::<usize>(), 1);
     }
 
@@ -940,32 +1025,39 @@ mod relation_strings {
 
     const USER: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\nclass User extends Model {\n    public function posts(): HasMany { return $this->hasMany(Post::class); }\n    public function helper() {}\n}\n";
     const POST: &str = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nuse Illuminate\\Database\\Eloquent\\Relations\\HasMany;\nclass Post extends Model {\n    public function comments(): HasMany { return $this->hasMany(Comment::class); }\n}\n";
+
     const COMMENT: &str =
         "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Comment extends Model {}\n";
+
     const PAGE: &str = "<?php\nuse App\\Models\\User;\nfunction page(User $user) {\n    User::with('posts.comments')->get();\n    User::query()->whereHas('posts')->withCount(['posts as total' => fn ($q) => $q]);\n    $user->load(['posts:id,title']);\n}\n";
 
     fn fixture() -> Fixture {
         let mut files = ELOQUENT.to_vec();
+
         files.extend_from_slice(&[
             ("app/Models/User.php", USER),
             ("app/Models/Post.php", POST),
             ("app/Models/Comment.php", COMMENT),
             ("app/Http/page.php", PAGE),
         ]);
+
         Fixture::framework(&files)
     }
 
     #[test]
     fn a_segment_is_the_relation_of_the_model_before_it() {
         let fixture = fixture();
+
         let places = |code: &str| -> Vec<String> {
             let (_, root, offset) = split_cursor(code);
+
             Analyzer::new(&fixture.index, &root, offset)
                 .definitions(offset)
                 .into_iter()
                 .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
                 .collect()
         };
+
         let code = "<?php\nuse App\\Models\\User;\nUser::with('posts.comm$0ents');\n";
         assert_eq!(places(code), ["/project/app/Models/Post.php"]);
         let code = "<?php\nuse App\\Models\\User;\nUser::query()->whereHas('po$0sts');\n";
@@ -975,18 +1067,22 @@ mod relation_strings {
     #[test]
     fn segments_complete_from_their_model() {
         let fixture = fixture();
+
         let complete = |code: &str| -> Vec<String> {
             let (offset, text) = lsc_text::testing::cursor(code);
+
             complete(&fixture.index, &text, offset, CompletionOptions::default())
                 .items
                 .into_iter()
                 .map(|item| item.label)
                 .collect()
         };
+
         assert_eq!(
             complete("<?php\nuse App\\Models\\User;\nUser::with('$0');\n"),
             ["posts"]
         );
+
         assert_eq!(
             complete("<?php\nuse App\\Models\\User;\nUser::with('posts.$0');\n"),
             ["comments"]
@@ -999,6 +1095,7 @@ mod relation_strings {
         let path = std::path::PathBuf::from("/project/app/Models/User.php");
         let root = php_syntax::parse(USER).syntax();
         let offset = USER.find("posts").expect("the relation") as u32 + 1;
+
         let found = references_at(
             &fixture.index,
             &Files(fixture.sources.clone()),
@@ -1010,6 +1107,7 @@ mod relation_strings {
             offset,
         )
         .expect("usages");
+
         let in_page: Vec<&str> = found
             .files
             .iter()
@@ -1017,18 +1115,23 @@ mod relation_strings {
             .flat_map(|file| file.hits.iter())
             .map(|hit| &PAGE[usize::from(hit.range.start())..usize::from(hit.range.end())])
             .collect();
+
         assert_eq!(in_page, ["posts", "posts", "posts", "posts"]);
     }
 
     #[test]
     fn a_relation_the_model_does_not_have_is_reported() {
         use crate::inspections::{Externals, InspectionEnv, InspectionSettings, inspect};
+
         let fixture = fixture();
+
         let code =
             "<?php\nuse App\\Models\\User;\nUser::with(['posts.comments', 'posts.nope', 'helper', 'gone'])->get();\n";
+
         let root = php_syntax::parse(code).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -1041,6 +1144,7 @@ mod relation_strings {
         .filter(|finding| finding.diagnostic.code == "unknown-relation")
         .map(|finding| finding.diagnostic.message)
         .collect();
+
         assert_eq!(
             found,
             [
@@ -1063,6 +1167,7 @@ mod validation_rules {
         let mut files = HELPERS.to_vec();
         files.extend_from_slice(VALIDATION);
         files.push(("app/Http/Requests/StoreUser.php", REQUEST));
+
         Fixture::framework(&files)
     }
 
@@ -1071,15 +1176,18 @@ mod validation_rules {
     #[test]
     fn a_rule_leads_to_the_method_that_checks_it() {
         let fixture = fixture();
+
         let places = |code: &str| -> Vec<String> {
             let (text, root, offset) = split_cursor(code);
             let source = text.clone();
+
             Analyzer::new(&fixture.index, &root, offset)
                 .definitions(offset)
                 .into_iter()
                 .map(|place| match place.path {
                     Some(path) => {
                         let file = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                         format!(
                             "{}: {}",
                             path.file_name().expect("a name").to_string_lossy(),
@@ -1090,6 +1198,7 @@ mod validation_rules {
                 })
                 .collect()
         };
+
         let code = REQUEST.replace("'required|email|", "'required|em$0ail|");
         assert_eq!(places(&code), ["ValidatesAttributes.php: validateEmail"]);
         let code = REQUEST.replace("'nullable', 'int'", "'nullable', 'i$0nt'");
@@ -1105,21 +1214,26 @@ mod validation_rules {
     #[test]
     fn rules_tables_columns_and_fields_complete() {
         let fixture = fixture();
+
         let complete = |code: &str| -> Vec<String> {
             let (offset, text) = lsc_text::testing::cursor(code);
+
             complete(&fixture.index, &text, offset, CompletionOptions::default())
                 .items
                 .into_iter()
                 .map(|item| item.label)
                 .collect()
         };
+
         let rules = complete("<?php\nvalidator([], ['a' => 'required|em$0']);\n");
         assert_eq!(rules, ["email"]);
         assert_eq!(complete("<?php\nvalidator([], ['a' => 'exists:$0']);\n"), ["users"]);
+
         assert_eq!(
             complete("<?php\nvalidator([], ['a' => 'exists:users,$0']);\n"),
             ["email", "id"]
         );
+
         assert_eq!(
             complete("<?php\nvalidator([], ['a' => 'x', 'b' => 'same:$0']);\n"),
             ["a", "b"]
@@ -1132,6 +1246,7 @@ mod validation_rules {
         let root = php_syntax::parse(REQUEST).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: REQUEST,
@@ -1147,6 +1262,7 @@ mod validation_rules {
                 .to_string()
         })
         .collect();
+
         assert_eq!(found, ["nope"]);
     }
 }
@@ -1166,6 +1282,7 @@ mod casts {
         let mut files = ELOQUENT.to_vec();
         files.extend(VALIDATION.iter().filter(|(path, _)| path.contains("migrations")));
         files.extend_from_slice(&[("app/Casts/Money.php", MONEY), ("app/Models/User.php", USER)]);
+
         Fixture::framework(&files)
     }
 
@@ -1174,30 +1291,37 @@ mod casts {
         let fixture = fixture();
         let code = USER.replace("['email' =>", "['em$0ail' =>");
         let (_, root, offset) = split_cursor(&code);
+
         let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let file = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 file[place.span.start as usize..place.span.end as usize].to_string()
             })
             .collect();
+
         assert_eq!(found, ["email"]);
     }
 
     #[test]
     fn keys_complete_columns_and_values_casts() {
         let fixture = fixture();
+
         let complete = |code: &str| -> Vec<String> {
             let (offset, text) = lsc_text::testing::cursor(code);
+
             complete(&fixture.index, &text, offset, CompletionOptions::default())
                 .items
                 .into_iter()
                 .map(|item| item.label)
                 .collect()
         };
+
         assert_eq!(complete(&USER.replace("['email' =>", "['em$0' =>")), ["email"]);
+
         assert_eq!(
             complete(&USER.replace("'flag' => 'Bool'", "'flag' => 'boo$0'")),
             ["bool", "boolean"]
@@ -1210,6 +1334,7 @@ mod casts {
         let root = php_syntax::parse(USER).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: USER,
@@ -1224,6 +1349,7 @@ mod casts {
             USER[usize::from(finding.diagnostic.range.start())..usize::from(finding.diagnostic.range.end())].to_string()
         })
         .collect();
+
         assert_eq!(found, ["booleen"]);
     }
 }
@@ -1244,23 +1370,27 @@ mod dql {
     fn fixture() -> Fixture {
         let mut files = SYMFONY.to_vec();
         files.extend_from_slice(DOCTRINE);
+
         files.extend_from_slice(&[
             ("config/bundles.php", "<?php return [];"),
             ("src/Entity/User.php", USER),
             ("src/Entity/Post.php", POST),
             ("src/Repository/PostRepository.php", REPOSITORY),
         ]);
+
         Fixture::framework(&files)
     }
 
     fn places(fixture: &Fixture, code: &str) -> Vec<String> {
         let (_, root, offset) = split_cursor(code);
+
         Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let file = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 format!(
                     "{}: {}",
                     path.file_name().expect("a name").to_string_lossy(),
@@ -1286,11 +1416,13 @@ mod dql {
         let fixture = fixture();
         let code = REPOSITORY.replacen("->orderBy('p.nope')", "->orderBy('p.$0')", 1);
         let (offset, text) = lsc_text::testing::cursor(&code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["author", "title"]);
     }
 
@@ -1300,6 +1432,7 @@ mod dql {
         let root = php_syntax::parse(REPOSITORY).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: REPOSITORY,
@@ -1312,6 +1445,7 @@ mod dql {
         .filter(|finding| finding.diagnostic.code == "unknown-entity-field")
         .map(|finding| finding.diagnostic.message)
         .collect();
+
         assert_eq!(
             found,
             [
@@ -1327,6 +1461,7 @@ mod dql {
         let path = std::path::PathBuf::from("/project/src/Entity/User.php");
         let root = php_syntax::parse(USER).syntax();
         let offset = USER.find("$email").expect("the field") as u32 + 2;
+
         let found = references_at(
             &fixture.index,
             &Files(fixture.sources.clone()),
@@ -1338,6 +1473,7 @@ mod dql {
             offset,
         )
         .expect("usages");
+
         let in_repository: Vec<&str> = found
             .files
             .iter()
@@ -1345,6 +1481,7 @@ mod dql {
             .flat_map(|file| file.hits.iter())
             .map(|hit| &REPOSITORY[usize::from(hit.range.start())..usize::from(hit.range.end())])
             .collect();
+
         assert_eq!(in_repository, ["email", "email"]);
     }
 }
@@ -1359,6 +1496,7 @@ mod columns {
 
     const USER: &str =
         "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass User extends Model {}\n";
+
     const PAGE: &str = "<?php\nuse App\\Models\\User;\nfunction page() {\n    User::where('email', 'a')->orderBy('users.email')->get();\n    User::query()->where(['email' => 'a'])->orderBy('email as address');\n    User::where('nope', 1)->orderBy('count(*)');\n}\n";
     const MIGRATION: &str = "database/migrations/2020_01_01_000000_create_users_table.php";
 
@@ -1366,21 +1504,25 @@ mod columns {
         let mut files = ELOQUENT.to_vec();
         files.extend(VALIDATION.iter().filter(|(path, _)| path.contains("migrations")));
         files.extend_from_slice(&[("app/Models/User.php", USER), ("app/Http/page.php", PAGE)]);
+
         Fixture::framework(&files)
     }
 
     #[test]
     fn a_column_leads_to_its_migration() {
         let fixture = fixture();
+
         let at = |from: &str, to: &str| -> Vec<String> {
             let code = PAGE.replacen(from, to, 1);
             let (_, root, offset) = split_cursor(&code);
+
             Analyzer::new(&fixture.index, &root, offset)
                 .definitions(offset)
                 .into_iter()
                 .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
                 .collect()
         };
+
         let migration = format!("/project/{MIGRATION}");
         assert_eq!(at("where('email'", "where('em$0ail'"), std::slice::from_ref(&migration));
         assert_eq!(at("'users.email'", "'users.em$0ail'"), std::slice::from_ref(&migration));
@@ -1394,11 +1536,13 @@ mod columns {
         let fixture = fixture();
         let code = "<?php\nuse App\\Models\\User;\nUser::where('$0');\n";
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["email", "id"]);
     }
 
@@ -1409,6 +1553,7 @@ mod columns {
         let text = fixture.sources.get(&path).cloned().expect("the migration");
         let root = php_syntax::parse(&text).syntax();
         let offset = text.find("'email'").expect("the column") as u32 + 2;
+
         let found = references_at(
             &fixture.index,
             &Files(fixture.sources.clone()),
@@ -1420,6 +1565,7 @@ mod columns {
             offset,
         )
         .expect("usages");
+
         let in_page: Vec<&str> = found
             .files
             .iter()
@@ -1427,6 +1573,7 @@ mod columns {
             .flat_map(|file| file.hits.iter())
             .map(|hit| &PAGE[usize::from(hit.range.start())..usize::from(hit.range.end())])
             .collect();
+
         assert_eq!(in_page, ["email", "email", "email", "email"]);
     }
 }
@@ -1443,6 +1590,7 @@ mod inertia {
 
     fn fixture() -> Fixture {
         let mut files = HELPERS.to_vec();
+
         files.extend_from_slice(&[
             (
                 "vendor/inertia/Inertia.php",
@@ -1451,6 +1599,7 @@ mod inertia {
             ("resources/js/Pages/Users/Index.vue", "<template></template>"),
             ("resources/js/Pages/Users/Edit.tsx", "export default 1"),
         ]);
+
         Fixture::framework(&files)
     }
 
@@ -1459,19 +1608,23 @@ mod inertia {
         let fixture = fixture();
         let code = CONTROLLER.replace("'Users/Index'", "'Users/In$0dex'");
         let (_, root, offset) = split_cursor(&code);
+
         let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
             .collect();
+
         assert_eq!(found, ["/project/resources/js/Pages/Users/Index.vue"]);
         let code = "<?php\nInertia\\Inertia::render('Users/$0');\n";
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["Users/Edit", "Users/Index"]);
     }
 
@@ -1481,6 +1634,7 @@ mod inertia {
         let root = php_syntax::parse(CONTROLLER).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: CONTROLLER,
@@ -1493,6 +1647,7 @@ mod inertia {
         .filter(|finding| finding.diagnostic.code == "unknown-inertia-page")
         .map(|finding| finding.diagnostic.message)
         .collect();
+
         assert_eq!(found, ["No page component is named 'Users/Gone'"]);
     }
 }
@@ -1509,6 +1664,7 @@ mod pennant {
 
     fn fixture() -> Fixture {
         let mut files = HELPERS.to_vec();
+
         files.extend_from_slice(&[
             (
                 "vendor/pennant/Feature.php",
@@ -1523,36 +1679,44 @@ mod pennant {
                 "<?php\nnamespace App\\Features;\nclass Beta {\n    public $name = 'beta';\n    public function resolve($user): bool { return true; }\n}\n",
             ),
         ]);
+
         Fixture::framework(&files)
     }
 
     #[test]
     fn a_feature_leads_to_where_it_is_defined_and_completes() {
         let fixture = fixture();
+
         let at = |from: &str, to: &str| -> Vec<String> {
             let code = PAGE.replacen(from, to, 1);
             let (_, root, offset) = split_cursor(&code);
+
             Analyzer::new(&fixture.index, &root, offset)
                 .definitions(offset)
                 .into_iter()
                 .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
                 .collect()
         };
+
         assert_eq!(
             at("'new-api'", "'new-a$0pi'"),
             ["/project/app/Providers/AppServiceProvider.php"]
         );
+
         assert_eq!(
             at("active('beta')", "active('be$0ta')"),
             ["/project/app/Features/Beta.php"]
         );
+
         let code = "<?php\n\\Laravel\\Pennant\\Feature::active('$0');\n";
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["beta", "new-api"]);
     }
 
@@ -1562,6 +1726,7 @@ mod pennant {
         let root = php_syntax::parse(PAGE).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: PAGE,
@@ -1574,6 +1739,7 @@ mod pennant {
         .filter(|finding| finding.diagnostic.code == "unknown-feature")
         .map(|finding| finding.diagnostic.message)
         .collect();
+
         assert_eq!(found, ["No feature is defined as 'nope'"]);
     }
 }
@@ -1591,6 +1757,7 @@ mod filament {
     fn fixture() -> Fixture {
         let mut files = ELOQUENT.to_vec();
         files.extend(VALIDATION.iter().filter(|(path, _)| path.contains("migrations")));
+
         files.extend_from_slice(&[
             ("vendor/filament/classes.php", VENDOR),
             (
@@ -1600,6 +1767,7 @@ mod filament {
             ("app/Filament/Resources/UserResource.php", RESOURCE),
             ("app/Filament/Resources/UsersTable.php", TABLE),
         ]);
+
         Fixture::framework(&files)
     }
 
@@ -1608,15 +1776,18 @@ mod filament {
         let fixture = fixture();
         let code = TABLE.replace("make('email')", "make('em$0ail')");
         let (_, root, offset) = split_cursor(&code);
+
         let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 text[place.span.start as usize..place.span.end as usize].to_string()
             })
             .collect();
+
         assert_eq!(found, ["email"]);
     }
 }
@@ -1634,6 +1805,7 @@ mod serializer_groups {
 
     fn fixture() -> Fixture {
         let mut files = SYMFONY.to_vec();
+
         files.extend_from_slice(&[
             ("config/bundles.php", "<?php return [];"),
             (
@@ -1642,6 +1814,7 @@ mod serializer_groups {
             ),
             ("src/Entity/Book.php", BOOK),
         ]);
+
         Fixture::framework(&files)
     }
 
@@ -1650,19 +1823,23 @@ mod serializer_groups {
         let fixture = fixture();
         let code = API.replacen("'book:read'", "'book:re$0ad'", 1);
         let (_, root, offset) = split_cursor(&code);
+
         let found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| place.path.map(|path| path.display().to_string()).unwrap_or_default())
             .collect();
+
         assert_eq!(found, ["/project/src/Entity/Book.php"]);
         let code = "<?php\nfunction f($s, $b) { $s->normalize($b, null, ['groups' => ['$0']]); }\n";
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["book:read", "book:write"]);
     }
 
@@ -1672,6 +1849,7 @@ mod serializer_groups {
         let root = php_syntax::parse(API).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: API,
@@ -1684,6 +1862,7 @@ mod serializer_groups {
         .filter(|finding| finding.diagnostic.code == "unknown-serializer-group")
         .map(|finding| finding.diagnostic.message)
         .collect();
+
         assert_eq!(found, ["No property or method is in the group 'nope'"]);
     }
 }
@@ -1696,6 +1875,7 @@ mod messenger {
 
     fn fixture() -> Fixture {
         let mut files = SYMFONY.to_vec();
+
         files.extend_from_slice(&[
             ("config/bundles.php", "<?php return [];"),
             (
@@ -1712,6 +1892,7 @@ mod messenger {
                 "<?php\nnamespace App\\Handler;\nuse App\\Message\\SendEmail;\nuse Symfony\\Component\\Messenger\\Attribute\\AsMessageHandler;\nclass Audit {\n    #[AsMessageHandler(handles: SendEmail::class)]\n    public function record(object $message): void {}\n}\n",
             ),
         ]);
+
         Fixture::framework(&files)
     }
 
@@ -1720,15 +1901,18 @@ mod messenger {
         let fixture = fixture();
         let code = "<?php\nuse App\\Message\\SendEmail;\nfunction send($bus) { $bus->dispatch(new Send$0Email()); }\n";
         let (_, root, offset) = split_cursor(code);
+
         let mut found: Vec<String> = Analyzer::new(&fixture.index, &root, offset)
             .implementations(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 text[place.span.start as usize..place.span.end as usize].to_string()
             })
             .collect();
+
         found.sort();
         assert_eq!(found, ["__invoke", "record"]);
     }
@@ -1747,6 +1931,7 @@ mod workflow {
 
     fn fixture() -> Fixture {
         let mut files = SYMFONY.to_vec();
+
         files.extend_from_slice(&[
             ("config/bundles.php", "<?php return [];"),
             ("config/packages/workflow.yaml", CONFIG),
@@ -1755,18 +1940,21 @@ mod workflow {
                 "<?php\nnamespace Symfony\\Component\\Workflow {\n    interface WorkflowInterface { public function can(object $subject, string $transitionName): bool; public function apply(object $subject, string $transitionName, array $context = []); }\n    class Registry { public function get(object $subject, ?string $workflowName = null) {} }\n}\nnamespace Symfony\\Component\\Workflow\\Attribute {\n    #[\\Attribute] class AsGuardListener { public function __construct(?string $workflow = null, ?string $transition = null, int $priority = 0) {} }\n}\n",
             ),
         ]);
+
         Fixture::framework(&files)
     }
 
     fn places(fixture: &Fixture, from: &str, to: &str) -> Vec<String> {
         let code = CODE.replacen(from, to, 1);
         let (_, root, offset) = split_cursor(&code);
+
         Analyzer::new(&fixture.index, &root, offset)
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let text = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 text[place.span.start as usize..place.span.end as usize].to_string()
             })
             .collect()
@@ -1776,6 +1964,7 @@ mod workflow {
     fn transitions_and_workflows_lead_to_their_configuration() {
         let fixture = fixture();
         assert_eq!(places(&fixture, "'publish'", "'pub$0lish'"), ["publish"]);
+
         assert_eq!(
             places(
                 &fixture,
@@ -1784,15 +1973,20 @@ mod workflow {
             ),
             ["blog_publishing"]
         );
+
         assert_eq!(places(&fixture, "'to_review'", "'to_re$0view'"), ["to_review"]);
+
         let code =
             "<?php\nfunction f(\\Symfony\\Component\\Workflow\\WorkflowInterface $w, $p) { $w->apply($p, '$0'); }\n";
+
         let (offset, text) = lsc_text::testing::cursor(code);
+
         let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         assert_eq!(labels, ["publish", "to_review"]);
     }
 
@@ -1802,6 +1996,7 @@ mod workflow {
         let root = php_syntax::parse(CODE).syntax();
         let settings = InspectionSettings::default();
         let externals = Externals::none();
+
         let found: Vec<String> = inspect(&InspectionEnv {
             index: &fixture.index,
             text: CODE,
@@ -1814,6 +2009,7 @@ mod workflow {
         .filter(|finding| finding.diagnostic.code == "unknown-workflow-name")
         .map(|finding| finding.diagnostic.message)
         .collect();
+
         assert_eq!(found, ["No workflow has the transition 'archive'"]);
     }
 }
@@ -1832,11 +2028,13 @@ mod raxos {
 
     fn project() -> Fixture {
         let mut files = RAXOS.to_vec();
+
         files.extend_from_slice(&[
             ("src/Order.php", ORDER),
             ("src/User.php", USER),
             ("src/OrderLine.php", LINE),
         ]);
+
         Fixture::framework(&files)
     }
 
@@ -1850,12 +2048,15 @@ mod raxos {
         let code = with_imports(body);
         let fixture = project().with_current(&code);
         let (offset, text) = lsc_text::testing::cursor(&code);
+
         let mut labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
             .items
             .into_iter()
             .map(|item| item.label)
             .collect();
+
         labels.sort();
+
         labels
     }
 
@@ -1865,6 +2066,7 @@ mod raxos {
         let root = php_syntax::parse(&code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: &code,
@@ -1873,6 +2075,7 @@ mod raxos {
             ready: true,
             externals: &externals,
         };
+
         inspect(&env)
             .into_iter()
             .filter(|finding| finding.diagnostic.code == "unknown-model-key")
@@ -1883,14 +2086,17 @@ mod raxos {
     #[test]
     fn completes_the_keys_of_the_model() {
         assert_eq!(completions("Order::col('$0');"), ["created_on", "id"]);
+
         assert_eq!(
             completions("$order->only(['id', '$0']);"),
             ["buyer", "createdOn", "id", "lines"]
         );
+
         assert_eq!(
             completions("$order->only(['buyer' => ['$0']]);"),
             ["email", "firstName"]
         );
+
         assert_eq!(completions("Order::select()->eagerLoad(['$0']);"), ["buyer", "lines"]);
         assert_eq!(completions("$order->lines->makeVisible(['$0']);"), ["quantity"]);
     }
@@ -1913,15 +2119,18 @@ mod raxos {
         let fixture = project().with_current(&code);
         let (_, root, offset) = split_cursor(&code);
         let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
         let found: Vec<String> = analyzer
             .definitions(offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 source[place.span.start as usize..place.span.end as usize].to_string()
             })
             .collect();
+
         assert_eq!(found, ["$createdOn"]);
     }
 
@@ -1932,6 +2141,7 @@ mod raxos {
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -1940,11 +2150,13 @@ mod raxos {
             ready: true,
             externals: &externals,
         };
+
         let found: Vec<String> = inspect(&env)
             .into_iter()
             .filter(|finding| finding.diagnostic.code == "unknown-model-key")
             .map(|finding| finding.diagnostic.message)
             .collect();
+
         assert_eq!(found, ["The model 'OrderLine' has no property 'price'"]);
     }
 
@@ -1968,6 +2180,7 @@ mod raxos {
 
     fn router_project(current: &str) -> Fixture {
         let mut files = RAXOS.to_vec();
+
         files.extend_from_slice(&[
             ("src/Order.php", ORDER),
             ("src/User.php", USER),
@@ -1975,6 +2188,7 @@ mod raxos {
             ("src/Merchant.php", MERCHANT),
             ("src/MerchantController.php", MERCHANT_CONTROLLER),
         ]);
+
         Fixture::framework(&files).with_current(current)
     }
 
@@ -1983,6 +2197,7 @@ mod raxos {
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -1991,6 +2206,7 @@ mod raxos {
             ready: true,
             externals: &externals,
         };
+
         inspect(&env)
             .into_iter()
             .filter(|finding| {
@@ -2018,23 +2234,29 @@ mod raxos {
                 ),
             ]
         );
+
         let wrong = ORDER_CONTROLLER
             .replace("'merchant', 'orders'", "'shop', 'orders'")
             .replace("prefix: 'orders/$order'", "prefix: 'orders/$id'");
+
         let found: Vec<String> = router_findings(&wrong)
             .into_iter()
             .map(|(_, message)| message)
             .collect();
+
         assert!(
             found.contains(&"No parameter of the constructor is named '$id', so the path keeps it as text".to_string())
         );
+
         assert!(
             found.contains(&"Neither this controller nor one above has a constructor parameter '$shop'".to_string())
         );
+
         let own = ORDER_CONTROLLER.replace(
             "line(int $line)",
             "line(int $lineId, #[MapModelRelation('order', 'lines')] OrderLine $item)",
         );
+
         assert_eq!(
             router_findings(&own),
             [(
@@ -2042,7 +2264,9 @@ mod raxos {
                 "The route 'update()' needs a return type, which the router reads".to_string()
             )]
         );
+
         let relation = ORDER_CONTROLLER.replace("'merchant', 'orders'", "'merchant', 'buyers'");
+
         assert!(router_findings(&relation).contains(&(
             "unknown-model-key",
             "The model 'Merchant' has no relation 'buyers'".to_string()
@@ -2056,6 +2280,7 @@ mod raxos {
         let (_, root, offset) = split_cursor(&code);
         let analyzer = Analyzer::new(&fixture.index, &root, offset);
         let markdown = analyzer.hover(offset).map(|hover| hover.markdown).unwrap_or_default();
+
         assert!(
             markdown.starts_with("```\nGET /merchants/$merchant/orders/$order/lines/$lineId\n```"),
             "{markdown}"
@@ -2069,6 +2294,7 @@ mod raxos {
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -2077,6 +2303,7 @@ mod raxos {
             ready: true,
             externals: &externals,
         };
+
         let found: Vec<(&str, String, String)> = inspect(&env)
             .into_iter()
             .filter(|finding| {
@@ -2087,6 +2314,7 @@ mod raxos {
             })
             .map(|finding| {
                 let range = finding.diagnostic.range;
+
                 (
                     finding.diagnostic.code,
                     finding.diagnostic.message,
@@ -2094,6 +2322,7 @@ mod raxos {
                 )
             })
             .collect();
+
         assert_eq!(
             found,
             [
@@ -2121,6 +2350,7 @@ mod raxos {
         let macros = "<?php\nnamespace App;\nclass BasketMacro {\n    public static function total(Basket $basket): Cost {}\n    public static function forOrder(Order $order): Cost {}\n    public static function label(Basket $basket): User {}\n}\nclass Cost {}\nclass CostCaster implements \\Raxos\\Contract\\Database\\Orm\\CasterInterface {}\nclass NotACaster {}\n";
         let code = "<?php\nnamespace App;\nuse Raxos\\Database\\Orm\\Model;\nuse Raxos\\Database\\Orm\\Attribute\\{Caster, Column, Macro};\nclass Basket extends Model {\n    #[Macro(BasketMacro::total(...))] public Cost $total;\n    #[Macro(callback: BasketMacro::forOrder(...))] public Cost $other;\n    #[Macro(BasketMacro::label(...))] public Cost $label;\n    #[Column] #[Caster(CostCaster::class)] public Cost $price;\n    #[Column] #[Caster(NotACaster::class)] public Cost $fee;\n}\n";
         let mut files = RAXOS.to_vec();
+
         files.extend_from_slice(&[
             ("src/Order.php", ORDER),
             ("src/User.php", USER),
@@ -2131,10 +2361,12 @@ mod raxos {
                 "<?php namespace Raxos\\Contract\\Database\\Orm; interface CasterInterface {}",
             ),
         ]);
+
         let fixture = Fixture::framework(&files).with_current(code);
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -2143,11 +2375,13 @@ mod raxos {
             ready: true,
             externals: &externals,
         };
+
         let found: Vec<String> = inspect(&env)
             .into_iter()
             .filter(|finding| finding.diagnostic.code == "invalid-model-attribute")
             .map(|finding| finding.diagnostic.message)
             .collect();
+
         assert_eq!(
             found,
             [
@@ -2164,14 +2398,17 @@ mod raxos {
         let handlers = "<?php\nnamespace App;\nuse Raxos\\Contract\\MessageBus\\HandlerInterface;\n/** @implements HandlerInterface<Ping> */\nclass PingHandler implements HandlerInterface {}\n/** @implements HandlerInterface<Pong> */\nclass PongHandler implements HandlerInterface {}\nclass Plain {}\n";
         let code = "<?php\nnamespace App;\nuse Raxos\\Contract\\MessageBus\\MessageInterface;\nuse Raxos\\MessageBus\\Attribute\\Handler;\n#[Handler(PingHandler::class)] class Ping implements MessageInterface {}\n#[Handler(PingHandler::class)] class Pong implements MessageInterface {}\n#[Handler(Plain::class)] class Pang implements MessageInterface {}\n";
         let mut files = RAXOS.to_vec();
+
         files.extend_from_slice(&[
             ("vendor/raxos/message-bus/Bus.php", bus),
             ("src/Handlers.php", handlers),
         ]);
+
         let fixture = Fixture::framework(&files).with_current(code);
         let root = php_syntax::parse(code).syntax();
         let externals = Externals::none();
         let settings = InspectionSettings::default();
+
         let env = InspectionEnv {
             index: &fixture.index,
             text: code,
@@ -2180,11 +2417,13 @@ mod raxos {
             ready: true,
             externals: &externals,
         };
+
         let found: Vec<String> = inspect(&env)
             .into_iter()
             .filter(|finding| finding.diagnostic.code == "message-handler-mismatch")
             .map(|finding| finding.diagnostic.message)
             .collect();
+
         assert_eq!(
             found,
             [
@@ -2205,11 +2444,13 @@ mod raxos {
         let markdown = analyzer.hover(offset).map(|hover| hover.markdown).unwrap_or_default();
         assert!(markdown.contains("int $from"), "{markdown}");
         assert!(markdown.contains("The first day"), "{markdown}");
+
         let found: Vec<String> = analyzer
             .definitions(offset)
             .into_iter()
             .map(|place| code.replace("$0", "")[place.span.start as usize..place.span.end as usize].to_string())
             .collect();
+
         assert_eq!(found, ["int $from"]);
     }
 
@@ -2220,6 +2461,7 @@ mod raxos {
         use std::path::{Path, PathBuf};
 
         struct Files(HashMap<PathBuf, String>);
+
         impl Sources for Files {
             fn candidates(&self, word: &str) -> Vec<PathBuf> {
                 self.0
@@ -2228,6 +2470,7 @@ mod raxos {
                     .map(|(path, _)| path.clone())
                     .collect()
             }
+
             fn text(&self, path: &Path) -> Option<String> {
                 self.0.get(path).cloned()
             }
@@ -2241,6 +2484,7 @@ mod raxos {
             let fixture = router_project(&code);
             let (text, root, offset) = split_cursor(&code);
             let path = PathBuf::from("/project/current.php");
+
             let done = crate::rename::rename(
                 &fixture.index,
                 &Files(fixture.sources.clone()),
@@ -2253,20 +2497,25 @@ mod raxos {
                 "start",
             )
             .expect("renamed");
+
             let mut out = text.clone();
+
             let mut edits: Vec<_> = done
                 .files
                 .iter()
                 .filter(|file| file.path == path)
                 .flat_map(|file| file.edits.clone())
                 .collect();
+
             edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start()));
+
             for edit in edits {
                 out.replace_range(
                     usize::from(edit.range.start())..usize::from(edit.range.end()),
                     &edit.text,
                 );
             }
+
             assert_eq!(
                 out,
                 SEGMENTS.replace("$from/", "$start/").replace("int $from", "int $start")
@@ -2278,13 +2527,16 @@ mod raxos {
     fn path_segments_are_colored_as_parameters() {
         let fixture = router_project(SEGMENTS);
         let root = php_syntax::parse(SEGMENTS).syntax();
+
         let strings: Vec<(usize, usize)> = ["'stats/$merchant'", "'conversion/$from/$to'"]
             .iter()
             .map(|string| {
                 let start = SEGMENTS.find(string).expect("the string");
+
                 (start, start + string.len())
             })
             .collect();
+
         let parameters: Vec<&str> = crate::semantic_tokens::semantic_tokens(&fixture.index, &root, None)
             .into_iter()
             .filter(|token| crate::semantic_tokens::TOKEN_TYPES[token.ty as usize] == "parameter")
@@ -2295,6 +2547,7 @@ mod raxos {
             })
             .map(|token| &SEGMENTS[token.start as usize..token.end as usize])
             .collect();
+
         assert_eq!(parameters, ["$merchant", "$from", "$to"]);
     }
 

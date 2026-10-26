@@ -29,6 +29,7 @@ impl FilamentModels {
 
     fn give(&mut self, class: &str, model: &str) {
         let key = class.to_ascii_lowercase();
+
         match self.by_class.get(&key) {
             Some(Some(known)) if !known.eq_ignore_ascii_case(model) => {
                 self.by_class.insert(key, None);
@@ -44,14 +45,18 @@ impl FilamentModels {
 impl Section for FilamentModels {
     fn build(index: &Index) -> Self {
         let mut found = FilamentModels::default();
+
         if index.class(RESOURCE).is_none() {
             return found;
         }
+
         let mut resources: Vec<(Name, Name)> = Vec::new();
+
         for resource in index.all_subtypes(RESOURCE) {
             if resource.file.origin != Origin::Project {
                 continue;
             }
+
             let model = resource
                 .decl
                 .property("model")
@@ -60,22 +65,30 @@ impl Section for FilamentModels {
                 .or_else(|| {
                     let short = resource.decl.name.rsplit('\\').next()?.strip_suffix("Resource")?;
                     let conventional = format!("App\\Models\\{short}");
+
                     index.class(&conventional).map(|_| conventional)
                 });
+
             let Some(model) = model else {
                 continue;
             };
+
             found.give(&resource.decl.name, &model);
             resources.push((resource.decl.name.clone(), model.clone()));
+
             let Some(tree) = tree_of(index, &resource.file.path) else {
                 continue;
             };
+
             let resolver = resolver_at(&tree, resource.decl.span.start);
+
             for access in tree.descendants().filter(|node| node.kind() == SCOPED_ACCESS_EXPR) {
                 let Some(name) = access.children().find(|child| child.kind() == NAME) else {
                     continue;
                 };
+
                 let class = resolver.resolve_class(&name.text().to_string());
+
                 if index
                     .class(&class)
                     .is_some_and(|found| found.file.origin == Origin::Project)
@@ -85,6 +98,7 @@ impl Section for FilamentModels {
                 }
             }
         }
+
         for file in index.files().filter(|file| file.origin == Origin::Project) {
             for decl in &file.symbols().classes {
                 let Some(value) = decl
@@ -93,17 +107,21 @@ impl Section for FilamentModels {
                 else {
                     continue;
                 };
+
                 let Some(class) = index.class(&decl.name) else {
                     continue;
                 };
+
                 let Some(resource) = class_in_attribute(index, class, value) else {
                     continue;
                 };
+
                 if let Some((_, model)) = resources.iter().find(|(name, _)| name.eq_ignore_ascii_case(&resource)) {
                     found.give(&decl.name, model);
                 }
             }
         }
+
         found
     }
 

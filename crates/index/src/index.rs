@@ -39,6 +39,7 @@ pub struct FileEntry {
     source: SymbolSource,
     loaded: OnceLock<Arc<FileSymbols>>,
     last_used: AtomicU64,
+
     /// Read from disk by the indexer, so the cache file can stand in for what is in memory.
     from_disk: bool,
 }
@@ -63,9 +64,11 @@ impl FileEntry {
         from_disk: bool,
     ) -> FileEntry {
         let loaded = OnceLock::new();
+
         if let SymbolSource::Memory(symbols) = &source {
             let _ = loaded.set(symbols.clone());
         }
+
         FileEntry {
             path,
             origin,
@@ -83,6 +86,7 @@ impl FileEntry {
     pub fn symbols(&self) -> &FileSymbols {
         self.last_used
             .store(CLOCK.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+
         self.loaded.get_or_init(|| {
             self.source
                 .load()
@@ -105,8 +109,10 @@ impl FileEntry {
 #[derive(Clone, Debug)]
 pub struct StubFile {
     pub path: PathBuf,
+
     /// The normalized name of the extension folder.
     pub extension: String,
+
     pub source: SymbolSource,
     pub summary: Arc<FileSummary>,
 }
@@ -114,6 +120,7 @@ pub struct StubFile {
 impl StubFile {
     pub fn new(path: PathBuf, extension: String, symbols: Arc<FileSymbols>) -> StubFile {
         let summary = Arc::new(FileSummary::of(&symbols));
+
         StubFile {
             path,
             extension,
@@ -161,6 +168,7 @@ pub struct ClassName<'a> {
 impl<'a> ClassName<'a> {
     pub fn load(&self) -> Option<Class<'a>> {
         let decl = self.file.symbols().classes.get(self.slot as usize)?;
+
         Some(Class { file: self.file, decl })
     }
 }
@@ -176,11 +184,13 @@ pub struct DeclName<'a> {
 impl<'a> DeclName<'a> {
     pub fn load_function(&self) -> Option<FunctionRef<'a>> {
         let decl = self.file.symbols().functions.get(self.slot as usize)?;
+
         Some(FunctionRef { file: self.file, decl })
     }
 
     pub fn load_constant(&self) -> Option<ConstRef<'a>> {
         let decl = self.file.symbols().constants.get(self.slot as usize)?;
+
         Some(ConstRef { file: self.file, decl })
     }
 }
@@ -194,10 +204,13 @@ pub struct Index {
     classes: HashMap<String, Vec<Slot>>,
     functions: HashMap<String, Vec<Slot>>,
     constants: HashMap<String, Vec<Slot>>,
+
     /// Direct subtypes by the lowercase name of the class they extend, implement or use.
     subtypes: HashMap<String, Vec<Slot>>,
+
     /// The folders of the standard library this index shows, by normalized name.
     pub stub_extensions: Vec<String>,
+
     pub(crate) framework: crate::framework::FrameworkState,
 }
 
@@ -242,6 +255,7 @@ impl Index {
 
     pub fn file(&self, path: &Path) -> Option<&FileEntry> {
         let id = *self.by_path.get(path)?;
+
         self.files.get(id as usize)?.as_ref()
     }
 
@@ -252,6 +266,7 @@ impl Index {
     /// Adds a file, or replaces what the index knew of it.
     pub fn set_file(&mut self, path: PathBuf, origin: Origin, symbols: Arc<FileSymbols>) {
         let summary = Arc::new(FileSummary::of(&symbols));
+
         self.insert(FileEntry::new(
             path,
             origin,
@@ -268,29 +283,36 @@ impl Index {
 
     fn insert(&mut self, entry: FileEntry) {
         self.remove_file(&entry.path);
+
         if entry.origin == Origin::Project {
             self.framework.forget(&entry.path);
         }
+
         let id = self.files.len() as FileId;
+
         for (index, class) in entry.summary.classes.iter().enumerate() {
             let slot = (id, index as u32);
             self.classes.entry(class_key(&class.name)).or_default().push(slot);
+
             for parent in &class.parents {
                 self.subtypes.entry(class_key(parent)).or_default().push(slot);
             }
         }
+
         for (index, function) in entry.summary.functions.iter().enumerate() {
             self.functions
                 .entry(class_key(&function.name))
                 .or_default()
                 .push((id, index as u32));
         }
+
         for (index, constant) in entry.summary.constants.iter().enumerate() {
             self.constants
                 .entry(constant_key(&constant.name))
                 .or_default()
                 .push((id, index as u32));
         }
+
         self.by_path.insert(entry.path.clone(), id);
         self.files.push(Some(entry));
     }
@@ -299,29 +321,37 @@ impl Index {
         let Some(id) = self.by_path.remove(path) else {
             return;
         };
+
         let Some(entry) = self.files[id as usize].take() else {
             return;
         };
+
         if entry.origin == Origin::Project {
             self.framework.forget(path);
         }
+
         let drop_slots = |map: &mut HashMap<String, Vec<Slot>>, key: String| {
             if let Some(slots) = map.get_mut(&key) {
                 slots.retain(|(file, _)| *file != id);
+
                 if slots.is_empty() {
                     map.remove(&key);
                 }
             }
         };
+
         for class in &entry.summary.classes {
             drop_slots(&mut self.classes, class_key(&class.name));
+
             for parent in &class.parents {
                 drop_slots(&mut self.subtypes, class_key(parent));
             }
         }
+
         for function in &entry.summary.functions {
             drop_slots(&mut self.functions, class_key(&function.name));
         }
+
         for constant in &entry.summary.constants {
             drop_slots(&mut self.constants, constant_key(&constant.name));
         }
@@ -333,12 +363,15 @@ impl Index {
         let Some(id) = self.by_path.get(path) else {
             return;
         };
+
         let Some(entry) = self.files[*id as usize].as_mut() else {
             return;
         };
+
         if !entry.from_disk {
             return;
         }
+
         entry.source = source;
         entry.loaded = OnceLock::new();
     }
@@ -352,14 +385,18 @@ impl Index {
             .enumerate()
             .filter_map(|(id, entry)| {
                 let entry = entry.as_ref()?;
+
                 (entry.source.is_lazy() && entry.is_loaded()).then(|| (entry.last_used.load(Ordering::Relaxed), id))
             })
             .collect();
+
         if loaded.len() <= keep {
             return;
         }
+
         loaded.sort_unstable();
         let excess = loaded.len() - keep;
+
         for (_, id) in loaded.into_iter().take(excess) {
             if let Some(entry) = self.files[id].as_mut() {
                 entry.loaded = OnceLock::new();
@@ -382,10 +419,13 @@ impl Index {
             .filter(|entry| entry.origin == Origin::Stub)
             .map(|entry| entry.path.clone())
             .collect();
+
         for path in old {
             self.remove_file(&path);
         }
+
         self.stub_extensions = extensions.to_vec();
+
         for stub in stubs {
             if extensions.contains(&stub.extension) || stub.extension.is_empty() {
                 self.insert(FileEntry::new(
@@ -405,36 +445,46 @@ impl Index {
         get: impl Fn(&'a FileEntry, u32) -> Option<(&'a T, bool)>,
     ) -> Option<(&'a FileEntry, &'a T)> {
         let mut best: Option<(&'a FileEntry, &'a T)> = None;
+
         for (file, index) in slots {
             let Some(entry) = self.files.get(*file as usize).and_then(Option::as_ref) else {
                 continue;
             };
+
             // A file that cannot win is not read.
             if best.is_some_and(|(current, _)| current.origin <= entry.origin) {
                 continue;
             }
+
             let Some((decl, available)) = get(entry, *index) else {
                 continue;
             };
+
             if !available {
                 continue;
             }
+
             best = Some((entry, decl));
         }
+
         best
     }
 
     pub fn class(&self, name: &str) -> Option<Class<'_>> {
         let name = name.trim_start_matches('\\');
+
         let Some(slots) = self.classes.get(&class_key(name)) else {
             return self.aliased_class(name);
         };
+
         self.pick(slots, |entry, index| {
             let decl = entry.symbols().classes.get(index as usize)?;
+
             // A file that changed since it was indexed may have its declarations elsewhere.
             if !decl.name.eq_ignore_ascii_case(name) {
                 return None;
             }
+
             Some((decl, decl.availability.contains(self.level)))
         })
         .map(|(file, decl)| Class { file, decl })
@@ -445,12 +495,15 @@ impl Index {
         if name.contains('\\') || !self.frameworks().laravel {
             return None;
         }
+
         let aliases = self.section::<crate::framework::aliases::ClassAliases>();
         let target = aliases.target(name)?;
+
         // A class an alias names is never itself an alias without a namespace.
         if !target.contains('\\') {
             return None;
         }
+
         self.class(target)
     }
 
@@ -458,9 +511,11 @@ impl Index {
     /// the declarations are conditional, and which of them runs is not known.
     pub fn class_declarations(&self, name: &str) -> usize {
         let name = name.trim_start_matches('\\');
+
         let Some(slots) = self.classes.get(&class_key(name)) else {
             return 0;
         };
+
         slots
             .iter()
             .filter(|(file, index)| {
@@ -482,11 +537,14 @@ impl Index {
     pub fn function(&self, name: &str) -> Option<FunctionRef<'_>> {
         let name = name.trim_start_matches('\\');
         let slots = self.functions.get(&class_key(name))?;
+
         self.pick(slots, |entry, index| {
             let decl = entry.symbols().functions.get(index as usize)?;
+
             if !decl.name.eq_ignore_ascii_case(name) {
                 return None;
             }
+
             Some((decl, decl.availability.contains(self.level)))
         })
         .map(|(file, decl)| FunctionRef { file, decl })
@@ -498,30 +556,37 @@ impl Index {
         let Some(slots) = self.functions.get(&class_key(name.trim_start_matches('\\'))) else {
             return Vec::new();
         };
+
         let mut found: Vec<FunctionRef<'_>> = slots
             .iter()
             .filter_map(|(file, index)| {
                 let entry = self.files.get(*file as usize)?.as_ref()?;
                 let decl = entry.symbols().functions.get(*index as usize)?;
+
                 decl.availability
                     .contains(self.level)
                     .then_some(FunctionRef { file: entry, decl })
             })
             .collect();
+
         if let Some(best) = found.iter().map(|function| function.file.origin).min() {
             found.retain(|function| function.file.origin == best);
         }
+
         found
     }
 
     pub fn constant(&self, name: &str) -> Option<ConstRef<'_>> {
         let name = name.trim_start_matches('\\');
         let slots = self.constants.get(&constant_key(name))?;
+
         self.pick(slots, |entry, index| {
             let decl = entry.symbols().constants.get(index as usize)?;
+
             if constant_key(&decl.name) != constant_key(name) {
                 return None;
             }
+
             Some((decl, decl.availability.contains(self.level)))
         })
         .map(|(file, decl)| ConstRef { file, decl })
@@ -597,10 +662,12 @@ impl Index {
         let Some(slots) = self.subtypes.get(&class_key(name.trim_start_matches('\\'))) else {
             return Vec::new();
         };
+
         slots
             .iter()
             .filter_map(|(file, index)| {
                 let entry = self.files.get(*file as usize)?.as_ref()?;
+
                 if !entry
                     .summary
                     .classes
@@ -610,7 +677,9 @@ impl Index {
                 {
                     return None;
                 }
+
                 let decl = entry.symbols().classes.get(*index as usize)?;
+
                 Some(Class { file: entry, decl })
             })
             .collect()
@@ -621,6 +690,7 @@ impl Index {
         let mut out: Vec<Class<'_>> = Vec::new();
         let mut seen = std::collections::HashSet::new();
         let mut queue = vec![name.to_string()];
+
         while let Some(current) = queue.pop() {
             for class in self.direct_subtypes(&current) {
                 if seen.insert(class_key(&class.decl.name)) {
@@ -629,6 +699,7 @@ impl Index {
                 }
             }
         }
+
         out
     }
 
@@ -660,16 +731,19 @@ mod tests {
     #[test]
     fn finds_declarations_by_name_and_prefers_the_project() {
         let mut index = Index::new(PhpVersion::V8_4);
+
         index.set_file(
             PathBuf::from("/stubs/a.php"),
             Origin::Stub,
             symbols("<?php class Foo {} function strlen() {} const E = 1;", true),
         );
+
         index.set_file(
             PathBuf::from("/p/foo.php"),
             Origin::Project,
             symbols("<?php namespace P; class Foo {} function strlen() {}", false),
         );
+
         assert_eq!(index.class("foo").unwrap().file.origin, Origin::Stub);
         assert_eq!(index.class("P\\FOO").unwrap().file.origin, Origin::Project);
         assert_eq!(index.function("strlen").unwrap().file.origin, Origin::Stub);
@@ -696,6 +770,7 @@ mod tests {
     #[test]
     fn tracks_subtypes_and_replaces_a_file() {
         let mut index = Index::new(PhpVersion::V8_4);
+
         index.set_file(
             PathBuf::from("/a.php"),
             Origin::Project,
@@ -704,17 +779,21 @@ mod tests {
                 false,
             ),
         );
+
         let names: Vec<&str> = index
             .all_subtypes("I")
             .iter()
             .map(|class| class.decl.name.as_str())
             .collect();
+
         assert_eq!(names.len(), 2);
+
         index.set_file(
             PathBuf::from("/a.php"),
             Origin::Project,
             symbols("<?php interface I {} class A {}", false),
         );
+
         assert!(index.all_subtypes("I").is_empty());
         assert_eq!(index.class_count(), 2);
     }
@@ -723,35 +802,46 @@ mod tests {
     fn files_in_the_cache_are_read_when_asked_and_let_go_by_trim() {
         use crate::cache::Cache;
         use crate::indexer::{self, IndexEvent};
+
         let dir = tempfile::tempdir().expect("a temp dir");
         let mut files = Vec::new();
+
         for number in 0..6 {
             let path = dir.path().join(format!("c{number}.php"));
             std::fs::write(&path, format!("<?php class C{number} extends Base {{}}")).expect("written");
             files.push((path, Origin::Project));
         }
+
         let cache = dir.path().join("cache.bin");
+
         let collect = || {
             let found = std::sync::Mutex::new(Vec::new());
+
             indexer::run(files.clone(), Some(&cache), None, 2, &|event| {
                 if let IndexEvent::Files(mut batch) = event {
                     found.lock().expect("lock").append(&mut batch);
                 }
             });
+
             found.into_inner().expect("lock")
         };
+
         collect();
         assert!(Cache::load(&cache).store.is_some());
         let mut index = Index::new(PhpVersion::V8_4);
+
         for file in collect() {
             index.set_indexed(file.path, file.origin, file.source, file.summary);
         }
+
         assert_eq!(index.loaded_count(), 0, "indexing a warm cache reads no declarations");
+
         assert_eq!(
             index.all_subtypes("Base").len(),
             6,
             "subtypes come from the names alone"
         );
+
         assert_eq!(index.loaded_count(), 6);
         assert!(index.class("C3").is_some());
         index.trim(2);
@@ -766,18 +856,22 @@ mod tests {
         let path = dir.path().join("a.php");
         std::fs::write(&path, "<?php class A {} class B {}").expect("written");
         let mut index = Index::new(PhpVersion::V8_4);
+
         let summary = Arc::new(FileSummary::of(&extract(
             &parse("<?php class A {} class B {}").syntax(),
             ExtractOptions::default(),
         )));
+
         // The file changed after it was indexed: the second class is gone.
         std::fs::write(&path, "<?php class A {}").expect("written");
+
         index.set_indexed(
             path.clone(),
             Origin::Project,
             SymbolSource::Parse { path, stub: false },
             summary,
         );
+
         assert!(index.class("A").is_some());
         assert!(index.class("B").is_none());
     }
@@ -796,6 +890,7 @@ mod tests {
                 symbols("<?php function b() {}", true),
             ),
         ];
+
         let mut index = Index::new(PhpVersion::V8_4);
         index.set_stubs(&stubs, &["standard".to_string()]);
         assert!(index.function("a").is_some());

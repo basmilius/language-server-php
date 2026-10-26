@@ -29,21 +29,25 @@ pub(crate) const FIX_ALL: &str = "source.fixAll.sql";
 /// string, so SQL's own are given.
 pub(crate) fn legend_types() -> Vec<&'static str> {
     let mut types: Vec<&'static str> = php_analysis::semantic_tokens::TOKEN_TYPES.to_vec();
+
     for name in TOKEN_TYPES {
         if !types.contains(name) {
             types.push(name);
         }
     }
+
     types
 }
 
 pub(crate) fn legend_modifiers() -> Vec<&'static str> {
     let mut modifiers: Vec<&'static str> = php_analysis::semantic_tokens::TOKEN_MODIFIERS.to_vec();
+
     for name in TOKEN_MODIFIERS {
         if !modifiers.contains(name) {
             modifiers.push(name);
         }
     }
+
     modifiers
 }
 
@@ -52,6 +56,7 @@ fn token_in_legend(ty: u32, modifiers: u32, types: &[&str], legend_modifiers: &[
     let name = TOKEN_TYPES.get(ty as usize)?;
     let ty = types.iter().position(|known| known == name)? as u32;
     let mut bits = 0;
+
     for (bit, modifier) in TOKEN_MODIFIERS.iter().enumerate() {
         if modifiers & (1 << bit) != 0 {
             if let Some(at) = legend_modifiers.iter().position(|known| known == modifier) {
@@ -59,6 +64,7 @@ fn token_in_legend(ty: u32, modifiers: u32, types: &[&str], legend_modifiers: &[
             }
         }
     }
+
     Some((ty, bits))
 }
 
@@ -114,20 +120,26 @@ impl Server {
         let Some(items) = self.sql_injected(uri) else {
             return Vec::new();
         };
+
         let Some(document) = self.documents.get(uri) else {
             return Vec::new();
         };
+
         let mapper = document.mapper(self.encoding);
         let mut out = Vec::new();
+
         for item in items.iter() {
             for found in item.analysis.diagnostics() {
                 let mut tags = Vec::new();
+
                 if found.deprecated {
                     tags.push(DiagnosticTag::DEPRECATED);
                 }
+
                 if found.unnecessary {
                     tags.push(DiagnosticTag::UNNECESSARY);
                 }
+
                 let related: Vec<DiagnosticRelatedInformation> = found
                     .related
                     .iter()
@@ -136,6 +148,7 @@ impl Server {
                         message: related.message.clone(),
                     })
                     .collect();
+
                 out.push(Diagnostic {
                     range: mapper.visible_range(range_of(found.span)),
                     severity: Some(severity(found.severity)),
@@ -149,28 +162,34 @@ impl Server {
                 });
             }
         }
+
         out
     }
 
     /// What completes at an offset in SQL, when the offset is in SQL and there is anything.
     pub(crate) fn sql_completion(&mut self, uri: &Uri, offset: u32, trigger: Option<char>) -> Option<CompletionList> {
         let (items, position) = self.sql_at(uri, offset)?;
+
         let options = CompletionOptions {
             snippets: self.snippet_support,
             call_arguments: self.call_arguments_enabled(uri),
             trigger,
             ..CompletionOptions::default()
         };
+
         let list = items[position].analysis.completion(offset, options);
         let pending = self.sql.files_pending();
+
         if list.items.is_empty() {
             return pending.then(|| CompletionList {
                 is_incomplete: true,
                 items: Vec::new(),
             });
         }
+
         let document = self.documents.get(uri)?;
         let mapper = document.mapper(self.encoding);
+
         let items = list
             .items
             .into_iter()
@@ -204,6 +223,7 @@ impl Server {
                 ..CompletionItem::default()
             })
             .collect();
+
         Some(CompletionList {
             is_incomplete: list.incomplete || pending,
             items,
@@ -214,6 +234,7 @@ impl Server {
         let (items, position) = self.sql_at(uri, offset)?;
         let hover = items[position].analysis.hover(offset)?;
         let mapper = self.documents.get(uri)?.mapper(self.encoding);
+
         Some(Hover {
             contents: HoverContents::Markup(markdown(hover.markdown)),
             range: Some(mapper.range(range_of(hover.span))),
@@ -225,6 +246,7 @@ impl Server {
     pub(crate) fn sql_definition(&mut self, uri: &Uri, offset: u32) -> Option<Vec<Location>> {
         let (items, position) = self.sql_at(uri, offset)?;
         let mut places = Vec::new();
+
         for location in items[position].analysis.definition(offset) {
             match location {
                 sql_embed::Location::Fragment { name, .. } => places.push(Place {
@@ -243,18 +265,22 @@ impl Server {
                 }),
             }
         }
+
         let mut sources = TextCache::new(self, Some(uri));
+
         Some(places.iter().filter_map(|place| sources.location(place)).collect())
     }
 
     pub(crate) fn sql_signature_help(&mut self, uri: &Uri, offset: u32) -> Option<SignatureHelp> {
         let (items, position) = self.sql_at(uri, offset)?;
         let help = items[position].analysis.signature_help(offset)?;
+
         let active_parameter = help
             .signatures
             .get(help.active_signature)
             .and_then(|signature| signature.active_parameter)
             .map(|active| active as u32);
+
         Some(SignatureHelp {
             signatures: help
                 .signatures
@@ -285,6 +311,7 @@ impl Server {
     pub(crate) fn sql_highlights(&mut self, uri: &Uri, offset: u32) -> Option<Vec<DocumentHighlight>> {
         let (items, position) = self.sql_at(uri, offset)?;
         let mapper = self.documents.get(uri)?.mapper(self.encoding);
+
         Some(
             items[position]
                 .analysis
@@ -306,19 +333,24 @@ impl Server {
         let Some(items) = self.sql_injected(uri) else {
             return Vec::new();
         };
+
         let Some(document) = self.documents.get(uri) else {
             return Vec::new();
         };
+
         let mapper = document.mapper(self.encoding);
         let mut out = Vec::new();
+
         for item in items.iter() {
             if item.range.intersect(range).is_none() {
                 continue;
             }
+
             for hint in item.analysis.inlay_hints() {
                 if !range.contains_inclusive(TextSize::from(hint.offset)) {
                     continue;
                 }
+
                 out.push(InlayHint {
                     position: mapper.position(TextSize::from(hint.offset)),
                     label: InlayHintLabel::String(hint.label),
@@ -331,12 +363,14 @@ impl Server {
                 });
             }
         }
+
         out
     }
 
     fn sql_workspace_edit(&self, uri: &Uri, edits: Vec<TextEdit>) -> WorkspaceEdit {
         if self.document_changes {
             let version = self.documents.get(uri).map(|document| document.version);
+
             return WorkspaceEdit {
                 document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
                     text_document: OptionalVersionedTextDocumentIdentifier {
@@ -348,8 +382,10 @@ impl Server {
                 ..WorkspaceEdit::default()
             };
         }
+
         #[allow(clippy::mutable_key_type)]
         let changes = HashMap::from([(uri.clone(), edits)]);
+
         WorkspaceEdit {
             changes: Some(changes),
             ..WorkspaceEdit::default()
@@ -368,13 +404,17 @@ impl Server {
         let Some(items) = self.sql_injected(uri) else {
             return Vec::new();
         };
+
         let wanted = |kind: &str| crate::actions::wanted(kind, only);
+
         let fix_all_asked = only.is_some_and(|only| {
             only.iter()
                 .any(|asked| FIX_ALL == asked.as_str() || FIX_ALL.starts_with(&format!("{}.", asked.as_str())))
         });
+
         let (start, end) = (u32::from(range.start()), u32::from(range.end()));
         let mut found: Vec<sql_embed::CodeAction> = Vec::new();
+
         for item in items.iter() {
             if item.holds(start) && item.holds(end) {
                 found.extend(
@@ -385,12 +425,14 @@ impl Server {
                 );
             }
         }
+
         if fix_all_asked {
             let edits: Vec<sql_embed::Edit> = items
                 .iter()
                 .filter_map(|item| item.analysis.fix_all())
                 .flat_map(|action| action.edits)
                 .collect();
+
             if !edits.is_empty() {
                 found.push(sql_embed::CodeAction {
                     title: "Fix every SQL problem that has a safe fix".to_string(),
@@ -401,22 +443,28 @@ impl Server {
                 });
             }
         }
+
         let Some(document) = self.documents.get(uri) else {
             return Vec::new();
         };
+
         let mapper = document.mapper(self.encoding);
         let mut out = Vec::new();
+
         for action in found {
             let kind = match action.kind {
                 ActionKind::QuickFix => CodeActionKind::QUICKFIX,
                 ActionKind::Rewrite => CodeActionKind::REFACTOR_REWRITE,
                 ActionKind::FixAll => CodeActionKind::new(FIX_ALL),
             };
+
             if !wanted(kind.as_str()) {
                 continue;
             }
+
             let fixed = action.fixes.map(|(span, code)| {
                 let range = mapper.visible_range(range_of(span));
+
                 diagnostics
                     .iter()
                     .filter(|diagnostic| {
@@ -427,11 +475,13 @@ impl Server {
                     .cloned()
                     .collect::<Vec<_>>()
             });
+
             let edits = action
                 .edits
                 .into_iter()
                 .map(|edit| TextEdit::new(mapper.range(range_of(edit.span)), edit.new_text))
                 .collect();
+
             out.push(CodeAction {
                 title: action.title,
                 kind: Some(kind),
@@ -441,6 +491,7 @@ impl Server {
                 ..CodeAction::default()
             });
         }
+
         out
     }
 
@@ -448,11 +499,14 @@ impl Server {
     /// SQL strings of the open documents, and in the `.sql` files of the workspace.
     pub(crate) fn sql_references(&mut self, uri: &Uri, offset: u32, declaration: bool) -> Option<Vec<Location>> {
         let (items, position) = self.sql_at(uri, offset)?;
+
         let Some(found) = items[position].analysis.references(offset) else {
             return Some(Vec::new());
         };
+
         let mut places: Vec<(Uri, Span)> = Vec::new();
         let keep = |access: Access| declaration || access != Access::Declaration;
+
         if found.symbol.is_local() {
             for hit in found.hits.iter().filter(|hit| keep(hit.access)) {
                 places.push((uri.clone(), hit.span));
@@ -462,6 +516,7 @@ impl Server {
                 let Some(strings) = self.sql_injected(&other) else {
                     continue;
                 };
+
                 for item in strings.iter() {
                     for hit in item.analysis.hits(&found.symbol) {
                         if keep(hit.access) {
@@ -471,14 +526,18 @@ impl Server {
                 }
             }
         }
+
         let mut locations = Vec::new();
+
         for (target, span) in places {
             let Some(document) = self.documents.get(&target) else {
                 continue;
             };
+
             let mapper = document.mapper(self.encoding);
             locations.push(Location::new(target.clone(), mapper.range(range_of(span))));
         }
+
         if !found.symbol.is_local() {
             let files: Vec<(PathBuf, &String)> = self
                 .sql
@@ -486,6 +545,7 @@ impl Server {
                 .iter()
                 .map(|(path, text)| (path.clone(), text))
                 .collect();
+
             let sources: Vec<SqlFile> = files
                 .iter()
                 .map(|(path, text)| SqlFile {
@@ -493,8 +553,10 @@ impl Server {
                     text: text.as_str(),
                 })
                 .collect();
+
             let in_files = items[position].analysis.references_in_files(&found.symbol, &sources);
             let mut texts = TextCache::new(self, Some(uri));
+
             for file in in_files {
                 for span in file.spans {
                     let place = Place {
@@ -504,12 +566,14 @@ impl Server {
                             end: span.end,
                         },
                     };
+
                     if let Some(location) = texts.location(&place) {
                         locations.push(location);
                     }
                 }
             }
         }
+
         Some(locations)
     }
 
@@ -522,6 +586,7 @@ impl Server {
     ) -> Option<Result<Option<PrepareRenameResponse>, String>> {
         let (items, position) = self.sql_at(uri, offset)?;
         let mapper = self.documents.get(uri)?.mapper(self.encoding);
+
         Some(
             items[position]
                 .analysis
@@ -542,15 +607,19 @@ impl Server {
         new_name: &str,
     ) -> Option<Result<Option<WorkspaceEdit>, String>> {
         let (items, position) = self.sql_at(uri, offset)?;
+
         let edits = match items[position].analysis.rename(offset, new_name) {
             Ok(edits) => edits,
             Err(message) => return Some(Err(message)),
         };
+
         let mapper = self.documents.get(uri)?.mapper(self.encoding);
+
         let edits = edits
             .into_iter()
             .map(|edit| TextEdit::new(mapper.range(range_of(edit.span)), edit.new_text))
             .collect();
+
         Some(Ok(Some(self.sql_workspace_edit(uri, edits))))
     }
 
@@ -560,17 +629,21 @@ impl Server {
         let Some(items) = self.sql_injected(uri) else {
             return Vec::new();
         };
+
         let types = legend_types();
         let modifiers = legend_modifiers();
         let mut out = Vec::new();
+
         for item in items.iter() {
             if range.is_some_and(|range| item.range.intersect(range).is_none()) {
                 continue;
             }
+
             for token in item.analysis.semantic_tokens() {
                 let Some((ty, bits)) = token_in_legend(token.ty, token.modifiers, &types, &modifiers) else {
                     continue;
                 };
+
                 out.push(Token {
                     start: token.span.start,
                     end: token.span.end,
@@ -579,6 +652,7 @@ impl Server {
                 });
             }
         }
+
         out
     }
 
@@ -587,6 +661,7 @@ impl Server {
         if !self.watch_support {
             return;
         }
+
         let watchers: Vec<lsp_types::FileSystemWatcher> = self
             .sql
             .snapshot_paths()
@@ -597,14 +672,19 @@ impl Server {
                 kind: None,
             })
             .collect();
+
         if watchers.is_empty() {
             return;
         }
+
         let options = lsp_types::DidChangeWatchedFilesRegistrationOptions { watchers };
+
         let Ok(options) = serde_json::to_value(options) else {
             return;
         };
+
         let method = <lsp_types::notification::DidChangeWatchedFiles as lsp_types::notification::Notification>::METHOD;
+
         if self.snapshot_watch_registered {
             let _ = self
                 .client
@@ -615,7 +695,9 @@ impl Server {
                     }],
                 });
         }
+
         self.snapshot_watch_registered = true;
+
         let _ = self
             .client
             .request::<lsp_types::request::RegisterCapability>(RegistrationParams {
@@ -637,17 +719,22 @@ pub(crate) fn merge_tokens(php: Vec<Token>, sql: Vec<Token>) -> Vec<Token> {
     if sql.is_empty() {
         return php;
     }
+
     let mut sql = sql;
     sql.sort_by_key(|token| token.start);
+
     let mut out: Vec<Token> = php
         .into_iter()
         .filter(|token| {
             let at = sql.partition_point(|other| other.end <= token.start);
+
             sql.get(at).is_none_or(|other| other.start >= token.end)
         })
         .collect();
+
     out.extend(sql);
     out.sort_by_key(|token| (token.start, token.end));
+
     out
 }
 
@@ -667,13 +754,16 @@ mod tests {
     #[test]
     fn the_legend_keeps_php_first_and_adds_what_sql_has() {
         let types = legend_types();
+
         assert_eq!(
             types[..php_analysis::semantic_tokens::TOKEN_TYPES.len()],
             *php_analysis::semantic_tokens::TOKEN_TYPES
         );
+
         for name in ["string", "number", "comment", "operator", "type"] {
             assert!(types.contains(&name), "{name}");
         }
+
         let keyword = TOKEN_TYPES.iter().position(|name| *name == "keyword").expect("keyword") as u32;
         let (ty, _) = token_in_legend(keyword, 0, &types, &legend_modifiers()).expect("in the legend");
         assert_eq!(types[ty as usize], "keyword");
@@ -685,6 +775,7 @@ mod tests {
             vec![token(0, 4, 1), token(10, 20, 1), token(30, 34, 1)],
             vec![token(12, 15, 2), token(5, 9, 2)],
         );
+
         let spans: Vec<(u32, u32, u32)> = merged.iter().map(|token| (token.start, token.end, token.ty)).collect();
         assert_eq!(spans, [(0, 4, 1), (5, 9, 2), (12, 15, 2), (30, 34, 1)]);
     }

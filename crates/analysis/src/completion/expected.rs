@@ -14,9 +14,11 @@ impl Builder<'_> {
         if self.typed().starts_with('$') {
             return;
         }
+
         let Some(expected) = self.expected_type(token) else {
             return;
         };
+
         for member in expected.members() {
             match member {
                 Type::Class { name, .. } => self.enum_cases(name),
@@ -33,11 +35,13 @@ impl Builder<'_> {
         let name = token.parent().filter(|node| node.kind() == NAME)?;
         let parent = name.parent()?;
         let level = self.index.level;
+
         let ty = match parent.kind() {
             BINARY_EXPR
                 if tokens(&parent).any(|token| matches!(token.kind(), EQ | NEQ | IDENTICAL | NOT_IDENTICAL)) =>
             {
                 let other = parent.children().find(|child| child != &name)?;
+
                 self.analyzer.type_of(&other, self.env)
             }
             // A variable takes whatever is assigned to it, so only a property says what it wants.
@@ -47,12 +51,14 @@ impl Builder<'_> {
                     .next()
                     .filter(|target| target != &name)
                     .filter(|target| matches!(target.kind(), PROPERTY_FETCH_EXPR | STATIC_PROPERTY_EXPR))?;
+
                 self.analyzer.type_of(&target, self.env)
             }
             ARGUMENT => self.argument_type(&parent)?,
             RETURN_STATEMENT => {
                 let function = crate::ast::enclosing_function(&parent)?;
                 let callable = crate::inspections::types::callable_of(self.analyzer, &function);
+
                 callable.effective_return(level)?.clone()
             }
             MATCH_ARM if !has_token(&parent, FAT_ARROW) => {
@@ -61,14 +67,17 @@ impl Builder<'_> {
                     .filter(|node| node.kind() == MATCH_EXPR)?
                     .children()
                     .next()?;
+
                 self.analyzer.type_of(&subject, self.env)
             }
             CASE_CLAUSE => {
                 let switch = parent.ancestors().find(|node| node.kind() == SWITCH_STATEMENT)?;
+
                 self.analyzer.type_of(&switch.children().next()?, self.env)
             }
             _ => return None,
         };
+
         (!ty.is_unknown()).then_some(ty)
     }
 
@@ -78,20 +87,25 @@ impl Builder<'_> {
         let callee = self.analyzer.callees(&list.parent()?, self.env).into_iter().next()?;
         let level = self.index.level;
         let params: Vec<_> = callee.callable.params_at(level).collect();
+
         let param = if has_token(argument, COLON) {
             let named = tokens(argument).find(|token| !token.kind().is_trivia())?;
+
             params.iter().find(|param| param.name == named.text()).copied()
         } else {
             let position = list
                 .children()
                 .filter(|node| node.kind() == ARGUMENT)
                 .position(|node| &node == argument)?;
+
             params
                 .get(position)
                 .or_else(|| params.last().filter(|param| param.variadic))
                 .copied()
         }?;
+
         let ty = param.effective_type(level)?;
+
         Some(ty.substitute(&callee.subst, callee.receiver.as_ref(), callee.self_name.as_deref()))
     }
 
@@ -104,17 +118,22 @@ impl Builder<'_> {
         else {
             return;
         };
+
         let fqn = class.decl.name.clone();
         let short = crate::short(&fqn).to_string();
         let namespace = php_index::types::namespace_of(&fqn).to_string();
         let (written, additional) = self.class_reference(&fqn);
         let typed = self.typed().to_string();
+
         for (position, found) in self.index.constants_of(&Type::class(fqn.clone())).iter().enumerate() {
             let case = &found.member;
+
             if !case.is_case {
                 continue;
             }
+
             let label = format!("{short}::{}", case.name);
+
             let Some(score) = match_score(&case.name, &typed)
                 .into_iter()
                 .chain(match_score(&label, &typed))
@@ -122,6 +141,7 @@ impl Builder<'_> {
             else {
                 continue;
             };
+
             let item = CompletionItem {
                 label: label.clone(),
                 kind: ItemKind::EnumMember,
@@ -135,6 +155,7 @@ impl Builder<'_> {
                 call: crate::completion::CallInsert::None,
                 data: Some(format!("const:{fqn}::{}", case.name)),
             };
+
             self.push(score, item);
         }
     }

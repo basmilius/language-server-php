@@ -43,6 +43,7 @@ impl Server {
 
     pub(crate) fn code_lens(&mut self, params: CodeLensParams) -> Option<Vec<CodeLens>> {
         let found = self.runnables_of(&params.text_document.uri)?;
+
         Some(
             found
                 .into_iter()
@@ -71,6 +72,7 @@ impl Server {
         let found = runnables(&project.index, &root);
         let folder = self.workspace.folder_of(&path).unwrap_or_else(|| project.root.clone());
         let config = config_file(&path, &folder);
+
         Some(
             found
                 .iter()
@@ -118,17 +120,22 @@ fn lens_title(runnable: &Value) -> String {
 /// it up to the workspace folder.
 fn config_file(file: &Path, folder: &Path) -> Option<PathBuf> {
     let mut current = file.parent();
+
     while let Some(directory) = current {
         for name in CONFIG_FILES {
             let candidate = directory.join(name);
+
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
+
         if directory == folder {
             break;
         }
+
         current = directory.parent();
     }
+
     None
 }

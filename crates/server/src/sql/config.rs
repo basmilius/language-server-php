@@ -15,10 +15,13 @@ pub struct Resolved {
     pub enabled: bool,
     pub detection: Detection,
     pub settings: sql_embed::Settings,
+
     /// The settings name a dialect for the document, which goes before what the code suggests.
     pub dialect_set: bool,
+
     /// The snapshot, as a path on disk.
     pub schema: Option<PathBuf>,
+
     /// What could not be read.
     pub problems: Vec<String>,
 }
@@ -27,27 +30,35 @@ pub struct Resolved {
 pub fn resolve_path(text: &str, base: Option<&Path>) -> Option<PathBuf> {
     if text.starts_with("file:") {
         let uri: lsp_types::Uri = text.parse().ok()?;
+
         return lsc_server::paths::uri_to_path(&uri);
     }
+
     let path = PathBuf::from(text);
+
     if path.is_absolute() {
         return Some(path);
     }
+
     Some(base?.join(path))
 }
 
 fn detection(value: Option<&Value>) -> Detection {
     let mut detection = Detection::default();
+
     let Some(value) = value else {
         return detection;
     };
+
     let flag = |key: &str, default: bool| value.get(key).and_then(Value::as_bool).unwrap_or(default);
     detection.markers = flag("markers", detection.markers);
     detection.sinks = flag("sinks", detection.sinks);
     detection.heuristic = flag("heuristic", detection.heuristic);
+
     if let Some(threshold) = value.get("threshold").and_then(Value::as_f64) {
         detection.threshold = (threshold as f32).clamp(0.0, 1.0);
     }
+
     detection
 }
 
@@ -56,6 +67,7 @@ pub fn resolve(value: Option<&Value>, path: Option<&Path>, base: Option<&Path>) 
     let empty = Map::new();
     let object = value.and_then(Value::as_object).unwrap_or(&empty);
     let mut layers: Vec<(usize, &Map<String, Value>)> = Vec::new();
+
     if let (Some(path), Some(overrides)) = (path, object.get("overrides").and_then(Value::as_array)) {
         for entry in overrides.iter().filter_map(Value::as_object) {
             let Some(at) = entry
@@ -65,14 +77,17 @@ pub fn resolve(value: Option<&Value>, path: Option<&Path>, base: Option<&Path>) 
             else {
                 continue;
             };
+
             if path.starts_with(&at) {
                 layers.push((at.components().count(), entry));
             }
         }
     }
+
     layers.sort_by_key(|(depth, _)| *depth);
     let mut merged = object.clone();
     merged.remove("overrides");
+
     for (_, layer) in layers {
         if let Some(dialect) = layer.get("dialect") {
             // A version given for another dialect says nothing about this one.
@@ -81,19 +96,23 @@ pub fn resolve(value: Option<&Value>, path: Option<&Path>, base: Option<&Path>) 
                 merged.remove("sqlMode");
             }
         }
+
         for key in PER_PATH {
             if let Some(value) = layer.get(key) {
                 merged.insert(key.to_string(), value.clone());
             }
         }
     }
+
     let dialect_set = merged
         .get("dialect")
         .and_then(Value::as_str)
         .and_then(sql_embed::Dialect::parse)
         .is_some();
+
     let (settings, problems) = sql_embed::Settings::from_json(&Value::Object(merged));
     let schema = settings.schema.as_deref().and_then(|text| resolve_path(text, base));
+
     Resolved {
         enabled: object.get("enabled").and_then(Value::as_bool).unwrap_or(true),
         detection: detection(object.get("detection")),
@@ -124,6 +143,7 @@ mod tests {
                 { "path": "other", "dialect": "postgres" }
             ]
         });
+
         let base = Path::new("/work");
         let top = resolve(Some(&value), Some(Path::new("/work/src/A.php")), Some(base));
         assert!(top.enabled && top.dialect_set);
@@ -135,10 +155,12 @@ mod tests {
         assert!(!top.settings.inspections.is_empty());
         let legacy = resolve(Some(&value), Some(Path::new("/work/legacy/A.php")), Some(base));
         assert_eq!(legacy.settings.dialect, Dialect::Mariadb);
+
         assert_eq!(
             legacy.settings.version, None,
             "a MySQL version says nothing about MariaDB"
         );
+
         let reports = resolve(Some(&value), Some(Path::new("/work/legacy/reports/A.php")), Some(base));
         assert_eq!(reports.settings.dialect, Dialect::Mariadb);
         assert_eq!(reports.settings.version, Version::parse("10.6"));

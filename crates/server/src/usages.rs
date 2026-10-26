@@ -25,6 +25,7 @@ use crate::server::Server;
 pub(crate) struct ProjectSources<'a> {
     open: HashMap<PathBuf, String>,
     words: &'a WordIndex,
+
     /// The words of the installed packages, for a search that reads them too.
     packages: Option<&'a WordIndex>,
 }
@@ -40,6 +41,7 @@ impl<'a> ProjectSources<'a> {
 
     pub(crate) fn with_packages(mut self, packages: Option<&'a WordIndex>) -> ProjectSources<'a> {
         self.packages = packages;
+
         self
     }
 }
@@ -47,15 +49,19 @@ impl<'a> ProjectSources<'a> {
 impl Sources for ProjectSources<'_> {
     fn candidates(&self, word: &str) -> Vec<PathBuf> {
         let mut found = self.words.candidates(word);
+
         if let Some(packages) = self.packages {
             found.extend(packages.candidates(word));
         }
+
         for (path, text) in &self.open {
             if text.to_ascii_lowercase().contains(word) && !found.contains(path) {
                 found.push(path.clone());
             }
         }
+
         found.retain(|path| !self.open.contains_key(path) || self.open[path].to_ascii_lowercase().contains(word));
+
         found
     }
 
@@ -63,6 +69,7 @@ impl Sources for ProjectSources<'_> {
         if let Some(text) = self.open.get(path) {
             return Some(text.clone());
         }
+
         std::fs::read(path)
             .ok()
             .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
@@ -84,9 +91,11 @@ impl Server {
             .and_then(|document| document.state.usages_packages)
             .or(self.settings.usages_packages)
             .unwrap_or(false);
+
         if wanted {
             self.ensure_words_of(path, true);
         }
+
         wanted
     }
 
@@ -95,26 +104,34 @@ impl Server {
         let Some(path) = uri_to_path(uri) else {
             return Vec::new();
         };
+
         let Some(document) = self.documents.get(uri) else {
             return Vec::new();
         };
+
         let twig = document.state.twig;
+
         if !document.state.blade && !twig {
             return Vec::new();
         }
+
         if let Some(given) = self.given_cache.get(&path) {
             return given.clone();
         }
+
         self.ensure_words(&path);
         let open = self.documents.texts();
         let project = self.workspace.project_for(&path);
         let sources = ProjectSources::new(open, &project.words);
+
         let given = if twig {
             php_analysis::twig::data::given(&project.index, &sources, &path)
         } else {
             php_analysis::blade::data::given(&project.index, &sources, &path)
         };
+
         self.given_cache.insert(path, given.clone());
+
         given
     }
 
@@ -125,27 +142,34 @@ impl Server {
         let root = &self.workspace.project_for(path).root;
         let complete = root.as_os_str().is_empty() || self.workspace.indexed.contains(root);
         let project = self.workspace.project_for_mut(path);
+
         let (origin, built) = if packages {
             (Origin::Vendor, project.package_words.is_built())
         } else {
             (Origin::Project, project.words.is_built())
         };
+
         if built || !complete {
             return;
         }
+
         let mut paths: Vec<PathBuf> = project
             .index
             .files()
             .filter(|file| file.origin == origin)
             .map(|file| file.path.clone())
             .collect();
+
         let frameworks = project.index.frameworks();
+
         if !packages && (frameworks.symfony || frameworks.twig) {
             let templates = project
                 .index
                 .section::<php_index::framework::symfony::templates::Templates>();
+
             paths.extend(templates.templates.iter().map(|template| template.path.clone()));
         }
+
         if !packages && frameworks.symfony {
             for folder in ["config", "translations"] {
                 paths.extend(
@@ -157,14 +181,17 @@ impl Server {
                 );
             }
         }
+
         let kept = storage
             .filter(|_| !project.root.as_os_str().is_empty())
             .map(|storage| project.words_path(&storage, packages));
+
         let words = if packages {
             &mut project.package_words
         } else {
             &mut project.words
         };
+
         words.build(paths, kept.as_deref());
     }
 
@@ -173,9 +200,11 @@ impl Server {
         let uri = position.text_document.uri;
         let include_declaration = params.context.include_declaration;
         let offset = self.offset_of(&uri, position.position)?;
+
         if let Some(locations) = self.sql_references(&uri, offset, include_declaration) {
             return Some(locations);
         }
+
         let path = uri_to_path(&uri)?;
         self.sync_symbols(&uri);
         self.ensure_words(&path);
@@ -186,8 +215,10 @@ impl Server {
         let root = document.parse().syntax();
         let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = self.workspace.project_for(&path);
+
         let sources =
             ProjectSources::new(open, &project.words).with_packages(packages.then_some(&project.package_words));
+
         let found = references_at(
             &project.index,
             &sources,
@@ -198,7 +229,9 @@ impl Server {
             },
             offset,
         )?;
+
         let mut files = found.files;
+
         if include_declaration {
             add_foreign_declarations(&project.index, &found.symbols, &mut files);
         } else {
@@ -206,8 +239,10 @@ impl Server {
                 file.hits.retain(|hit| hit.kind != HitKind::Declaration);
             }
         }
+
         let mut texts = TextCache::new(self, Some(&uri));
         let mut locations = Vec::new();
+
         for file in &files {
             for hit in &file.hits {
                 let place = Place {
@@ -217,12 +252,15 @@ impl Server {
                         end: u32::from(hit.range.end()),
                     },
                 };
+
                 if let Some(location) = texts.location(&place) {
                     locations.push(location);
                 }
             }
         }
+
         self.demote_tests(&mut locations, |location| uri_to_path(&location.uri));
+
         Some(locations)
     }
 
@@ -230,29 +268,36 @@ impl Server {
         let position = params.text_document_position_params;
         let uri = position.text_document.uri;
         let offset = self.offset_of(&uri, position.position)?;
+
         if let Some(highlights) = self.sql_highlights(&uri, offset) {
             return Some(highlights);
         }
+
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
         let blade = self.documents.get(&uri)?.state.blade;
+
         if blade {
             if let Some(path) = &path {
                 self.ensure_words(path);
             }
         }
+
         let open = if blade { self.documents.texts() } else { HashMap::new() };
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(position.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let current_path = path.unwrap_or_default();
         let sources = ProjectSources::new(open, &project.words);
+
         let hits = highlights_at(
             &project.index,
             &sources,
@@ -263,6 +308,7 @@ impl Server {
             },
             offset,
         );
+
         Some(
             hits.iter()
                 .map(|hit| DocumentHighlight {
@@ -292,12 +338,15 @@ fn highlight_kind(hit: &Hit) -> DocumentHighlightKind {
 fn add_foreign_declarations(index: &php_index::Index, symbols: &[Symbol], files: &mut Vec<FileHits>) {
     for symbol in symbols {
         let query = php_analysis::refs::Query::new(index, symbol.clone());
+
         for declaration in php_analysis::decl::declarations(index, &query) {
             if declaration.origin == Origin::Project && !matches!(symbol, Symbol::Key { .. }) {
                 continue;
             }
+
             let range =
                 php_syntax::TextRange::new(declaration.name_span.start.into(), declaration.name_span.end.into());
+
             let hit = Hit {
                 range,
                 kind: HitKind::Declaration,
@@ -306,6 +355,7 @@ fn add_foreign_declarations(index: &php_index::Index, symbols: &[Symbol], files:
                 via_alias: false,
                 symbol: symbol.clone(),
             };
+
             match files.iter_mut().find(|file| file.path == declaration.path) {
                 Some(file) => {
                     if !file.hits.iter().any(|existing| existing.range == range) {
@@ -329,30 +379,37 @@ impl Server {
         params: lsp_types::TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>, String> {
         let uri = params.text_document.uri;
+
         if let Some(offset) = self.offset_of(&uri, params.position) {
             if let Some(prepared) = self.sql_prepare_rename(&uri, offset) {
                 return prepared;
             }
         }
+
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
         let given = self.template_given(&uri);
         let encoding = self.encoding;
+
         let Some(document) = self.documents.get_mut(&uri) else {
             return Ok(None);
         };
+
         let root = document.parse().syntax();
         let mapper = document.mapper(encoding);
         let offset = u32::from(mapper.offset(params.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let prepared = if document.state.blade {
             php_analysis::blade::prepare_rename(&project.index, path.as_deref(), &document.text, &given, offset)?
         } else {
             prepare_rename(&project.index, &root, &document.text, offset)?
         };
+
         Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
             range: mapper.range(prepared.range),
             placeholder: prepared.placeholder,
@@ -364,35 +421,43 @@ impl Server {
     pub(crate) fn rename(&mut self, params: RenameParams) -> Result<Option<WorkspaceEdit>, String> {
         let position = params.text_document_position;
         let uri = position.text_document.uri;
+
         if let Some(offset) = self.offset_of(&uri, position.position) {
             if let Some(renamed) = self.sql_rename(&uri, offset, &params.new_name) {
                 return renamed;
             }
         }
+
         let Some(path) = uri_to_path(&uri) else {
             return Err("Only files can be renamed".to_string());
         };
+
         self.sync_symbols(&uri);
         self.ensure_words(&path);
         let open = self.documents.texts();
         let encoding = self.encoding;
+
         let Some(document) = self.documents.get_mut(&uri) else {
             return Ok(None);
         };
+
         let root = document.parse().syntax();
         let offset = u32::from(document.mapper(encoding).offset(position.position));
         let project = self.workspace.project_for(&path);
         let sources = ProjectSources::new(open, &project.words);
+
         let current = Current {
             path: &path,
             text: &document.text,
             root: &root,
         };
+
         let done = if document.state.blade {
             php_analysis::blade::rename(&project.index, &sources, &current, offset, &params.new_name)?
         } else {
             rename(&project.index, &sources, &current, offset, &params.new_name)?
         };
+
         let file_move = done.file_rename.as_ref().filter(|moved| {
             project.composer.as_ref().is_none_or(|composer| {
                 composer
@@ -401,12 +466,15 @@ impl Server {
                     .any(|candidate| candidate == &moved.from)
             })
         });
+
         let file_move = file_move.cloned();
         let mut texts = TextCache::new(self, Some(&uri));
         let mut per_file: Vec<(Uri, Option<i32>, Vec<TextEdit>)> = Vec::new();
+
         for file in &done.files {
             let mut edits = Vec::new();
             let mut file_uri = None;
+
             for edit in &file.edits {
                 let place = Place {
                     path: Some(file.path.clone()),
@@ -415,23 +483,29 @@ impl Server {
                         end: u32::from(edit.range.end()),
                     },
                 };
+
                 if let Some(location) = texts.location(&place) {
                     file_uri = Some(location.uri);
+
                     edits.push(TextEdit {
                         range: location.range,
                         new_text: edit.text.clone(),
                     });
                 }
             }
+
             if let Some(file_uri) = file_uri {
                 let version = self.documents.get(&file_uri).map(|document| document.version);
                 per_file.push((file_uri, version, edits));
             }
         }
+
         let mut notes = vec![
             "Rename changes names in code, doc comments and the strings that name them. Other strings and comments are not changed.".to_string(),
         ];
+
         let mut operations: Vec<DocumentChangeOperation> = Vec::new();
+
         if let Some(moved) = &file_move {
             match (path_to_uri(&moved.from), path_to_uri(&moved.to)) {
                 (Some(old_uri), Some(new_uri)) if self.rename_files && self.document_changes => {
@@ -448,9 +522,11 @@ impl Server {
                 )),
             }
         }
+
         for note in notes {
             self.log(MessageType::INFO, note);
         }
+
         if self.document_changes {
             let mut changes: Vec<DocumentChangeOperation> = per_file
                 .into_iter()
@@ -461,14 +537,18 @@ impl Server {
                     })
                 })
                 .collect();
+
             changes.extend(operations);
+
             return Ok(Some(WorkspaceEdit {
                 changes: None,
                 document_changes: Some(DocumentChanges::Operations(changes)),
                 change_annotations: None,
             }));
         }
+
         let changes: HashMap<Uri, Vec<TextEdit>> = per_file.into_iter().map(|(uri, _, edits)| (uri, edits)).collect();
+
         Ok(Some(WorkspaceEdit {
             changes: Some(changes),
             document_changes: None,

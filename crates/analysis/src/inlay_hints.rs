@@ -25,9 +25,12 @@ pub enum HintKind {
 pub struct InlayHint {
     /// Where the hint is drawn, as an offset.
     pub offset: u32,
+
     /// The text, which for a parameter name ends in a colon.
     pub label: String,
+
     pub kind: HintKind,
+
     /// What accepting the hint writes into the file at the same offset.
     pub insert: Option<String>,
 }
@@ -53,43 +56,56 @@ impl Default for HintOptions {
 pub fn inlay_hints(index: &Index, root: &SyntaxNode, range: Option<TextRange>, options: HintOptions) -> Vec<InlayHint> {
     let ctx = FileContext::new(index, root);
     let mut out = Vec::new();
+
     for node in root.descendants() {
         if range.is_some_and(|range| range.intersect(node.text_range()).is_none()) {
             continue;
         }
+
         if node.kind() == PROPERTY_DECLARATION {
             if options.property_types {
                 property_hints(&ctx, &node, &mut out);
             }
+
             continue;
         }
+
         if !matches!(node.kind(), CALL_EXPR | NEW_EXPR) {
             continue;
         }
+
         let Some(list) = child_of(&node, ARGUMENT_LIST) else {
             continue;
         };
+
         if ast::has_token(&list, ELLIPSIS) && list.children().all(|child| child.kind() != ARGUMENT) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&node);
         let env = analyzer.env_around(&node);
         let callees = analyzer.callees(&node, &env);
+
         let Some(callee) = callees.first() else {
             continue;
         };
+
         let args = arguments(&node);
         let argument_nodes: Vec<SyntaxNode> = list.children().filter(|child| child.kind() == ARGUMENT).collect();
         let level = analyzer.level();
         let params: Vec<&Param> = callee.callable.params_at(level).collect();
+
         if options.parameter_names {
             parameter_hints(&callees, &params, &args, &argument_nodes, range, &mut out);
         }
+
         if options.closure_types {
             closure_hints(&analyzer, callee, &params, &args, &env, range, &mut out);
         }
     }
+
     out.sort_by_key(|hint| hint.offset);
+
     out
 }
 
@@ -102,26 +118,34 @@ fn parameter_hints(
     out: &mut Vec<InlayHint>,
 ) {
     let single = params.len() == 1 && !params[0].variadic;
+
     for (position, (arg, node)) in args.iter().zip(argument_nodes).enumerate() {
         if arg.name.is_some() || arg.spread {
             break;
         }
+
         let Some(expr) = &arg.expr else {
             continue;
         };
+
         let Some(param) = params.get(position) else {
             break;
         };
+
         if param.variadic {
             break;
         }
+
         let offset = ast::start(node);
+
         if range.is_some_and(|range| !range.contains_inclusive(php_syntax::TextSize::from(offset))) {
             continue;
         }
+
         if param.name.chars().count() < 2 || param.name.starts_with('_') {
             continue;
         }
+
         // A call that several classes answer shows the name only when all of them agree on it.
         if callees.iter().any(|other| {
             other
@@ -132,12 +156,15 @@ fn parameter_hints(
         }) {
             continue;
         }
+
         if single && !is_unclear_literal(expr) {
             continue;
         }
+
         if names_of(expr).iter().any(|name| same_name(name, &param.name)) {
             continue;
         }
+
         out.push(InlayHint {
             offset,
             label: format!("{}:", param.name),
@@ -150,14 +177,17 @@ fn parameter_hints(
 /// `true`, `false` and `null` mean nothing without the name of the parameter they are for.
 fn is_unclear_literal(expr: &SyntaxNode) -> bool {
     let text = text_of(expr).to_ascii_lowercase();
+
     matches!(expr.kind(), NAME | LITERAL) && matches!(text.as_str(), "true" | "false" | "null")
 }
 
 /// The names an argument goes by: a variable, a property, a call of a method, a constant.
 fn names_of(expr: &SyntaxNode) -> Vec<String> {
     let mut names = Vec::new();
+
     let mut push = |name: String| {
         let lower = name.to_ascii_lowercase();
+
         for prefix in ["get", "is", "has"] {
             if let Some(rest) = lower.strip_prefix(prefix) {
                 if !rest.is_empty() && name.chars().nth(prefix.len()).is_some_and(char::is_uppercase) {
@@ -165,8 +195,10 @@ fn names_of(expr: &SyntaxNode) -> Vec<String> {
                 }
             }
         }
+
         names.push(lower);
     };
+
     match expr.kind() {
         VARIABLE_EXPR => push(text_of(expr).trim_start_matches('$').to_string()),
         PROPERTY_FETCH_EXPR | SCOPED_ACCESS_EXPR | STATIC_PROPERTY_EXPR => {
@@ -191,6 +223,7 @@ fn names_of(expr: &SyntaxNode) -> Vec<String> {
         }
         _ => {}
     }
+
     names
 }
 
@@ -202,6 +235,7 @@ fn same_name(left: &str, right: &str) -> bool {
             .collect::<String>()
             .to_ascii_lowercase()
     };
+
     normalize(left) == normalize(right)
 }
 
@@ -218,49 +252,65 @@ fn closure_hints(
 ) {
     let level = analyzer.level();
     let (bound, _) = analyzer.bind_call(callee, args, env);
+
     for (position, arg) in args.iter().enumerate() {
         let Some(expr) = &arg.expr else {
             continue;
         };
+
         if !matches!(expr.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR) {
             continue;
         }
+
         let param = match &arg.name {
             Some(name) => params.iter().find(|param| &param.name == name),
             None => params.get(position),
         };
+
         let Some(expected) = param.and_then(|param| param.effective_type(level)) else {
             continue;
         };
+
         let expected = expected.substitute(&bound, callee.receiver.as_ref(), callee.self_name.as_deref());
+
         let signature = expected.members().iter().find_map(|member| match member {
             Type::Callable(Some(signature)) => Some(signature.clone()),
             _ => None,
         });
+
         let Some(signature) = signature else {
             continue;
         };
+
         let Some(list) = child_of(expr, PARAMETER_LIST) else {
             continue;
         };
+
         for (index, parameter) in list.children().filter(|child| child.kind() == PARAMETER).enumerate() {
             if parameter.children().any(|child| ast::is_type_node(child.kind())) {
                 continue;
             }
+
             let Some(variable) = ast::first_token(&parameter, VARIABLE) else {
                 continue;
             };
+
             let Some(wanted) = signature.params.get(index) else {
                 continue;
             };
+
             let shown = wanted.ty.display(true);
+
             if matches!(wanted.ty, Type::Mixed | Type::Unknown) || has_template(&wanted.ty) {
                 continue;
             }
+
             let offset = u32::from(variable.text_range().start());
+
             if range.is_some_and(|range| !range.contains_inclusive(php_syntax::TextSize::from(offset))) {
                 continue;
             }
+
             out.push(InlayHint {
                 offset,
                 label: shown.clone(),
@@ -278,19 +328,26 @@ fn property_hints(ctx: &FileContext<'_>, node: &SyntaxNode, out: &mut Vec<InlayH
     let Some(type_node) = node.children().find(|child| child.kind() == NAMED_TYPE) else {
         return;
     };
+
     let analyzer = ctx.analyzer(node);
+
     let Some(class) = &analyzer.class else {
         return;
     };
+
     let Some(declared) = ctx.index.class(&class.name) else {
         return;
     };
+
     let receiver = Type::class(class.name.clone());
+
     for element in node.children().filter(|child| child.kind() == PROPERTY_ELEMENT) {
         let Some(variable) = ast::first_token(&element, VARIABLE) else {
             continue;
         };
+
         let name = variable.text().trim_start_matches('$');
+
         if declared
             .decl
             .properties
@@ -299,22 +356,28 @@ fn property_hints(ctx: &FileContext<'_>, node: &SyntaxNode, out: &mut Vec<InlayH
         {
             continue;
         }
+
         let Some(found) = ctx.index.find_property(&receiver, name) else {
             continue;
         };
+
         let Some(Type::Class { args, .. }) = &found.member.doc_ty else {
             continue;
         };
+
         if args.is_empty() || args.iter().any(has_template) {
             continue;
         }
+
         let shown: Vec<String> = args.iter().map(|arg| arg.display(true)).collect();
+
         out.push(InlayHint {
             offset: u32::from(type_node.text_range().end()),
             label: format!("<{}>", shown.join(", ")),
             kind: HintKind::Type,
             insert: None,
         });
+
         return;
     }
 }
@@ -322,5 +385,6 @@ fn property_hints(ctx: &FileContext<'_>, node: &SyntaxNode, out: &mut Vec<InlayH
 fn has_template(ty: &Type) -> bool {
     let mut names = Vec::new();
     crate::infer::template_names(ty, &mut names);
+
     !names.is_empty()
 }

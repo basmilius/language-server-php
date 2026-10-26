@@ -27,6 +27,7 @@ impl ConfigKeys {
     /// merges into is never certain.
     pub fn is_missing(&self, index: &Index, key: &str) -> bool {
         let root = key.split('.').next().unwrap_or("");
+
         self.tree.is_missing(key)
             && !index.section::<MergedConfigs>().merges(root)
             && !index.section::<RuntimeConfig>().sets(root)
@@ -42,37 +43,48 @@ impl Section for ConfigKeys {
     fn build(index: &Index) -> Self {
         let mut keys = ConfigKeys::default();
         let dir = index.framework_root().join("config");
+
         for path in index.files_below(&dir) {
             if path.extension().is_none_or(|ext| ext != "php") {
                 continue;
             }
+
             let Some(text) = index.read_text(&path) else {
                 continue;
             };
+
             let Ok(relative) = path.strip_prefix(&dir) else {
                 continue;
             };
+
             let stem = relative.with_extension("").to_string_lossy().replace(['/', '\\'], ".");
             keys.tree.add_file(&stem, &path, &text, None);
         }
+
         // Since Laravel 11 the framework's own config files lie under the project's, key by key, and
         // stand for the files the project does not have. The project's keys come first.
         let root = index.framework_root();
+
         let merges = index
             .read_text(&root.join("bootstrap").join("app.php"))
             .is_none_or(|text| !text.contains("dontMergeFrameworkConfiguration"));
+
         if merges {
             let base = root.join("vendor").join("laravel").join("framework").join("config");
+
             for path in index.files_below(&base) {
                 if path.extension().is_none_or(|ext| ext != "php") || path.parent() != Some(base.as_path()) {
                     continue;
                 }
+
                 let (Some(text), Some(stem)) = (index.read_text(&path), path.file_stem()) else {
                     continue;
                 };
+
                 keys.tree.add_file(&stem.to_string_lossy(), &path, &text, None);
             }
         }
+
         keys
     }
 
@@ -98,15 +110,19 @@ impl MergedConfigs {
 impl Section for MergedConfigs {
     fn build(index: &Index) -> Self {
         let mut merged = MergedConfigs::default();
+
         for provider in index.all_subtypes(SERVICE_PROVIDER) {
             if provider.file.origin != Origin::Vendor || provider.decl.name.starts_with("Illuminate\\") {
                 continue;
             }
+
             let Some(text) = index.read_text(&provider.file.path) else {
                 continue;
             };
+
             merged.scan(&text);
         }
+
         merged
     }
 
@@ -118,14 +134,17 @@ impl Section for MergedConfigs {
 impl MergedConfigs {
     fn scan(&mut self, text: &str) {
         let mut rest = text;
+
         while let Some(at) = rest.find("mergeConfigFrom(") {
             rest = &rest[at + "mergeConfigFrom(".len()..];
             let call = rest.split(';').next().unwrap_or("");
+
             let name = call
                 .rsplit_once(',')
                 .map(|(_, tail)| tail.trim().trim_end_matches(')').trim())
                 .filter(|tail| tail.starts_with(['\'', '"']) && tail.ends_with(['\'', '"']))
                 .map(|tail| tail.trim_matches(['\'', '"']).to_string());
+
             match name {
                 Some(name) => {
                     self.roots.insert(name);
@@ -140,6 +159,7 @@ impl MergedConfigs {
 #[derive(Default)]
 pub struct RuntimeConfig {
     roots: HashSet<String>,
+
     /// A write whose key is not written out.
     unknown: bool,
 }
@@ -153,19 +173,24 @@ impl RuntimeConfig {
 impl Section for RuntimeConfig {
     fn build(index: &Index) -> Self {
         let mut found = RuntimeConfig::default();
+
         let paths: Vec<std::path::PathBuf> = index
             .files()
             .filter(|file| file.origin == Origin::Project)
             .map(|file| file.path.clone())
             .collect();
+
         for path in paths {
             let Some(text) = index.read_text(&path) else {
                 continue;
             };
+
             if !(text.contains("config([") || text.contains("Config::set(") || text.contains("config()->set(")) {
                 continue;
             }
+
             let tree = php_syntax::parse(&text).syntax();
+
             for call in tree
                 .descendants()
                 .filter(|node| node.kind() == php_syntax::SyntaxKind::CALL_EXPR)
@@ -173,6 +198,7 @@ impl Section for RuntimeConfig {
                 found.read(&call);
             }
         }
+
         found
     }
 
@@ -184,17 +210,22 @@ impl Section for RuntimeConfig {
 impl RuntimeConfig {
     fn read(&mut self, call: &php_syntax::SyntaxNode) {
         use php_syntax::SyntaxKind::*;
+
         let Some(callee) = call.children().next() else {
             return;
         };
+
         let text = callee.text().to_string().replace(char::is_whitespace, "");
         let writes = text == "config" || text.ends_with("Config::set") || text.ends_with("config()->set");
+
         if !writes {
             return;
         }
+
         let Some(first) = crate::test_facts::argument_expressions(call).into_iter().next() else {
             return;
         };
+
         let note = |roots: &mut HashSet<String>, unknown: &mut bool, node: &php_syntax::SyntaxNode| {
             match super::source::literal_of(node) {
                 Some(super::source::Literal::Text(key, _)) => {
@@ -203,6 +234,7 @@ impl RuntimeConfig {
                 _ => *unknown = true,
             }
         };
+
         if first.kind() == ARRAY_EXPR {
             match super::source::array_items(&first) {
                 Some(items) => {
@@ -249,23 +281,28 @@ return [
             ("config/app.php", APP),
             ("config/nested/more.php", "<?php return ['k' => 'v'];"),
         ];
+
         files.extend_from_slice(extra);
         let index = project(&files);
         let keys = index.section::<ConfigKeys>();
+
         (index, keys)
     }
 
     #[test]
     fn reads_the_keys_of_the_config_files() {
         let (_, keys) = keys(&[]);
+
         assert_eq!(
             keys.find("app.name").and_then(|entry| entry.value.clone()).as_deref(),
             Some("env('APP_NAME', 'Laravel')")
         );
+
         assert!(keys.find("app").is_some_and(|entry| entry.group));
         assert!(keys.find("app.aliases.Foo").is_some());
         assert!(keys.find("app.nested.a.b").is_some());
         assert!(keys.find("nested.more.k").is_some(), "a folder is part of the key");
+
         assert_eq!(
             keys.find("app.locale").map(|entry| entry.span.end - entry.span.start),
             Some(6)
@@ -276,21 +313,26 @@ return [
     fn a_key_is_missing_only_when_every_array_on_the_way_is_written_out() {
         let (index, keys) = keys(&[]);
         assert!(keys.is_missing(&index, "app.nam"));
+
         assert!(
             keys.is_missing(&index, "app.locale.deeper"),
             "below a scalar nothing exists"
         );
+
         assert!(keys.is_missing(&index, "app.nested.a.c"));
         assert!(!keys.is_missing(&index, "app.name"));
         assert!(!keys.is_missing(&index, "app.providers.0"), "a list is not enumerated");
+
         assert!(
             !keys.is_missing(&index, "app.nested.computed.y"),
             "a computed value may hold anything"
         );
+
         assert!(
             !keys.is_missing(&index, "other.name"),
             "a file that is not there may come from a package"
         );
+
         assert!(!keys.is_missing(&index, "app"));
     }
 
@@ -306,9 +348,11 @@ return [
                 "<?php return ['compiled' => 'x'];",
             ),
         ]);
+
         assert!(!keys.is_missing(&index, "app.frontend_url"));
         assert!(!keys.is_missing(&index, "view.compiled"));
         assert!(keys.is_missing(&index, "view.nope"));
+
         assert_eq!(
             keys.find("app.name").and_then(|entry| entry.value.clone()).as_deref(),
             Some("env('APP_NAME', 'Laravel')"),
@@ -328,7 +372,9 @@ return [
                 "<?php class Boot { public function run() { config(['app.extra' => 1]); } }",
             ),
         ]);
+
         assert!(!keys.is_missing(&index, "app.nam"), "the project writes into app");
+
         assert!(
             keys.is_missing(&index, "nested.more.nope"),
             "nothing writes into the nested file"
@@ -347,6 +393,7 @@ return [
                 "<?php namespace Illuminate\\Support; abstract class ServiceProvider {}",
             ),
         ]);
+
         assert!(!keys.is_missing(&index, "app.nam"));
     }
 }

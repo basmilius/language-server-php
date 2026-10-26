@@ -27,6 +27,7 @@ fn loop_type() -> Type {
         ty,
         optional: false,
     };
+
     Type::Shape(vec![
         field("index", Type::Int),
         field("index0", Type::Int),
@@ -42,9 +43,11 @@ fn loop_type() -> Type {
 /// The variables every template of a Symfony project has.
 pub fn globals(index: &Index) -> Vec<(String, Type)> {
     let mut out = Vec::new();
+
     if index.class("Symfony\\Bridge\\Twig\\AppVariable").is_some() {
         out.push(("app".to_string(), Type::class("Symfony\\Bridge\\Twig\\AppVariable")));
     }
+
     out
 }
 
@@ -78,6 +81,7 @@ impl<'a> Typer<'a> {
             },
             Expr::Array(items) => {
                 let members: Vec<Type> = items.iter().map(|item| widen(self.type_of(item, env))).collect();
+
                 if members.is_empty() {
                     Type::plain_array()
                 } else {
@@ -99,14 +103,17 @@ impl<'a> Typer<'a> {
             ),
             Expr::Attribute { object, name, args, .. } => {
                 let object = self.type_of(object, env);
+
                 self.attribute(&object, name, args.is_some()).0
             }
             Expr::Index { object, index } => {
                 let object = self.type_of(object, env);
+
                 let key = match index.as_ref() {
                     Expr::Str { value, .. } => Some(value.as_str()),
                     _ => None,
                 };
+
                 self.analyzer().element_of(&object, key)
             }
             Expr::Call { name, .. } => self.callable_return(TwigKind::Function, name),
@@ -133,9 +140,11 @@ impl<'a> Typer<'a> {
                 let then = then
                     .as_deref()
                     .map_or_else(|| self.type_of(condition, env), |then| self.type_of(then, env));
+
                 let otherwise = otherwise
                     .as_deref()
                     .map_or(Type::Null, |otherwise| self.type_of(otherwise, env));
+
                 Type::union([then, otherwise])
             }
             Expr::Arrow { .. } => Type::class("Closure"),
@@ -148,7 +157,9 @@ impl<'a> Typer<'a> {
         let Some(callable) = self.extensions.find(kind, name) else {
             return Type::Unknown;
         };
+
         let level = self.index.level;
+
         let declared = match (&callable.class, &callable.target) {
             (Some(class), Some(method)) => {
                 self.index
@@ -167,6 +178,7 @@ impl<'a> Typer<'a> {
                 .and_then(|found| found.decl.callable.effective_return(level).cloned()),
             _ => None,
         };
+
         declared.unwrap_or(Type::Unknown)
     }
 
@@ -174,11 +186,13 @@ impl<'a> Typer<'a> {
     /// return what their PHP says.
     fn filter_type(&self, subject: &Expr, name: &str, args: &[super::parse::Arg], env: &Env) -> Type {
         let analyzer = self.analyzer();
+
         match name {
             "first" | "last" => analyzer.element_of(&self.type_of(subject, env), None),
             "sort" | "reverse" | "slice" | "filter" | "merge" | "shuffle" => self.type_of(subject, env),
             "default" => {
                 let fallback = args.first().map_or(Type::Unknown, |arg| self.type_of(&arg.value, env));
+
                 Type::union([self.type_of(subject, env).without_null(), fallback])
             }
             "raw" | "escape" | "e" => self.type_of(subject, env),
@@ -195,6 +209,7 @@ impl<'a> Typer<'a> {
     pub fn attribute(&self, object: &Type, name: &str, called: bool) -> (Type, Option<Member>) {
         let mut types = Vec::new();
         let mut member = None;
+
         for each in object.members() {
             match each {
                 Type::Shape(fields) => {
@@ -214,6 +229,7 @@ impl<'a> Typer<'a> {
                 _ => {}
             }
         }
+
         if types.is_empty() {
             (Type::Unknown, member)
         } else {
@@ -227,16 +243,20 @@ impl<'a> Typer<'a> {
         let Type::Class { name, .. } = class else {
             return None;
         };
+
         if !self.index.is_subclass_of(name, "ArrayAccess") {
             return None;
         }
+
         let method = self.index.find_method(class, "offsetGet")?;
         let ty = method.member.callable.effective_return(self.index.level)?;
+
         Some(self.analyzer().bind_static(&method.resolve(ty), class)).filter(|ty| !matches!(ty, Type::Mixed))
     }
 
     fn class_attribute(&self, class: &Type, name: &str, called: bool) -> Option<(Type, Member)> {
         let level = self.index.level;
+
         if !called {
             if let Some(property) = self
                 .index
@@ -247,6 +267,7 @@ impl<'a> Typer<'a> {
                     .member
                     .effective_type(level)
                     .map_or(Type::Unknown, |ty| property.resolve(ty));
+
                 return Some((
                     self.analyzer().bind_static(&ty, class),
                     Member::Property {
@@ -256,10 +277,13 @@ impl<'a> Typer<'a> {
                 ));
             }
         }
+
         let mut upper = name.to_string();
+
         if let Some(first) = upper.get_mut(..1) {
             first.make_ascii_uppercase();
         }
+
         for candidate in [
             name.to_string(),
             format!("get{upper}"),
@@ -273,11 +297,13 @@ impl<'a> Typer<'a> {
             else {
                 continue;
             };
+
             let ty = method
                 .member
                 .callable
                 .effective_return(level)
                 .map_or(Type::Unknown, |ty| method.resolve(ty));
+
             return Some((
                 self.analyzer().bind_static(&ty, class),
                 Member::Method {
@@ -286,6 +312,7 @@ impl<'a> Typer<'a> {
                 },
             ));
         }
+
         None
     }
 
@@ -293,11 +320,13 @@ impl<'a> Typer<'a> {
     /// reads them under (`title` for `getTitle()`).
     pub fn attributes_of(&self, object: &Type) -> Vec<(String, Option<String>)> {
         let mut out: Vec<(String, Option<String>)> = Vec::new();
+
         let mut add = |name: String, detail: Option<String>| {
             if !out.iter().any(|(known, _)| *known == name) {
                 out.push((name, detail));
             }
         };
+
         for each in object.members() {
             match each {
                 Type::Shape(fields) => {
@@ -316,14 +345,17 @@ impl<'a> Typer<'a> {
                             );
                         }
                     }
+
                     for method in self.index.methods(each) {
                         let declared = &method.member;
+
                         if declared.visibility != Visibility::Public
                             || declared.is_static
                             || declared.name.starts_with("__")
                         {
                             continue;
                         }
+
                         let detail = Some(format!("{}()", declared.name));
                         add(twig_name(&declared.name), detail);
                     }
@@ -331,6 +363,7 @@ impl<'a> Typer<'a> {
                 _ => {}
             }
         }
+
         out
     }
 }
@@ -342,10 +375,12 @@ pub fn twig_name(method: &str) -> String {
             if rest.starts_with(|first: char| first.is_ascii_uppercase()) {
                 let mut name = rest.to_string();
                 name[..1].make_ascii_lowercase();
+
                 return name;
             }
         }
     }
+
     method.to_string()
 }
 
@@ -368,26 +403,35 @@ pub fn walk(
     visit: &mut dyn FnMut(&Expr, &Env),
 ) {
     let mut base = Env::default();
+
     for (name, ty) in globals(typer.index).into_iter().chain(given.iter().cloned()) {
         base.set(name, ty);
     }
+
     let globals_only = {
         let mut env = Env::default();
+
         for (name, ty) in globals(typer.index) {
             env.set(name, ty);
         }
+
         env
     };
+
     let mut stack: Vec<Env> = vec![base];
+
     for item in &template.items {
         let start = match item {
             Item::Output { start, .. } => *start,
             Item::Tag(tag) => tag.start,
         };
+
         if until.is_some_and(|until| start > until) {
             return;
         }
+
         let env = stack.last().cloned().unwrap_or_default();
+
         match item {
             Item::Output { expr, .. } => visit(expr, &env),
             Item::Tag(tag) => match (&tag.body, tag.name.as_str()) {
@@ -402,6 +446,7 @@ pub fn walk(
                     visit(iterable, &env);
                     let (key, value) = typer.analyzer().iterable_types(&typer.type_of(iterable, &env));
                     let mut inner = env.clone();
+
                     match targets.as_slice() {
                         [single] => inner.set(single.0.clone(), value),
                         [first, second] => {
@@ -410,50 +455,63 @@ pub fn walk(
                         }
                         _ => {}
                     }
+
                     inner.set("loop", loop_type());
+
                     if let Some(condition) = condition {
                         visit(condition, &inner);
                     }
+
                     stack.push(inner);
                 }
                 (TagBody::Set { targets, values }, _) => {
                     for value in values {
                         visit(value, &env);
                     }
+
                     let types: Vec<Type> = values.iter().map(|value| widen(typer.type_of(value, &env))).collect();
                     let top = stack.last_mut().expect("a scope");
+
                     for (at, target) in targets.iter().enumerate() {
                         let ty = if values.is_empty() {
                             Type::String
                         } else {
                             types.get(at).cloned().unwrap_or(Type::Unknown)
                         };
+
                         top.set(target.0.clone(), ty);
                     }
                 }
                 (TagBody::Macro { params, .. }, _) => {
                     let mut inner = globals_only.clone();
+
                     for (param, default) in params {
                         let ty = default
                             .as_ref()
                             .map_or(Type::Unknown, |default| widen(typer.type_of(default, &env)));
+
                         inner.set(param.0.clone(), ty);
                     }
+
                     stack.push(inner);
                 }
                 (TagBody::Other(exprs), "with") => {
                     for expr in exprs {
                         visit(expr, &env);
                     }
+
                     let only = exprs
                         .iter()
                         .any(|expr| matches!(expr, Expr::Name { name, .. } if name == "only"));
+
                     let mut inner = if only { globals_only.clone() } else { env.clone() };
+
                     if let Some(hash) = exprs.first() {
                         for (key, value) in super::hash_keys(hash) {
                             inner.set(key, widen(typer.type_of(value, &env)));
                         }
                     }
+
                     stack.push(inner);
                 }
                 (_, "endfor" | "endmacro" | "endwith") => {

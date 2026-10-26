@@ -18,15 +18,18 @@ pub fn is_test_class(index: &Index, name: &str) -> bool {
 /// no PHPUnit.
 pub fn test_case_ancestor(index: &Index, name: &str) -> Option<String> {
     let mut current = name.trim_start_matches('\\').to_string();
+
     for _ in 0..32 {
         if current.eq_ignore_ascii_case(TEST_CASE) {
             return Some(current);
         }
+
         let Some(class) = index.class(&current) else {
             return crate::short(&current)
                 .eq_ignore_ascii_case("TestCase")
                 .then_some(current);
         };
+
         let parent = class
             .decl
             .extends
@@ -35,8 +38,10 @@ pub fn test_case_ancestor(index: &Index, name: &str) -> Option<String> {
             .into_iter()
             .next()?
             .to_string();
+
         current = parent;
     }
+
     None
 }
 
@@ -56,9 +61,11 @@ pub fn is_test_method(class: &ClassDecl, method: &Method) -> bool {
     if method.visibility != Visibility::Public || method.is_static || method.is_abstract {
         return false;
     }
+
     if class.kind != php_index::ClassKind::Class {
         return false;
     }
+
     method.name.starts_with("test")
         || has_attribute(&method.attributes, "Test")
         || method

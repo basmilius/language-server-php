@@ -146,84 +146,108 @@ const IRREGULAR: &[(&str, &str)] = &[
 /// capitals keeps them, and a word the rules do not know takes an `s`.
 pub fn pluralize(word: &str) -> String {
     let lower = word.to_ascii_lowercase();
+
     if lower.is_empty() || UNCOUNTABLE.contains(&lower.as_str()) {
         return word.to_string();
     }
+
     if let Some((_, plural)) = IRREGULAR.iter().find(|(singular, _)| *singular == lower) {
         return with_case_of(word, plural);
     }
+
     if IRREGULAR.iter().any(|(_, plural)| *plural == lower) {
         return word.to_string();
     }
+
     let cut = |count: usize, suffix: &str| format!("{}{suffix}", &word[..word.len() - count]);
     let ends = |suffix: &str| lower.ends_with(suffix);
+
     if ends("quiz") {
         return cut(0, "zes");
     }
+
     if ends("tatus") {
         return cut(0, "es");
     }
+
     if ends("ouse") && (lower.ends_with("mouse") || lower.ends_with("louse")) {
         return cut(4, "ice");
     }
+
     for suffix in ["matrix", "vertex", "index"] {
         if ends(suffix) {
             return cut(2, "ices");
         }
     }
+
     if ends("x") || ends("ch") || ends("ss") || ends("sh") {
         return cut(0, "es");
     }
+
     if ends("y") && lower.len() > 1 {
         let before = lower.as_bytes()[lower.len() - 2];
         let vowel = matches!(before, b'a' | b'e' | b'i' | b'o' | b'u' | b'y');
+
         if !vowel || lower.ends_with("quy") {
             return cut(1, "ies");
         }
     }
+
     if ends("fe") && !ends("ffe") {
         return cut(2, "ves");
     }
+
     if (ends("lf") || ends("rf")) && !ends("rff") {
         return cut(1, "ves");
     }
+
     if ends("sis") {
         return cut(2, "es");
     }
+
     if ends("um") && (ends("ium") || ends("tum") || ends("ium")) {
         return cut(2, "a");
     }
+
     for suffix in ["buffalo", "tomato", "potato", "hero", "veto"] {
         if ends(suffix) {
             return cut(0, "es");
         }
     }
+
     if ends("bus") && !ends("abus") {
         return cut(0, "es");
     }
+
     if ends("alias") {
         return cut(0, "es");
     }
+
     if ends("octopus") || ends("virus") {
         return cut(2, "i");
     }
+
     if ends("axis") || ends("testis") {
         return cut(2, "es");
     }
+
     if ends("s") {
         return word.to_string();
     }
+
     format!("{word}s")
 }
 
 fn with_case_of(word: &str, replacement: &str) -> String {
     if word.chars().next().is_some_and(char::is_uppercase) {
         let mut chars = replacement.chars();
+
         return match chars.next() {
             Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
             None => String::new(),
         };
     }
+
     replacement.to_string()
 }
 
@@ -231,16 +255,19 @@ fn with_case_of(word: &str, replacement: &str) -> String {
 /// which is what `Str::snake` does.
 pub fn snake(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 4);
+
     for (position, ch) in text.chars().enumerate() {
         if ch.is_uppercase() {
             if position > 0 {
                 out.push('_');
             }
+
             out.extend(ch.to_lowercase());
         } else {
             out.push(ch);
         }
     }
+
     out
 }
 
@@ -250,6 +277,7 @@ pub fn studly(text: &str) -> String {
         .filter(|word| !word.is_empty())
         .map(|word| {
             let mut chars = word.chars();
+
             match chars.next() {
                 Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
                 None => String::new(),
@@ -262,6 +290,7 @@ pub fn studly(text: &str) -> String {
 pub fn camel(text: &str) -> String {
     let studly = studly(text);
     let mut chars = studly.chars();
+
     match chars.next() {
         Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
         None => String::new(),
@@ -273,6 +302,7 @@ pub fn camel(text: &str) -> String {
 pub fn table_of(class_name: &str) -> String {
     let short = class_name.rsplit('\\').next().unwrap_or(class_name);
     let snake = snake(short);
+
     match snake.rsplit_once('_') {
         Some((head, last)) => format!("{head}_{}", pluralize(last)),
         None => pluralize(&snake),

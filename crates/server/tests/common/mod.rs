@@ -12,6 +12,7 @@ pub trait PhpClient {
     fn start(capabilities: Value, options: Value) -> (Client, Value);
     fn start_in(capabilities: Value, options: Value, root_uri: Value) -> (Client, Value);
     fn open(&self, uri: &str, text: &str);
+
     /// Answers the request to create a progress and waits until the progress ends, which is when
     /// the project and the stubs are indexed.
     fn wait_for_indexing(&mut self) -> Vec<String>;
@@ -48,6 +49,7 @@ impl Disk {
         let disk = Disk {
             dir: tempfile::tempdir().expect("a temp dir"),
         };
+
         disk.write(
             "project/composer.json",
             r#"{
@@ -56,27 +58,34 @@ impl Disk {
   "autoload": { "psr-4": { "App\\": "src/" } }
 }"#,
         );
+
         disk.write(
             "project/src/Models/User.php",
             "<?php\nnamespace App\\Models;\n\n/** A person who can log in. */\nclass User\n{\n    public string $name = '';\n\n    /** Finds a user. */\n    public static function find(int $id): ?static\n    {\n        return null;\n    }\n\n    public function posts(): array\n    {\n        return [];\n    }\n}\n",
         );
+
         disk.write(
             "project/vendor/composer/installed.json",
             r#"{"packages":[{"name":"acme/lib","install-path":"../acme/lib","autoload":{"psr-4":{"Acme\\Lib\\":"src/"}}}]}"#,
         );
+
         disk.write(
             "project/vendor/acme/lib/src/Widget.php",
             "<?php\nnamespace Acme\\Lib;\n\nclass Widget\n{\n    public function render(): string\n    {\n        return '';\n    }\n}\n",
         );
+
         disk.write(
             "stubs/standard/basic.php",
             "<?php\nfunction strlen(string $string): int {}\n\n/** @since 8.4 */\nfunction array_find(array $array, callable $callback): mixed {}\n\n/**\n * @param array|string $search <p>\n * The value being searched for, otherwise known as the needle.\n * </p>\n * @param array|string $replace\n * @param array|string $subject\n * @return array|string\n */\nfunction str_replace(array|string $search, array|string $replace, array|string $subject, &$count = null): array|string {}\n",
         );
+
         disk.write(
             "stubs/redis/redis.php",
             "<?php\nclass Redis { public function get(string $key): mixed {} }\n",
         );
+
         disk.write("stubs/swoole/swoole.php", "<?php\nclass SwooleServer {}\n");
+
         disk
     }
 
@@ -108,5 +117,6 @@ pub fn indexed_server(disk: &Disk) -> Client {
     let (mut client, _) = Client::start_in(PROGRESS_CAPABILITIES(), disk.options(), json!(disk.uri("project")));
     let kinds = client.wait_for_indexing();
     assert_eq!(kinds.first().map(String::as_str), Some("begin"), "{kinds:?}");
+
     client
 }

@@ -27,6 +27,7 @@ fn find(files: &[(&str, &str)], current: &str) -> Vec<String> {
     let (text, root, offset) = split_cursor(current);
     let sources = Files(fixture.sources.clone());
     let path = PathBuf::from("/project/current.php");
+
     let found = references_at(
         &fixture.index,
         &sources,
@@ -37,31 +38,39 @@ fn find(files: &[(&str, &str)], current: &str) -> Vec<String> {
         },
         offset,
     );
+
     let Some(found) = found else {
         return vec!["nothing".to_string()];
     };
+
     let mut out = Vec::new();
+
     for file in &found.files {
         let source = if file.path == path {
             text.clone()
         } else {
             fixture.sources[&file.path].clone()
         };
+
         let lines = LineIndex::new(&source);
+
         for hit in &file.hits {
             let line = lines
                 .line_col(&source, hit.range.start(), crate::PositionEncoding::Utf16)
                 .line
                 + 1;
+
             let name = file
                 .path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
+
             let written = &source[usize::from(hit.range.start())..usize::from(hit.range.end())];
             out.push(format!("{name}:{line}:{written}:{:?}", hit.kind));
         }
     }
+
     out
 }
 
@@ -70,6 +79,7 @@ fn finds_every_use_of_a_class() {
     let user = "<?php\nnamespace App;\n\nclass User {\n    public static function make(): static { return new static(); }\n}\n";
     let service = "<?php\nnamespace App\\Services;\n\nuse App\\User;\nuse App\\User as Person;\n\n/** @param User $user */\nfunction f(User $user, Person $other): ?User {\n    $a = new User();\n    $b = User::make();\n    return $user instanceof User ? $user : null;\n}\nclass Admin extends User {}\n";
     let current = "<?php\nnamespace App;\n\n$x = new Us$0er();\n";
+
     assert_eq!(
         find(&[("user.php", user), ("service.php", service)], current),
         [
@@ -97,6 +107,7 @@ fn a_method_is_one_thing_across_its_hierarchy() {
     let other = "<?php\nnamespace App;\n\nclass Other { public function handle(int $x): void {} }\n";
     let caller = "<?php\nnamespace App;\n\nfunction run(Handler $h, Second $s, Other $o) {\n    $h->handle(1);\n    $s->handle(2);\n    $o->handle(3);\n}\n";
     let current = "<?php\nnamespace App;\n\nclass Third extends Second { public function han$0dle(int $x): void {} }\n";
+
     assert_eq!(
         find(
             &[
@@ -126,6 +137,7 @@ fn a_promoted_property_is_a_property_a_parameter_and_a_variable() {
     let usage = "<?php\nnamespace App;\n\n$p = new Point(x: 1, y: 2);\necho $p->y;\n";
     let current = "<?php\nnamespace App;\n\nfunction f(Point $p) { return $p->$0y; }\n";
     let result = find(&[("point.php", point), ("usage.php", usage)], current);
+
     assert_eq!(
         result,
         [
@@ -141,6 +153,7 @@ fn a_promoted_property_is_a_property_a_parameter_and_a_variable() {
 #[test]
 fn variables_stay_inside_their_function() {
     let current = "<?php\nfunction one($a, $b) {\n    $c = $a + $b;\n    $f = fn($x) => $x + $a;\n    $g = function () use ($a) { return $a; };\n    return $c . $$0a;\n}\nfunction two($a) { return $a; }\n";
+
     assert_eq!(
         find(&[], current),
         [
@@ -159,6 +172,7 @@ fn finds_functions_and_constants() {
     let lib = "<?php\nnamespace Lib;\n\nconst LIMIT = 10;\nfunction helper(): int { return LIMIT; }\n";
     let usage = "<?php\nnamespace App;\n\nuse function Lib\\helper;\nuse const Lib\\LIMIT;\n\necho helper() + LIMIT + \\Lib\\helper();\n";
     let current = "<?php\nuse function Lib\\helper;\n\nhel$0per();\n";
+
     assert_eq!(
         find(&[("lib.php", lib), ("usage.php", usage)], current),
         [
@@ -178,6 +192,7 @@ fn find_access(files: &[(&str, &str)], current: &str) -> Vec<String> {
     let (text, root, offset) = split_cursor(current);
     let sources = Files(fixture.sources.clone());
     let path = PathBuf::from("/project/current.php");
+
     let found = references_at(
         &fixture.index,
         &sources,
@@ -188,41 +203,52 @@ fn find_access(files: &[(&str, &str)], current: &str) -> Vec<String> {
         },
         offset,
     );
+
     let Some(found) = found else {
         return vec!["nothing".to_string()];
     };
+
     let mut out = Vec::new();
+
     for file in &found.files {
         let source = if file.path == path {
             text.clone()
         } else {
             fixture.sources[&file.path].clone()
         };
+
         let lines = LineIndex::new(&source);
+
         for hit in &file.hits {
             let line = lines
                 .line_col(&source, hit.range.start(), crate::PositionEncoding::Utf16)
                 .line
                 + 1;
+
             let written = &source[usize::from(hit.range.start())..usize::from(hit.range.end())];
+
             let access = if hit.access == crate::refs::Access::Write {
                 "w"
             } else {
                 "r"
             };
+
             out.push(format!("{line}:{written}:{access}"));
         }
     }
+
     out
 }
 
 #[test]
 fn tells_reads_from_writes() {
     let current = "<?php\nclass Counter {\n    public int $count = 0;\n    public function bump(): int {\n        $this->count = 1;\n        $this->count += 2;\n        $this->count++;\n        $copy = $this->$0count;\n        return $copy;\n    }\n}\n";
+
     assert_eq!(
         find_access(&[], current),
         ["3:$count:r", "5:count:w", "6:count:w", "7:count:w", "8:count:r"]
     );
+
     let variables = "<?php\nfunction f(array $items) {\n    foreach ($items as $key => $item) {\n        [$first, $second] = $item;\n        echo $first, $key;\n    }\n    unset($$0items);\n}\n";
     assert_eq!(find_access(&[], variables), ["2:$items:w", "3:$items:r", "7:$items:w"]);
 }
@@ -230,6 +256,7 @@ fn tells_reads_from_writes() {
 #[test]
 fn follows_static_self_parent_and_first_class_callables() {
     let current = "<?php\nclass Base { public function run(): void {} public static function make(): static { return new static(); } const LIMIT = 1; }\nclass Child extends Base {\n    public function go(): void {\n        $this->run();\n        parent::run();\n        $f = $this->run(...);\n        static::make();\n        self::LIMIT;\n        echo static::LIMIT;\n    }\n}\n$c = new Child();\n$c->$0run();\n";
+
     assert_eq!(
         find(&[], current),
         [
@@ -240,6 +267,7 @@ fn follows_static_self_parent_and_first_class_callables() {
             "current.php:14:run:Reference",
         ]
     );
+
     let constant = "<?php\nclass Base { const LIMIT = 1; }\nclass Child extends Base {\n    public function go() { return self::LIMIT + static::LIMIT + Base::LIMIT + parent::LIMIT; }\n}\necho Child::$0LIMIT;\n";
     assert_eq!(find(&[], constant).len(), 6);
 }
@@ -248,18 +276,22 @@ fn follows_static_self_parent_and_first_class_callables() {
 fn finds_trait_members_in_the_classes_that_use_them() {
     let current = "<?php\ntrait Greets { public function hello(): string { return 'hi'; } }\nclass A { use Greets; public function run() { return $this->hello(); } }\nclass B { use Greets { hello as protected greet; } }\n(new A())->he$0llo();\n";
     let found = find(&[], current);
+
     assert!(
         found.contains(&"current.php:2:hello:Declaration".to_string()),
         "{found:?}"
     );
+
     assert!(
         found.contains(&"current.php:3:hello:Reference".to_string()),
         "{found:?}"
     );
+
     assert!(
         found.contains(&"current.php:5:hello:Reference".to_string()),
         "{found:?}"
     );
+
     assert!(
         found.contains(&"current.php:4:hello:Reference".to_string()),
         "the trait alias line: {found:?}"
@@ -282,6 +314,7 @@ fn variables_inside_strings_count() {
 #[test]
 fn enum_cases_and_methods_resolve() {
     let current = "<?php\nenum Suit: string {\n    case Hearts = 'h';\n    case Spades = 's';\n    public function label(): string { return $this->name; }\n    public static function default(): self { return self::Hearts; }\n}\n$s = Suit::Hea$0rts;\necho Suit::from('h')->label();\n";
+
     assert_eq!(
         find(&[], current),
         [
@@ -295,6 +328,7 @@ fn enum_cases_and_methods_resolve() {
 #[test]
 fn constants_count_inside_the_values_of_class_constants_and_properties() {
     let current = "<?php\nconst CACHE_DIR$0ECTORY = '/tmp';\nfinal class Server {\n    public const string FILE = CACHE_DIRECTORY . '/a.php';\n    public string $path = CACHE_DIRECTORY;\n    public function f($x = CACHE_DIRECTORY) {}\n}\n";
+
     assert_eq!(
         find(&[], current),
         [
@@ -318,7 +352,9 @@ fn a_loop_over_a_generic_list_types_its_elements() {
             "<?php\nnamespace Lib;\n\n/**\n * @template TKey of array-key\n * @template TValue\n * @extends \\ArrayAccess<TKey, TValue>\n * @extends \\IteratorAggregate<TKey, TValue>\n */\ninterface ListInterface extends \\ArrayAccess, \\IteratorAggregate {\n    /** @return TValue */\n    public function offsetGet(mixed $offset): mixed;\n}\n/**\n * @template TKey of array-key\n * @template TValue\n * @implements ListInterface<TKey, TValue>\n */\nabstract class ArrayList implements ListInterface {\n    public function getIterator(): \\Traversable {}\n}\n/**\n * @template TKey of array-key\n * @template TValue of object\n * @implements ListInterface<TKey, TValue>\n */\nabstract class ModelList extends ArrayList {}\n",
         ),
     ];
+
     let current = "<?php\nuse Lib\\ModelList;\nclass Line { public int $quan$0tity = 1; }\nclass Reservation {\n    /** @var ModelList<int, Line> */\n    public ModelList $lines;\n}\nfunction f(Reservation $reservation) {\n    foreach ($reservation->lines as $line) {\n        echo $line->quantity;\n    }\n    echo $reservation->lines[0]->quantity;\n}\n";
+
     assert_eq!(
         find(&files, current),
         [
@@ -341,23 +377,29 @@ fn a_method_takes_the_parameter_types_its_interface_documents() {
             "<?php\nclass Refunded implements Lib\\MessageInterface { public string $merchantId = ''; }\n",
         ),
     ];
+
     let current = "<?php\nuse Lib\\{HandlerInterface, MessageInterface};\n/** @implements HandlerInterface<Refunded> */\nfinal class RefundHandler implements HandlerInterface {\n    #[\\Override]\n    public function handle(MessageInterface $message): void {\n        echo $message->merchantId;\n    }\n}\nclass Other implements HandlerInterface {\n    public function handle(MessageInterface $message): void { echo $message->merchantId; }\n}\nfunction f(Refunded $r) { echo $r->merchant$0Id; }\n";
     let found = find(&files, current);
+
     assert!(
         found.contains(&"current.php:7:merchantId:Reference".to_string()),
         "{found:?}"
     );
+
     assert!(!found.iter().any(|hit| hit.starts_with("current.php:11")), "{found:?}");
 }
 
 #[test]
 fn members_named_like_keywords_are_found() {
     let current = "<?php\nenum Lang: string {\n    case EN = 'en';\n    const self DEFAULT = self::EN;\n    case NEW = 'new';\n    public function list(): void {}\n}\n$a = Lang::DEFAUL$0T;\n$b = Lang::NEW;\n$c = Lang::EN->list();\n";
+
     assert_eq!(
         find(&[], current),
         ["current.php:4:DEFAULT:Declaration", "current.php:8:DEFAULT:Reference"]
     );
+
     let method = current.replace("DEFAUL$0T", "DEFAULT").replace("->list", "->li$0st");
+
     assert_eq!(
         find(&[], &method),
         ["current.php:6:list:Declaration", "current.php:10:list:Reference"]

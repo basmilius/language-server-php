@@ -14,6 +14,7 @@ pub(super) fn run(cx: &Cx) {
     if !(cx.on("phpdoc-unknown-parameter") || cx.on("phpdoc-type-mismatch")) {
         return;
     }
+
     for node in &cx.nodes {
         if matches!(node.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION) {
             check_doc(cx, node);
@@ -31,8 +32,10 @@ struct Tag {
 fn doc_tags(doc: &php_syntax::SyntaxToken) -> Vec<Tag> {
     let base = u32::from(doc.text_range().start());
     let mut tags: Vec<Tag> = Vec::new();
+
     for item in doc_items(doc.text(), base) {
         let range = TextRange::new(TextSize::from(item.start), TextSize::from(item.end));
+
         match item.kind {
             DocItemKind::Tag(name) => tags.push(Tag {
                 name,
@@ -47,6 +50,7 @@ fn doc_tags(doc: &php_syntax::SyntaxToken) -> Vec<Tag> {
             _ => {}
         }
     }
+
     tags
 }
 
@@ -54,10 +58,13 @@ fn check_doc(cx: &Cx, function: &SyntaxNode) {
     let Some(doc) = tokens(function).find(|token| token.kind() == DOC_COMMENT) else {
         return;
     };
+
     let tags = doc_tags(&doc);
+
     if tags.is_empty() {
         return;
     }
+
     let names: Vec<String> = child_of(function, PARAMETER_LIST)
         .map(|list| {
             list.children()
@@ -67,16 +74,20 @@ fn check_doc(cx: &Cx, function: &SyntaxNode) {
                 .collect()
         })
         .unwrap_or_default();
+
     let analyzer = cx.file.analyzer(function);
     let callable = super::types::callable_of(&analyzer, function);
+
     if cx.on("phpdoc-unknown-parameter") && !callable.reads_all_arguments {
         for tag in tags.iter().filter(|tag| tag.name == "param") {
             let Some((variable, range)) = &tag.variable else {
                 continue;
             };
+
             if names.contains(variable) {
                 continue;
             }
+
             cx.report(
                 "phpdoc-unknown-parameter",
                 *range,
@@ -87,6 +98,7 @@ fn check_doc(cx: &Cx, function: &SyntaxNode) {
             );
         }
     }
+
     if cx.on("phpdoc-type-mismatch") {
         check_types(cx, function, &callable, &tags);
     }
@@ -97,21 +109,26 @@ fn line_content_end(cx: &Cx, from: TextSize) -> TextSize {
     let rest = &cx.text[usize::from(from)..];
     let line = rest.find(['\n', '\r']).unwrap_or(rest.len());
     let stop = rest[..line].find("*/").unwrap_or(line);
+
     from + TextSize::from(rest[..stop].trim_end().len() as u32)
 }
 
 fn check_types(cx: &Cx, function: &SyntaxNode, callable: &php_index::Callable, tags: &[Tag]) {
     let level = cx.index.level;
+
     for tag in tags.iter().filter(|tag| tag.name == "param") {
         let Some((variable, range)) = &tag.variable else {
             continue;
         };
+
         let Some(param) = callable.params.iter().find(|param| &param.name == variable) else {
             continue;
         };
+
         let (Some(documented), Some(declared)) = (param.doc_ty.as_ref(), param.native_type(level)) else {
             continue;
         };
+
         if contradicts(cx, documented, declared) {
             cx.report(
                 "phpdoc-type-mismatch",
@@ -125,15 +142,19 @@ fn check_types(cx: &Cx, function: &SyntaxNode, callable: &php_index::Callable, t
             );
         }
     }
+
     let (Some(documented), Some(declared)) = (callable.doc_ret.as_ref(), callable.native_return(level)) else {
         return;
     };
+
     let Some(tag) = tags.iter().find(|tag| tag.name == "return") else {
         return;
     };
+
     if !has_token(function, FUNCTION_KW) && function.kind() != METHOD_DECLARATION {
         return;
     }
+
     if contradicts(cx, documented, declared) {
         cx.report(
             "phpdoc-type-mismatch",
@@ -153,20 +174,26 @@ fn contradicts(cx: &Cx, documented: &Type, declared: &Type) -> bool {
     if matches!(declared, Type::Void | Type::Never) || matches!(documented, Type::Void | Type::Never) {
         return false;
     }
+
     // A name that is no class here may be a type alias of the doc comment.
     let known = |ty: &Type| ty.class_names().iter().all(|name| cx.index.class(name).is_some());
+
     if !known(documented) || !known(declared) {
         return false;
     }
+
     let (Some(doc_kinds), Some(mut native_kinds)) = (kinds_of(documented), kinds_of(declared)) else {
         return false;
     };
+
     // An `int` is accepted where `float` is declared.
     if native_kinds.contains(Kinds::FLOAT) {
         native_kinds = native_kinds.union(Kinds::INT);
     }
+
     if !doc_kinds.intersects(native_kinds) {
         return true;
     }
+
     cx.classes_cannot_overlap(documented, declared)
 }

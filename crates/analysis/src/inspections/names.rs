@@ -16,6 +16,7 @@ enum Role {
     Class {
         undefined: bool,
     },
+
     Constant,
     Other,
 }
@@ -34,7 +35,9 @@ fn role(name: &SyntaxNode) -> Role {
     let Some(parent) = name.parent() else {
         return Role::Other;
     };
+
     let first = parent.children().next().as_ref() == Some(name);
+
     match parent.kind() {
         NAMED_TYPE => Role::Class {
             undefined: !in_catch(&parent),
@@ -45,12 +48,14 @@ fn role(name: &SyntaxNode) -> Role {
         ATTRIBUTE => Role::Class { undefined: true },
         SCOPED_ACCESS_EXPR | STATIC_PROPERTY_EXPR if first => {
             let is_class_constant = member_name(&parent).is_some_and(|member| text_of(&member) == "class");
+
             Role::Class {
                 undefined: !is_class_constant,
             }
         }
         BINARY_EXPR => {
             let is_instanceof = ast::tokens(&parent).any(|token| token.kind() == INSTANCEOF_KW);
+
             if is_instanceof && !first {
                 Role::Class { undefined: false }
             } else {
@@ -71,6 +76,7 @@ fn role(name: &SyntaxNode) -> Role {
 /// A class in a `catch`, which may well be one that is not installed.
 fn in_catch(named_type: &SyntaxNode) -> bool {
     let mut current = named_type.clone();
+
     while let Some(parent) = current.parent() {
         match parent.kind() {
             UNION_TYPE => current = parent,
@@ -78,6 +84,7 @@ fn in_catch(named_type: &SyntaxNode) -> bool {
             _ => return false,
         }
     }
+
     false
 }
 
@@ -92,11 +99,14 @@ fn check_name(cx: &Cx, node: &SyntaxNode) {
 fn check_class(cx: &Cx, node: &SyntaxNode, report_undefined: bool) {
     let written = text_of(node);
     let lower = written.to_ascii_lowercase();
+
     if is_builtin_type(&lower) || is_relative_class(&lower) {
         return;
     }
+
     let analyzer = cx.file.analyzer(node);
     let resolved = analyzer.resolver.resolve_class(&written);
+
     let Some(class) = cx.index.class(&resolved) else {
         if report_undefined
             && cx.ready
@@ -113,6 +123,7 @@ fn check_class(cx: &Cx, node: &SyntaxNode, report_undefined: bool) {
                     at: start(node),
                 }
             };
+
             cx.report(
                 "undefined-class",
                 node.text_range(),
@@ -120,8 +131,10 @@ fn check_class(cx: &Cx, node: &SyntaxNode, report_undefined: bool) {
                 fix,
             );
         }
+
         return;
     };
+
     if cx.on("deprecated") && !inside_deprecated(node) {
         if let Some(reason) = deprecation(cx.index, class.decl.doc.as_deref(), &class.decl.attributes) {
             cx.report(
@@ -156,11 +169,14 @@ fn class_may_exist(cx: &Cx, node: &SyntaxNode, resolved: &str) -> bool {
 
 fn check_constant(cx: &Cx, node: &SyntaxNode) {
     let written = text_of(node);
+
     if matches!(written.to_ascii_lowercase().as_str(), "true" | "false" | "null") {
         return;
     }
+
     let analyzer = cx.file.analyzer(node);
     let candidates = analyzer.resolver.constant_candidates(&written);
+
     let Some(constant) = cx.index.first_constant(&candidates) else {
         if cx.ready
             && cx.on("undefined-constant")
@@ -181,6 +197,7 @@ fn check_constant(cx: &Cx, node: &SyntaxNode) {
                     at: start(node),
                 }
             };
+
             cx.report(
                 "undefined-constant",
                 node.text_range(),
@@ -188,8 +205,10 @@ fn check_constant(cx: &Cx, node: &SyntaxNode) {
                 fix,
             );
         }
+
         return;
     };
+
     if cx.on("deprecated") && !inside_deprecated(node) {
         if let Some(reason) = deprecation(cx.index, constant.decl.doc.as_deref(), &[]) {
             cx.report(
@@ -206,9 +225,11 @@ fn check_function_call(cx: &Cx, call: &SyntaxNode) {
     let Some(callee) = call.children().next().filter(|callee| callee.kind() == NAME) else {
         return;
     };
+
     let written = text_of(&callee);
     let analyzer = cx.file.analyzer(&callee);
     let candidates = analyzer.resolver.function_candidates(&written);
+
     let Some(function) = cx.index.first_function(&candidates) else {
         if cx.ready
             && cx.on("undefined-function")
@@ -228,6 +249,7 @@ fn check_function_call(cx: &Cx, call: &SyntaxNode) {
                     at: start(&callee),
                 }
             };
+
             cx.report(
                 "undefined-function",
                 callee.text_range(),
@@ -235,12 +257,15 @@ fn check_function_call(cx: &Cx, call: &SyntaxNode) {
                 fix,
             );
         }
+
         return;
     };
+
     if cx.on("deprecated") && !inside_deprecated(call) {
         let level = cx.index.level;
         let doc = function.decl.doc.as_deref();
         let attributes = &function.decl.attributes;
+
         if let Some(reason) = deprecation_at(level, doc, attributes) {
             cx.report(
                 "deprecated",
@@ -267,26 +292,32 @@ pub(super) fn deprecation(index: &Index, doc: Option<&Doc>, attributes: &[Attrib
 
 fn deprecation_at(level: PhpVersion, doc: Option<&Doc>, attributes: &[Attribute]) -> Option<String> {
     let deprecated = doc?.deprecated.clone()?;
+
     let attribute = attributes
         .iter()
         .find(|attribute| attribute.name.ends_with("\\Deprecated") || attribute.name == "Deprecated");
+
     if let Some(attribute) = attribute {
         let since = attribute
             .args
             .iter()
             .find(|arg| arg.name.as_deref() == Some("since"))
             .and_then(|arg| PhpVersion::parse(arg.value.trim_matches(['\'', '"'])));
+
         if since.is_some_and(|since| level < since) {
             return None;
         }
+
         let reason = attribute
             .args
             .iter()
             .find(|arg| matches!(arg.name.as_deref(), None | Some("reason")))
             .map(|arg| arg.value.trim_matches(['\'', '"']).to_string())
             .unwrap_or_default();
+
         return Some(reason);
     }
+
     Some(first_line(&deprecated))
 }
 
@@ -300,6 +331,7 @@ pub(super) fn inside_deprecated(node: &SyntaxNode) -> bool {
         if !(ast::is_class_like(ancestor.kind()) || ast::is_function_like(ancestor.kind())) {
             return false;
         }
+
         ancestor
             .children_with_tokens()
             .filter_map(|element| element.into_token())

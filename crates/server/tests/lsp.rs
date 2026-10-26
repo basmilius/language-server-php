@@ -26,10 +26,12 @@ fn initializes_with_the_capabilities_it_has() {
     assert_eq!(capabilities["foldingRangeProvider"], true);
     assert_eq!(capabilities["selectionRangeProvider"], true);
     assert_eq!(capabilities["positionEncoding"], "utf-16");
+
     assert!(
         capabilities["diagnosticProvider"].is_null(),
         "no pull diagnostics for a client that cannot pull"
     );
+
     assert_eq!(result["serverInfo"]["name"], "php-language-server");
     client.shutdown();
 }
@@ -40,6 +42,7 @@ fn negotiates_utf8_positions() {
         json!({ "general": { "positionEncodings": ["utf-16", "utf-8"] } }),
         Value::Null,
     );
+
     assert_eq!(result["capabilities"]["positionEncoding"], "utf-8");
     client.shutdown();
 }
@@ -52,11 +55,13 @@ fn publishes_syntax_errors_and_fixes_them_after_an_incremental_change() {
     assert_eq!(messages(&found), ["Expression expected"]);
     assert_eq!(found[0]["severity"], 1);
     assert_eq!(found[0]["source"], "php");
+
     assert_eq!(
         found[0]["range"]["start"],
         json!({ "line": 1, "character": 3 }),
         "an empty range widens to the character before it"
     );
+
     client.notify(
         "textDocument/didChange",
         json!({
@@ -64,6 +69,7 @@ fn publishes_syntax_errors_and_fixes_them_after_an_incremental_change() {
             "contentChanges": [{ "range": { "start": { "line": 1, "character": 5 }, "end": { "line": 1, "character": 5 } }, "text": "1" }]
         }),
     );
+
     assert!(client.diagnostics(URI).is_empty());
     client.notify("textDocument/didClose", json!({ "textDocument": { "uri": URI } }));
     assert!(client.diagnostics(URI).is_empty(), "closing clears the diagnostics");
@@ -75,18 +81,22 @@ fn a_burst_of_changes_ends_in_the_diagnostics_of_the_last_text() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, "<?php\n$a = 1;\n");
     assert!(client.diagnostics(URI).is_empty());
+
     for version in 2..30 {
         let text = if version % 2 == 0 {
             "<?php\n$a = ;\n"
         } else {
             "<?php\n$a = 1;\n"
         };
+
         client.notify(
             "textDocument/didChange",
             json!({ "textDocument": { "uri": URI, "version": version }, "contentChanges": [{ "text": text }] }),
         );
     }
+
     let mut last = Vec::new();
+
     // The final version is 29, which is valid; keep reading until the server has gone quiet.
     while let Ok(Message::Notification(notification)) =
         client.connection.receiver.recv_timeout(Duration::from_millis(300))
@@ -96,6 +106,7 @@ fn a_burst_of_changes_ends_in_the_diagnostics_of_the_last_text() {
             .cloned()
             .unwrap_or_default();
     }
+
     assert!(last.is_empty());
     client.shutdown();
 }
@@ -105,10 +116,12 @@ fn reports_syntax_newer_than_the_language_level() {
     let text = "<?php\nclass A { public int $x { get => 1; } }\n";
     let (mut client, _) = Client::start(json!({}), json!({ "phpVersion": "8.3" }));
     client.open(URI, text);
+
     assert_eq!(
         messages(&client.diagnostics(URI)),
         ["Property hooks are only available since PHP 8.4"]
     );
+
     client.shutdown();
 
     let (mut client, _) = Client::start(json!({}), Value::Null);
@@ -122,10 +135,12 @@ fn php_8_6_syntax_needs_the_8_6_level_until_it_is_released() {
     let text = "<?php\n$pad = str_pad(?, 10);\n";
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, text);
+
     assert_eq!(
         messages(&client.diagnostics(URI)),
         ["Partial function application is only available since PHP 8.6"]
     );
+
     client.shutdown();
 
     let (mut client, _) = Client::start(json!({}), json!({ "phpVersion": "8.6" }));
@@ -139,14 +154,17 @@ fn a_pushed_setting_changes_the_level_of_open_documents() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, "<?php\n$a = $b |> strlen(...);\n");
     assert!(client.diagnostics(URI).is_empty());
+
     client.notify(
         "workspace/didChangeConfiguration",
         json!({ "settings": { "phpLanguageServer": { "phpVersion": "8.4" } } }),
     );
+
     assert_eq!(
         messages(&client.diagnostics(URI)),
         ["The pipe operator is only available since PHP 8.5"]
     );
+
     client.shutdown();
 }
 
@@ -154,15 +172,18 @@ fn a_pushed_setting_changes_the_level_of_open_documents() {
 fn asks_the_client_for_the_level_of_each_document() {
     let (mut client, _) = Client::start(json!({ "workspace": { "configuration": true } }), Value::Null);
     client.open(URI, "<?php\n$a = match (1) { default => 2 };\n");
+
     let (id, params) = client.wait_for(|message| match message {
         Message::Request(request) if request.method == "workspace/configuration" => {
             Some((request.id.clone(), request.params.clone()))
         }
         _ => None,
     });
+
     assert_eq!(params["items"][0]["scopeUri"], URI);
     assert_eq!(params["items"][0]["section"], "phpLanguageServer");
     client.send(Response::new_ok(id, json!([{ "phpVersion": "7.4" }])));
+
     let found = messages(&client.wait_for(|message| {
         match message {
             Message::Notification(notification)
@@ -181,6 +202,7 @@ fn asks_the_client_for_the_level_of_each_document() {
             _ => None,
         }
     }));
+
     assert_eq!(found, ["Match expressions are only available since PHP 8.0"]);
     client.shutdown();
 }
@@ -188,23 +210,28 @@ fn asks_the_client_for_the_level_of_each_document() {
 #[test]
 fn answers_with_pulled_diagnostics_for_a_client_that_pulls() {
     let (mut client, result) = Client::start(json!({ "textDocument": { "diagnostic": {} } }), Value::Null);
+
     assert_eq!(
         result["capabilities"]["diagnosticProvider"]["interFileDependencies"],
         false
     );
+
     client.open(URI, "<?php\n$a = ;\n");
     let report = client.request("textDocument/diagnostic", json!({ "textDocument": { "uri": URI } }));
     assert_eq!(report["kind"], "full");
+
     assert_eq!(
         messages(report["items"].as_array().expect("items")),
         ["Expression expected"]
     );
+
     assert!(
         !client.backlog.iter().any(
             |message| matches!(message, Message::Notification(n) if n.method == "textDocument/publishDiagnostics")
         ),
         "a client that pulls is not sent diagnostics"
     );
+
     client.shutdown();
 }
 
@@ -216,6 +243,7 @@ fn lists_document_symbols_as_a_tree_or_flat() {
         json!({ "textDocument": { "documentSymbol": { "hierarchicalDocumentSymbolSupport": true } } }),
         Value::Null,
     );
+
     client.open(URI, SOURCE);
     let symbols = client.request("textDocument/documentSymbol", json!({ "textDocument": { "uri": URI } }));
     let namespace = &symbols[0];
@@ -233,6 +261,7 @@ fn lists_document_symbols_as_a_tree_or_flat() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, SOURCE);
     let symbols = client.request("textDocument/documentSymbol", json!({ "textDocument": { "uri": URI } }));
+
     let names: Vec<_> = symbols
         .as_array()
         .expect("a list")
@@ -244,6 +273,7 @@ fn lists_document_symbols_as_a_tree_or_flat() {
             )
         })
         .collect();
+
     assert_eq!(
         names,
         [
@@ -253,6 +283,7 @@ fn lists_document_symbols_as_a_tree_or_flat() {
             ("name", Some("User"))
         ]
     );
+
     client.shutdown();
 }
 
@@ -260,20 +291,25 @@ fn lists_document_symbols_as_a_tree_or_flat() {
 fn folds_imports_within_their_lines_for_a_client_that_can() {
     let capabilities = json!({ "textDocument": { "foldingRange": { "lineFoldingOnly": false } } });
     let (mut client, _) = Client::start(capabilities, Value::Null);
+
     client.open(
         URI,
         "<?php\nnamespace App;\n\n    use App\\A;\nuse App\\{B,\n    C};\n\nclass D {}\n",
     );
+
     let folds = client.request("textDocument/foldingRange", json!({ "textDocument": { "uri": URI } }));
+
     let imports = folds
         .as_array()
         .expect("a list")
         .iter()
         .find(|fold| fold["kind"] == "imports");
+
     assert_eq!(
         imports,
         Some(&json!({ "startLine": 3, "startCharacter": 7, "endLine": 5, "endCharacter": 6, "kind": "imports" }))
     );
+
     client.shutdown();
 }
 
@@ -282,6 +318,7 @@ fn answers_folding_and_selection_ranges() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, SOURCE);
     let folds = client.request("textDocument/foldingRange", json!({ "textDocument": { "uri": URI } }));
+
     let folds: Vec<(i64, i64, Option<&str>)> = folds
         .as_array()
         .expect("a list")
@@ -294,17 +331,20 @@ fn answers_folding_and_selection_ranges() {
             )
         })
         .collect();
+
     assert!(folds.contains(&(3, 4, Some("imports"))), "{folds:?}");
     assert!(folds.contains(&(6, 7, Some("comment"))), "{folds:?}");
     assert!(folds.contains(&(9, 16, None)), "{folds:?}");
     assert!(folds.contains(&(12, 15, None)), "{folds:?}");
 
     let imports = client.request("textDocument/foldingRange", json!({ "textDocument": { "uri": URI } }));
+
     let imports = imports
         .as_array()
         .expect("a list")
         .iter()
         .find(|fold| fold["kind"] == "imports");
+
     assert!(
         imports.is_some_and(|fold| fold.get("startCharacter").is_none() && fold.get("endCharacter").is_none()),
         "{imports:?}"
@@ -314,13 +354,16 @@ fn answers_folding_and_selection_ranges() {
         "textDocument/selectionRange",
         json!({ "textDocument": { "uri": URI }, "positions": [{ "line": 11, "character": 21 }] }),
     );
+
     let mut depth = 0;
     let mut link = &ranges[0];
     let innermost = link["range"].clone();
+
     while !link["parent"].is_null() {
         link = &link["parent"];
         depth += 1;
     }
+
     assert!(depth >= 3);
     assert_eq!(innermost["start"]["line"], 11);
     assert_eq!(link["range"]["start"], json!({ "line": 0, "character": 0 }));
@@ -330,15 +373,19 @@ fn answers_folding_and_selection_ranges() {
 #[test]
 fn rejects_what_it_does_not_know() {
     let (client, _) = Client::start(json!({}), Value::Null);
+
     client.send(Request::new(
         RequestId::from(99),
         "textDocument/linkedEditingRange".to_string(),
         json!({}),
     ));
+
     let response = client.connection.receiver.recv_timeout(TIMEOUT).expect("an answer");
+
     let Message::Response(response) = response else {
         panic!("expected a response");
     };
+
     assert_eq!(response.response_result.expect_err("unsupported").code, -32601);
     client.shutdown();
 }
@@ -349,6 +396,7 @@ fn rejects_what_it_does_not_know() {
 fn indexes_a_project_and_reports_progress() {
     let disk = Disk::new();
     let client = indexed_server(&disk);
+
     assert!(
         std::fs::read_dir(disk.path("storage/cache"))
             .expect("a cache folder")
@@ -356,6 +404,7 @@ fn indexes_a_project_and_reports_progress() {
             >= 2,
         "the project and the stubs are cached"
     );
+
     client.shutdown();
 }
 
@@ -364,6 +413,7 @@ fn a_second_run_reads_the_cache() {
     let disk = Disk::new();
     indexed_server(&disk).shutdown();
     let mut client = indexed_server(&disk);
+
     let log = client.wait_for(|message| match message {
         Message::Notification(notification)
             if notification.method == "window/logMessage"
@@ -375,6 +425,7 @@ fn a_second_run_reads_the_cache() {
         }
         _ => None,
     });
+
     assert!(log.contains("0 parsed"), "{log}");
     client.shutdown();
 }
@@ -384,8 +435,10 @@ fn completes_a_vendor_class_with_an_import_and_hides_newer_stubs() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Page.php");
+
     let text =
         "<?php\nnamespace App;\n\nclass Page\n{\n    public function show()\n    {\n        $w = new Wid\n    }\n}\n";
+
     client.open(&uri, text);
     let result = client.at("textDocument/completion", &uri, 7, 20);
     let items = result["items"].as_array().expect("items");
@@ -393,10 +446,12 @@ fn completes_a_vendor_class_with_an_import_and_hides_newer_stubs() {
     assert_eq!(widget["kind"], 7);
     assert_eq!(widget["labelDetails"]["description"], "Acme\\Lib");
     assert_eq!(widget["textEdit"]["newText"], "Widget");
+
     assert_eq!(
         widget["additionalTextEdits"][0]["newText"],
         "\nuse Acme\\Lib\\Widget;\n"
     );
+
     assert_eq!(
         widget["additionalTextEdits"][0]["range"]["start"],
         json!({ "line": 2, "character": 0 })
@@ -406,28 +461,35 @@ fn completes_a_vendor_class_with_an_import_and_hides_newer_stubs() {
     assert_eq!(resolved["documentation"]["kind"], "markdown");
 
     let text = "<?php\nnamespace App;\nfunction f() {\n    array_\n}\n";
+
     client.notify(
         "textDocument/didChange",
         json!({ "textDocument": { "uri": uri, "version": 2 }, "contentChanges": [{ "text": text }] }),
     );
+
     let result = client.at("textDocument/completion", &uri, 3, 10);
+
     let labels: Vec<&str> = result["items"]
         .as_array()
         .expect("items")
         .iter()
         .filter_map(|item| item["label"].as_str())
         .collect();
+
     assert!(
         !labels.contains(&"array_find"),
         "an 8.1 project is not offered 8.4 functions: {labels:?}"
     );
 
     let text = "<?php\nnamespace App;\nfunction f() {\n    strl\n}\n";
+
     client.notify(
         "textDocument/didChange",
         json!({ "textDocument": { "uri": uri, "version": 3 }, "contentChanges": [{ "text": text }] }),
     );
+
     let result = client.at("textDocument/completion", &uri, 3, 8);
+
     let strlen = result["items"]
         .as_array()
         .expect("items")
@@ -435,11 +497,14 @@ fn completes_a_vendor_class_with_an_import_and_hides_newer_stubs() {
         .find(|item| item["label"] == "strlen")
         .cloned()
         .expect("strlen");
+
     assert_eq!(strlen["detail"], "(string $string): int");
+
     assert!(
         strlen["additionalTextEdits"].is_null(),
         "global functions need no import"
     );
+
     client.shutdown();
 }
 
@@ -450,22 +515,28 @@ fn stubs_follow_the_extensions_the_project_requires() {
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, "<?php\nnew Redi\n");
     let result = client.at("textDocument/completion", &uri, 1, 8);
+
     let labels: Vec<&str> = result["items"]
         .as_array()
         .expect("items")
         .iter()
         .filter_map(|item| item["label"].as_str())
         .collect();
+
     assert!(labels.contains(&"Redis"), "ext-redis is required: {labels:?}");
+
     client.notify(
         "textDocument/didChange",
         json!({ "textDocument": { "uri": uri, "version": 2 }, "contentChanges": [{ "text": "<?php\nnew Swoo\n" }] }),
     );
+
     let result = client.at("textDocument/completion", &uri, 1, 8);
+
     assert!(
         result["items"].as_array().expect("items").is_empty(),
         "ext-swoole is not"
     );
+
     client.shutdown();
 }
 
@@ -474,10 +545,12 @@ fn completes_members_of_an_inferred_type() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nuse App\\Models\\User;\nfunction f() {\n    $user = User::find(1);\n    $user->\n}\n",
     );
+
     let result = client.at("textDocument/completion", &uri, 4, 11);
     let items = result["items"].as_array().expect("items");
     let posts = items.iter().find(|item| item["label"] == "posts").expect("posts");
@@ -492,18 +565,22 @@ fn hovers_and_navigates_across_files() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nuse App\\Models\\User;\nfunction f() {\n    $user = User::find(1);\n    $user->posts();\n}\n",
     );
+
     let hover = client.at("textDocument/hover", &uri, 3, 20);
     let text = hover["contents"]["value"].as_str().expect("markdown");
+
     assert!(
         text.starts_with(
             "**App\\Models\\User::find**\n\n```php\npublic static function find(int $id): ?static\n```\n\nFinds a user."
         ),
         "{text}"
     );
+
     assert!(!text.contains("Defined in"), "{text}");
     assert_eq!(hover["range"]["start"]["line"], 3);
 
@@ -515,26 +592,32 @@ fn hovers_and_navigates_across_files() {
     assert_eq!(type_definition[0]["uri"], disk.uri("project/src/Models/User.php"));
 
     let class_definition = client.at("textDocument/definition", &uri, 3, 14);
+
     assert_eq!(
         class_definition[0]["range"]["start"],
         json!({ "line": 4, "character": 6 })
     );
+
     client.shutdown();
 }
 
 #[test]
 fn finds_implementations_and_workspace_symbols() {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Shapes.php",
         "<?php\nnamespace App;\ninterface Shape { public function area(): float; }\nclass Circle implements Shape { public function area(): float { return 1.0; } }\nclass Square implements Shape { public function area(): float { return 2.0; } }\n",
     );
+
     let mut client = indexed_server(&disk);
     let shapes = disk.uri("project/src/Shapes.php");
+
     client.open(
         &shapes,
         &std::fs::read_to_string(disk.path("project/src/Shapes.php")).expect("read"),
     );
+
     let implementations = client.at("textDocument/implementation", &shapes, 2, 12);
     assert_eq!(implementations.as_array().map(Vec::len), Some(2));
     let methods = client.at("textDocument/implementation", &shapes, 2, 36);
@@ -545,10 +628,12 @@ fn finds_implementations_and_workspace_symbols() {
     assert_eq!(symbols[0]["containerName"], "App");
     assert_eq!(symbols[0]["location"]["uri"], shapes);
     let widget = client.request("workspace/symbol", json!({ "query": "Widget" }));
+
     assert_eq!(
         widget[0]["location"]["uri"],
         disk.uri("project/vendor/acme/lib/src/Widget.php")
     );
+
     client.shutdown();
 }
 
@@ -558,46 +643,56 @@ fn the_language_level_follows_composer() {
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Hooks.php");
     client.open(&uri, "<?php\nclass A { public int $x { get => 1; } }\n");
+
     assert_eq!(
         messages(&client.diagnostics(&uri)),
         ["Property hooks are only available since PHP 8.4"],
         "composer.json says 8.1 and the server's default is the newest"
     );
+
     client.shutdown();
 }
 
 #[test]
 fn watched_files_update_the_index() {
     let disk = Disk::new();
+
     let (mut client, _) = Client::start_in(
         json!({ "window": { "workDoneProgress": true }, "workspace": { "didChangeWatchedFiles": { "dynamicRegistration": true } } }),
         disk.options(),
         json!(disk.uri("project")),
     );
+
     let registration = client.wait_for(|message| match message {
         Message::Request(request) if request.method == "client/registerCapability" => Some(request.clone()),
         _ => None,
     });
+
     assert_eq!(
         registration.params["registrations"][0]["method"],
         "workspace/didChangeWatchedFiles"
     );
+
     client.send(Response::new_ok(registration.id, Value::Null));
     client.wait_for_indexing();
 
     disk.write("project/src/Fresh.php", "<?php\nnamespace App;\nclass Freshly {}\n");
+
     client.notify(
         "workspace/didChangeWatchedFiles",
         json!({ "changes": [{ "uri": disk.uri("project/src/Fresh.php"), "type": 1 }] }),
     );
+
     let found = client.request("workspace/symbol", json!({ "query": "Freshly" }));
     assert_eq!(found[0]["name"], "Freshly");
 
     std::fs::remove_file(disk.path("project/src/Fresh.php")).expect("removed");
+
     client.notify(
         "workspace/didChangeWatchedFiles",
         json!({ "changes": [{ "uri": disk.uri("project/src/Fresh.php"), "type": 3 }] }),
     );
+
     let gone = client.request("workspace/symbol", json!({ "query": "Freshly" }));
     assert_eq!(gone.as_array().map(Vec::len), Some(0));
     client.shutdown();
@@ -606,82 +701,101 @@ fn watched_files_update_the_index() {
 #[test]
 fn a_search_before_the_index_is_complete_does_not_fix_the_words() {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Services/Report.php",
         "<?php\nnamespace App\\Services;\n\nuse App\\Models\\User;\n\nfinal class Report\n{\n    public function owner(): User\n    {\n        return new User();\n    }\n}\n",
     );
+
     let (server_side, client_side) = lsp_server::Connection::memory();
+
     let server = std::thread::spawn(move || {
         php_language_server::run(server_side).expect("the server runs to the end");
     });
+
     let mut client = Client {
         connection: client_side,
         server: Some(server),
         next_id: 2,
         backlog: Vec::new(),
     };
+
     let user = disk.uri("project/src/Models/User.php");
     let text = std::fs::read_to_string(disk.path("project/src/Models/User.php")).expect("read");
+
     let references = json!({
         "textDocument": { "uri": user },
         "position": { "line": 4, "character": 7 },
         "context": { "includeDeclaration": false }
     });
+
     // Everything at once: the server answers the search before the indexer it just started is done.
     client.send(Request::new(
         RequestId::from(1),
         "initialize".to_string(),
         json!({ "processId": null, "rootUri": disk.uri("project"), "capabilities": PROGRESS_CAPABILITIES(), "initializationOptions": disk.options() }),
     ));
+
     client.notify("initialized", json!({}));
     client.open(&user, &text);
+
     client.send(Request::new(
         RequestId::from(2),
         "textDocument/references".to_string(),
         references.clone(),
     ));
+
     client.wait_for(|message| match message {
         Message::Response(response) if response.id == RequestId::from(2) => Some(()),
         _ => None,
     });
+
     client.wait_for_indexing();
 
     let found = client.request("textDocument/references", references);
+
     let files: Vec<&str> = found
         .as_array()
         .expect("locations")
         .iter()
         .filter_map(|location| location["uri"].as_str())
         .collect();
+
     assert!(
         files.iter().any(|uri| uri.ends_with("src/Services/Report.php")),
         "{found}"
     );
+
     client.shutdown();
 }
 
 #[test]
 fn the_class_map_is_watched_by_its_own_glob() {
     let disk = Disk::new();
+
     let (mut client, _) = Client::start_in(
         json!({ "window": { "workDoneProgress": true }, "workspace": { "didChangeWatchedFiles": { "dynamicRegistration": true } } }),
         disk.options(),
         json!(disk.uri("project")),
     );
+
     let registration = client.wait_for(|message| match message {
         Message::Request(request) if request.method == "client/registerCapability" => Some(request.clone()),
         _ => None,
     });
+
     let patterns: Vec<String> = registration.params["registrations"][0]["registerOptions"]["watchers"]
         .as_array()
         .expect("watchers")
         .iter()
         .filter_map(|watcher| watcher["globPattern"].as_str().map(str::to_string))
         .collect();
+
     assert!(
         patterns.contains(&"**/vendor/composer/autoload_classmap.php".to_string()),
         "{patterns:?}"
     );
+
     client.send(Response::new_ok(registration.id, Value::Null));
     client.shutdown();
 }
@@ -691,22 +805,28 @@ fn open_documents_win_over_the_disk() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Models/User.php");
+
     client.open(
         &uri,
         "<?php\nnamespace App\\Models;\nclass User { public function brandNew(): int {} }\n",
     );
+
     let page = disk.uri("project/src/Page.php");
+
     client.open(
         &page,
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) {\n    $u->\n}\n",
     );
+
     let result = client.at("textDocument/completion", &page, 3, 8);
+
     let labels: Vec<&str> = result["items"]
         .as_array()
         .expect("items")
         .iter()
         .filter_map(|item| item["label"].as_str())
         .collect();
+
     assert!(labels.contains(&"brandNew") && !labels.contains(&"posts"), "{labels:?}");
     client.shutdown();
 }
@@ -714,14 +834,17 @@ fn open_documents_win_over_the_disk() {
 #[test]
 fn reads_a_class_that_composer_points_at_but_the_index_skipped() {
     let disk = Disk::new();
+
     disk.write(
         "project/composer.json",
         r#"{"autoload":{"psr-4":{"App\\":"src/","Hidden\\":".hidden/src/"}}}"#,
     );
+
     disk.write(
         "project/.hidden/src/Thing.php",
         "<?php\nnamespace Hidden;\n/** Found through the autoload map. */\nclass Thing {}\n",
     );
+
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, "<?php\nnew \\Hidden\\Thing();\n");
@@ -736,30 +859,36 @@ fn reads_a_class_that_composer_points_at_but_the_index_skipped() {
 #[test]
 fn reads_the_classes_of_composer_s_generated_class_map() {
     let disk = Disk::new();
+
     disk.write(
         "project/composer.json",
         r#"{"autoload":{"classmap":["lib/"]},"config":{"classmap-authoritative":true}}"#,
     );
+
     disk.write(
         "project/lib/legacy.inc",
         "<?php\n/** Found through the class map. */\nclass LegacyThing {}\n",
     );
+
     disk.write(
         "project/vendor/composer/autoload_classmap.php",
         "<?php\n\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\n\nreturn array(\n    'LegacyThing' => $baseDir . '/lib/legacy.inc',\n);\n",
     );
+
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, "<?php\nnew \\LegacyThing();\n");
     let definition = client.at("textDocument/definition", &uri, 1, 8);
     assert_eq!(definition[0]["uri"], disk.uri("project/lib/legacy.inc"), "{definition}");
     let diagnostics = client.diagnostics(&uri);
+
     assert!(
         diagnostics
             .iter()
             .all(|diagnostic| diagnostic["code"] != "undefined-class"),
         "{diagnostics:?}"
     );
+
     client.shutdown();
 }
 
@@ -767,10 +896,12 @@ fn reads_the_classes_of_composer_s_generated_class_map() {
 fn a_type_alias_types_what_its_docs_name_and_leads_to_its_declaration() {
     let disk = Disk::new();
     disk.write("project/composer.json", r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#);
+
     disk.write(
         "project/src/Shapes.php",
         "<?php\nnamespace App;\n\n/**\n * @psalm-type Point = array{x: int, y: int}\n */\nclass Shapes\n{\n}\n",
     );
+
     let canvas = "<?php\nnamespace App;\n\n/** @phpstan-import-type Point from Shapes */\nclass Canvas\n{\n    /** @return Point */\n    public function origin() {}\n}\n";
     disk.write("project/src/Canvas.php", canvas);
     let mut client = indexed_server(&disk);
@@ -805,6 +936,7 @@ fn a_string_that_holds_a_class_name_leads_to_it_and_is_one_of_its_usages() {
     assert_eq!(method[0]["range"]["start"]["line"], 5, "{method}");
     let home_uri = disk.uri("project/src/Http/Home.php");
     client.open(&home_uri, home);
+
     let usages = client.request(
         "textDocument/references",
         json!({
@@ -813,6 +945,7 @@ fn a_string_that_holds_a_class_name_leads_to_it_and_is_one_of_its_usages() {
             "context": { "includeDeclaration": false }
         }),
     );
+
     let found = usages.as_array().expect("locations");
     assert!(found.iter().any(|location| location["uri"] == uri), "{usages}");
     client.shutdown();
@@ -821,16 +954,20 @@ fn a_string_that_holds_a_class_name_leads_to_it_and_is_one_of_its_usages() {
 #[test]
 fn finds_usages_and_highlights_across_the_project() {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Controller.php",
         "<?php\nnamespace App;\n\nuse App\\Models\\User;\n\nclass Controller\n{\n    public function show(int $id): ?User\n    {\n        $user = User::find($id);\n        return $user;\n    }\n}\n",
     );
+
     let mut client = indexed_server(&disk);
     let page = disk.uri("project/src/Page.php");
+
     client.open(
         &page,
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) { return $u->name; }\n",
     );
+
     let found = client.request(
         "textDocument/references",
         json!({
@@ -839,6 +976,7 @@ fn finds_usages_and_highlights_across_the_project() {
             "context": { "includeDeclaration": true }
         }),
     );
+
     let mut places: Vec<String> = found
         .as_array()
         .expect("locations")
@@ -856,7 +994,9 @@ fn finds_usages_and_highlights_across_the_project() {
             )
         })
         .collect();
+
     places.sort();
+
     assert_eq!(
         places,
         [
@@ -868,6 +1008,7 @@ fn finds_usages_and_highlights_across_the_project() {
             "User.php:4"
         ]
     );
+
     let without = client.request(
         "textDocument/references",
         json!({
@@ -876,9 +1017,11 @@ fn finds_usages_and_highlights_across_the_project() {
             "context": { "includeDeclaration": false }
         }),
     );
+
     assert_eq!(without.as_array().map(Vec::len), Some(5));
 
     let highlights = client.at("textDocument/documentHighlight", &page, 2, 12);
+
     let kinds: Vec<(i64, i64)> = highlights
         .as_array()
         .expect("highlights")
@@ -890,6 +1033,7 @@ fn finds_usages_and_highlights_across_the_project() {
             )
         })
         .collect();
+
     assert_eq!(kinds, [(1, 1), (2, 1)]);
     let variable = client.at("textDocument/documentHighlight", &page, 2, 14);
     assert_eq!(variable.as_array().map(Vec::len), Some(2));
@@ -899,41 +1043,53 @@ fn finds_usages_and_highlights_across_the_project() {
 #[test]
 fn renames_a_class_and_moves_its_file() {
     let disk = Disk::new();
+
     let mut client = {
         let capabilities = json!({
             "window": { "workDoneProgress": true },
             "workspace": { "workspaceEdit": { "documentChanges": true, "resourceOperations": ["rename"] } }
         });
+
         let (mut client, _) = Client::start_in(capabilities, disk.options(), json!(disk.uri("project")));
         client.wait_for_indexing();
+
         client
     };
+
     let page = disk.uri("project/src/Page.php");
     client.open(&page, "<?php\nuse App\\Models\\User;\nfunction f(User $u) {}\n");
     let prepared = client.at("textDocument/prepareRename", &page, 2, 12);
     assert_eq!(prepared["placeholder"], "User");
+
     let edit = client.request(
         "textDocument/rename",
         json!({ "textDocument": { "uri": page }, "position": { "line": 2, "character": 12 }, "newName": "Member" }),
     );
+
     let changes = edit["documentChanges"].as_array().expect("document changes");
+
     let rename = changes
         .iter()
         .find(|change| change["kind"] == "rename")
         .expect("a file rename");
+
     assert_eq!(rename["oldUri"], disk.uri("project/src/Models/User.php"));
     assert_eq!(rename["newUri"], disk.uri("project/src/Models/Member.php"));
+
     let page_edit = changes
         .iter()
         .find(|change| change["textDocument"]["uri"] == page)
         .expect("edits of the open page");
+
     assert_eq!(page_edit["textDocument"]["version"], 1);
     assert_eq!(page_edit["edits"].as_array().map(Vec::len), Some(2));
     assert_eq!(page_edit["edits"][0]["newText"], "Member");
+
     let user_edit = changes
         .iter()
         .find(|change| change["textDocument"]["uri"] == disk.uri("project/src/Models/User.php"))
         .expect("edits of the declaring file");
+
     assert!(user_edit["textDocument"]["version"].is_null());
     assert_eq!(rename_order(changes), "edits first");
 
@@ -941,6 +1097,7 @@ fn renames_a_class_and_moves_its_file() {
         "textDocument/rename",
         json!({ "textDocument": { "uri": page }, "position": { "line": 2, "character": 12 }, "newName": "class" }),
     );
+
     assert_eq!(refused, "'class' is a reserved word");
     client.shutdown();
 }
@@ -948,6 +1105,7 @@ fn renames_a_class_and_moves_its_file() {
 fn rename_order(changes: &[Value]) -> &'static str {
     let last_edit = changes.iter().rposition(|change| change.get("textDocument").is_some());
     let rename = changes.iter().position(|change| change["kind"] == "rename");
+
     match (last_edit, rename) {
         (Some(edit), Some(rename)) if edit < rename => "edits first",
         _ => "wrong order",
@@ -959,21 +1117,26 @@ fn a_client_without_documentchanges_gets_plain_changes() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let page = disk.uri("project/src/Page.php");
+
     client.open(
         &page,
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) { return $u->name; }\n",
     );
+
     let edit = client.request(
         "textDocument/rename",
         json!({ "textDocument": { "uri": page }, "position": { "line": 2, "character": 34 }, "newName": "length" }),
     );
+
     assert!(edit["documentChanges"].is_null());
     let changes = edit["changes"].as_object().expect("changes");
     assert_eq!(changes.len(), 2);
+
     assert_eq!(
         changes[&disk.uri("project/src/Models/User.php")][0]["newText"],
         "$length"
     );
+
     assert_eq!(changes[&page][0]["newText"], "length");
     client.shutdown();
 }
@@ -983,10 +1146,12 @@ fn offers_signature_help_for_the_call_under_the_cursor() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nuse App\\Models\\User;\nfunction f() {\n    User::find(1);\n    strlen('');\n    str_replace('a', 'b', '');\n}\n",
     );
+
     let help = client.at("textDocument/signatureHelp", &uri, 3, 15);
     assert_eq!(help["signatures"][0]["label"], "find(int $id): ?static");
     assert_eq!(help["signatures"][0]["parameters"][0]["label"], "int $id");
@@ -997,9 +1162,11 @@ fn offers_signature_help_for_the_call_under_the_cursor() {
     let builtin = client.at("textDocument/signatureHelp", &uri, 4, 11);
     assert_eq!(builtin["signatures"][0]["label"], "strlen(string $string): int");
     let replace = client.at("textDocument/signatureHelp", &uri, 5, 16);
+
     let documentation = replace["signatures"][0]["parameters"][0]["documentation"]["value"]
         .as_str()
         .unwrap_or_default();
+
     assert!(documentation.contains("needle"), "{documentation}");
     assert!(!documentation.contains("<p>"), "{documentation}");
     client.shutdown();
@@ -1008,16 +1175,20 @@ fn offers_signature_help_for_the_call_under_the_cursor() {
 #[test]
 fn walks_call_and_type_hierarchies() {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Controller.php",
         "<?php\nnamespace App;\n\nuse App\\Models\\User;\n\nclass Controller\n{\n    public function show(int $id): ?User\n    {\n        return User::find($id);\n    }\n}\n",
     );
+
     disk.write(
         "project/src/Admin.php",
         "<?php\nnamespace App;\n\nuse App\\Models\\User;\n\nclass Admin extends User {}\n",
     );
+
     let mut client = indexed_server(&disk);
     let user = disk.uri("project/src/Models/User.php");
+
     client.open(
         &user,
         &std::fs::read_to_string(disk.path("project/src/Models/User.php")).expect("read"),
@@ -1030,6 +1201,7 @@ fn walks_call_and_type_hierarchies() {
     let incoming = client.request("callHierarchy/incomingCalls", json!({ "item": item }));
     assert_eq!(incoming[0]["from"]["name"], "show");
     assert_eq!(incoming[0]["from"]["detail"], "App\\Controller");
+
     assert_eq!(
         incoming[0]["fromRanges"][0]["start"],
         json!({ "line": 9, "character": 21 })
@@ -1051,43 +1223,54 @@ fn walks_call_and_type_hierarchies() {
 #[test]
 fn prepares_a_call_hierarchy_with_the_caret_at_the_end_of_a_name() {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Auth.php",
         "<?php\nnamespace App;\n\nclass Auth\n{\n    /**\n     * @since 1.0\n     */\n    public static function createSession(User $user, ?int $ttl = null): string\n    {\n        return '';\n    }\n}\n",
     );
+
     let mut client = indexed_server(&disk);
     let auth = disk.uri("project/src/Auth.php");
+
     client.open(
         &auth,
         &std::fs::read_to_string(disk.path("project/src/Auth.php")).expect("read"),
     );
+
     let inside = client.at("textDocument/prepareCallHierarchy", &auth, 8, 30);
     assert_eq!(inside[0]["name"], "createSession");
     let after = client.at("textDocument/prepareCallHierarchy", &auth, 8, 40);
+
     assert_eq!(
         after[0]["name"], "createSession",
         "caret between the name and the parenthesis"
     );
+
     client.shutdown();
 }
 
 #[test]
 fn lists_the_closure_around_a_call_as_the_caller() {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Auth.php",
         "<?php\nnamespace App;\n\nclass Auth\n{\n    public static function createSession(): string\n    {\n        return '';\n    }\n}\n",
     );
+
     disk.write(
         "project/tests/AuthTest.php",
         "<?php\nnamespace App;\n\nit('opens a session.', function (): void {\n    Auth::createSession();\n    Auth::createSession();\n});\n",
     );
+
     let mut client = indexed_server(&disk);
     let auth = disk.uri("project/src/Auth.php");
+
     client.open(
         &auth,
         &std::fs::read_to_string(disk.path("project/src/Auth.php")).expect("read"),
     );
+
     let prepared = client.at("textDocument/prepareCallHierarchy", &auth, 5, 40);
     let incoming = client.request("callHierarchy/incomingCalls", json!({ "item": prepared[0] }));
     assert_eq!(incoming.as_array().map(Vec::len), Some(1));
@@ -1110,49 +1293,59 @@ fn serves_semantic_tokens_in_the_delta_encoding_of_its_legend() {
     let (mut client, result) = Client::start_in(PROGRESS_CAPABILITIES(), disk.options(), json!(disk.uri("project")));
     client.wait_for_indexing();
     let legend = &result["capabilities"]["semanticTokensProvider"]["legend"];
+
     let types: Vec<&str> = legend["tokenTypes"]
         .as_array()
         .expect("types")
         .iter()
         .filter_map(Value::as_str)
         .collect();
+
     let modifiers: Vec<&str> = legend["tokenModifiers"]
         .as_array()
         .expect("modifiers")
         .iter()
         .filter_map(Value::as_str)
         .collect();
+
     assert_eq!(result["capabilities"]["semanticTokensProvider"]["range"], true);
     assert_eq!(result["capabilities"]["semanticTokensProvider"]["full"], true);
     assert!(types.contains(&"class") && types.contains(&"method") && types.contains(&"parameter"));
     assert!(modifiers.contains(&"static") && modifiers.contains(&"defaultLibrary"));
 
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nuse App\\Models\\User;\nfunction f(User $u) {\n    return User::find(1);\n}\n",
     );
+
     let tokens = client.request(
         "textDocument/semanticTokens/full",
         json!({ "textDocument": { "uri": uri } }),
     );
+
     let data: Vec<u64> = tokens["data"]
         .as_array()
         .expect("data")
         .iter()
         .filter_map(Value::as_u64)
         .collect();
+
     let mut decoded = Vec::new();
     let (mut line, mut start) = (0, 0);
+
     for token in data.chunks(5) {
         line += token[0];
         start = if token[0] == 0 { start + token[1] } else { token[1] };
+
         let mods: Vec<&str> = modifiers
             .iter()
             .enumerate()
             .filter(|(bit, _)| token[4] & (1 << bit) != 0)
             .map(|(_, name)| *name)
             .collect();
+
         decoded.push(format!(
             "{line}:{start}+{} {} {}",
             token[2],
@@ -1160,6 +1353,7 @@ fn serves_semantic_tokens_in_the_delta_encoding_of_its_legend() {
             mods.join(",")
         ));
     }
+
     assert_eq!(
         decoded,
         [
@@ -1172,6 +1366,7 @@ fn serves_semantic_tokens_in_the_delta_encoding_of_its_legend() {
             "3:17+4 method static",
         ]
     );
+
     let ranged = client.request(
         "textDocument/semanticTokens/range",
         json!({
@@ -1179,6 +1374,7 @@ fn serves_semantic_tokens_in_the_delta_encoding_of_its_legend() {
             "range": { "start": { "line": 3, "character": 0 }, "end": { "line": 4, "character": 0 } }
         }),
     );
+
     assert_eq!(ranged["data"].as_array().map(Vec::len), Some(10));
     client.shutdown();
 }
@@ -1186,23 +1382,29 @@ fn serves_semantic_tokens_in_the_delta_encoding_of_its_legend() {
 #[test]
 fn serves_inlay_hints_and_follows_the_settings() {
     let disk = Disk::new();
+
     let (mut client, result) = Client::start_in(
         json!({ "window": { "workDoneProgress": true }, "workspace": { "inlayHint": { "refreshSupport": true } } }),
         disk.options(),
         json!(disk.uri("project")),
     );
+
     assert_eq!(result["capabilities"]["inlayHintProvider"], true);
     client.wait_for_indexing();
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nfunction pad(string $text, int $width) {}\npad('a', 3);\narray_map(fn($x) => $x, []);\n",
     );
+
     let range = json!({ "start": { "line": 0, "character": 0 }, "end": { "line": 4, "character": 0 } });
+
     let hints = client.request(
         "textDocument/inlayHint",
         json!({ "textDocument": { "uri": uri }, "range": range }),
     );
+
     let labels: Vec<(&str, i64)> = hints
         .as_array()
         .expect("hints")
@@ -1214,6 +1416,7 @@ fn serves_inlay_hints_and_follows_the_settings() {
             )
         })
         .collect();
+
     assert_eq!(labels, [("text:", 2), ("width:", 2)]);
     assert_eq!(hints[0]["position"], json!({ "line": 2, "character": 4 }));
     assert_eq!(hints[0]["paddingRight"], true);
@@ -1223,14 +1426,17 @@ fn serves_inlay_hints_and_follows_the_settings() {
         "workspace/didChangeConfiguration",
         json!({ "settings": { "phpLanguageServer": { "inlayHints": { "parameterNames": false } } } }),
     );
+
     client.wait_for(|message| match message {
         Message::Request(request) if request.method == "workspace/inlayHint/refresh" => Some(()),
         _ => None,
     });
+
     let hints = client.request(
         "textDocument/inlayHint",
         json!({ "textDocument": { "uri": uri }, "range": range }),
     );
+
     assert_eq!(hints.as_array().map(Vec::len), Some(0));
     client.shutdown();
 }
@@ -1240,22 +1446,27 @@ fn completes_the_methods_a_class_can_override() {
     let disk = Disk::new();
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/src/Admin.php");
+
     client.open(
         &uri,
         "<?php\nnamespace App;\n\nuse App\\Models\\User;\n\nclass Admin extends User\n{\n    public function po\n}\n",
     );
+
     let result = client.at("textDocument/completion", &uri, 7, 22);
     let items = result["items"].as_array().expect("items");
     let posts = items.iter().find(|item| item["label"] == "posts").expect("posts");
     assert_eq!(posts["kind"], 2);
+
     assert_eq!(
         posts["textEdit"]["newText"],
         "posts(): array\n    {\n        return parent::posts();\n    }"
     );
+
     assert_eq!(
         posts["textEdit"]["range"]["start"],
         json!({ "line": 7, "character": 20 })
     );
+
     client.shutdown();
 }
 
@@ -1277,6 +1488,7 @@ fn reports_inspections_once_the_project_is_indexed() {
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, PAGE);
     let found = client.diagnostics(&uri);
+
     assert_eq!(
         codes(&found),
         [
@@ -1289,12 +1501,15 @@ fn reports_inspections_once_the_project_is_indexed() {
         ],
         "{found:?}"
     );
+
     assert_eq!(found[0]["tags"], json!([1]), "an unused import is unnecessary");
     assert_eq!(found[1]["severity"], 1);
+
     assert_eq!(
         found[3]["message"], "Undefined class 'Redis'",
         "a global class needs a backslash in a namespace"
     );
+
     client.shutdown();
 }
 
@@ -1314,12 +1529,14 @@ fn nothing_is_undefined_before_the_index_is_read() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, PAGE);
     let found = client.diagnostics(URI);
+
     assert!(
         codes(&found)
             .iter()
             .all(|code| code != "undefined-class" && code != "undefined-function"),
         "{found:?}"
     );
+
     client.shutdown();
 }
 
@@ -1330,6 +1547,7 @@ fn inspection_settings_switch_and_move_severities() {
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, PAGE);
     assert_eq!(client.diagnostics(&uri).len(), 6);
+
     client.notify(
         "workspace/didChangeConfiguration",
         json!({ "settings": { "phpLanguageServer": { "inspections": {
@@ -1338,7 +1556,9 @@ fn inspection_settings_switch_and_move_severities() {
             "unused-variable": false
         } } } }),
     );
+
     let found = client.diagnostics(&uri);
+
     assert_eq!(
         codes(&found),
         [
@@ -1348,6 +1568,7 @@ fn inspection_settings_switch_and_move_severities() {
             "undefined-method"
         ]
     );
+
     assert_eq!(found[0]["severity"], 4);
     client.shutdown();
 }
@@ -1374,10 +1595,12 @@ fn offers_quick_fixes_with_their_edits() {
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, PAGE);
     let found = client.diagnostics(&uri);
+
     let actions = client.request(
         "textDocument/codeAction",
         json!({ "textDocument": { "uri": uri }, "range": range_at(3, 0, 20), "context": { "diagnostics": found } }),
     );
+
     assert_eq!(action_titles(&actions), ["Remove unused import", "Organize imports"]);
     let remove = &actions[0];
     assert_eq!(remove["kind"], "quickfix");
@@ -1397,10 +1620,12 @@ fn only_the_kinds_asked_for_are_offered() {
     let uri = disk.uri("project/src/Page.php");
     client.open(&uri, PAGE);
     client.diagnostics(&uri);
+
     let actions = client.request(
         "textDocument/codeAction",
         json!({ "textDocument": { "uri": uri }, "range": range_at(3, 0, 0), "context": { "diagnostics": [], "only": ["source.organizeImports"] } }),
     );
+
     assert_eq!(action_titles(&actions), ["Organize imports"]);
     let organized = &actions[0]["edit"]["changes"][&uri][0];
     assert_eq!(organized["range"]["start"], json!({ "line": 3, "character": 0 }));
@@ -1411,22 +1636,28 @@ fn only_the_kinds_asked_for_are_offered() {
 #[test]
 fn a_client_that_resolves_gets_the_edit_of_an_expensive_action_late() {
     let disk = Disk::new();
+
     let capabilities = json!({
         "window": { "workDoneProgress": true },
         "textDocument": { "codeAction": { "resolveSupport": { "properties": ["edit"] } } }
     });
+
     let (mut client, _) = Client::start_in(capabilities, disk.options(), json!(disk.uri("project")));
     client.wait_for_indexing();
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nnamespace App;\n\nclass Page\n{\n    public function show(): void\n    {\n        new Widget();\n    }\n}\n",
     );
+
     client.diagnostics(&uri);
+
     let actions = client.request(
         "textDocument/codeAction",
         json!({ "textDocument": { "uri": uri }, "range": range_at(7, 14, 14), "context": { "diagnostics": [] } }),
     );
+
     let import = actions
         .as_array()
         .expect("actions")
@@ -1434,6 +1665,7 @@ fn a_client_that_resolves_gets_the_edit_of_an_expensive_action_late() {
         .find(|action| action["title"] == "Import 'Acme\\Lib\\Widget'")
         .expect("an import")
         .clone();
+
     assert!(import["edit"].is_null(), "the edit waits for the resolve");
     let resolved = client.request("codeAction/resolve", import);
     let edit = &resolved["edit"]["changes"][&uri][0];
@@ -1447,6 +1679,7 @@ fn writes_the_doc_block_after_an_opened_comment_and_enter() {
     let text = "<?php\nclass A\n{\n    /**\n    \n    public function run(int $a, string $b): bool\n    {\n        return true;\n    }\n}\n";
     client.open(URI, text);
     client.diagnostics(URI);
+
     let edits = client.request(
         "textDocument/onTypeFormatting",
         json!({
@@ -1456,11 +1689,14 @@ fn writes_the_doc_block_after_an_opened_comment_and_enter() {
             "options": { "tabSize": 4, "insertSpaces": true }
         }),
     );
+
     assert_eq!(edits[0]["range"]["start"], json!({ "line": 4, "character": 0 }));
+
     assert_eq!(
         edits[0]["newText"],
         "     * @param int $a\n     * @param string $b\n     * @return bool\n     */\n"
     );
+
     client.shutdown();
 }
 
@@ -1475,34 +1711,42 @@ fn nested_disk() -> Disk {
     let disk = Disk {
         dir: tempfile::tempdir().expect("a temp dir"),
     };
+
     for (name, level, widget) in [("backend", "8.1", "Backend"), ("shop", "8.4", "Shop")] {
         disk.write(
             &format!("work/{name}/composer.json"),
             &format!(r#"{{"config":{{"platform":{{"php":"{level}"}}}},"autoload":{{"psr-4":{{"App\\":"src/"}}}}}}"#),
         );
+
         disk.write(&format!("work/{name}/src/Page.php"), NESTED_PAGE);
+
         disk.write(
             &format!("work/{name}/vendor/composer/installed.json"),
             r#"{"packages":[{"name":"acme/lib","install-path":"../acme/lib","autoload":{"psr-4":{"Acme\\Lib\\":"src/"}}}]}"#,
         );
+
         disk.write(
             &format!("work/{name}/vendor/acme/lib/src/Widget.php"),
             &format!("<?php\nnamespace Acme\\Lib;\n\nclass Widget\n{{\n    public function render{widget}(): string {{}}\n}}\n"),
         );
     }
+
     disk.write("work/tools/Helper.php", "<?php\nclass LooseHelper {}\n");
     disk.write("work/~backup/old/composer.json", "{}");
     disk.write("work/~backup/old/src/Old.php", "<?php\nclass OldBackup {}\n");
+
     disk.write(
         "stubs/standard/basic.php",
         "<?php\nfunction strlen(string $string): int {}\n",
     );
+
     disk
 }
 
 fn nested_server(disk: &Disk) -> Client {
     let (mut client, _) = Client::start_in(PROGRESS_CAPABILITIES(), disk.options(), json!(disk.uri("work")));
     client.wait_for_indexing();
+
     client
 }
 
@@ -1520,20 +1764,24 @@ fn symbol_uris(client: &mut Client, query: &str) -> Vec<String> {
 fn a_file_sees_the_packages_of_its_nearest_composer_root() {
     let disk = nested_disk();
     let mut client = nested_server(&disk);
+
     for name in ["backend", "shop"] {
         let uri = disk.uri(&format!("work/{name}/src/Page.php"));
         client.open(&uri, NESTED_PAGE);
         let definition = client.at("textDocument/definition", &uri, 6, 17);
+
         assert_eq!(
             definition[0]["uri"],
             disk.uri(&format!("work/{name}/vendor/acme/lib/src/Widget.php")),
             "{name} resolves to its own copy of the package"
         );
+
         let hover = client.at("textDocument/hover", &uri, 6, 17);
         let text = hover["contents"]["value"].as_str().expect("markdown");
         assert!(text.starts_with("**Acme\\Lib\\Widget**"), "{text}");
         assert!(!text.contains("Defined in"), "{text}");
     }
+
     client.shutdown();
 }
 
@@ -1544,10 +1792,12 @@ fn each_composer_root_decides_the_level_of_its_files() {
     let hooks = "<?php\nclass A { public int $x { get => 1; } }\n";
     let backend = disk.uri("work/backend/src/Hooks.php");
     client.open(&backend, hooks);
+
     assert_eq!(
         messages(&client.diagnostics(&backend)),
         ["Property hooks are only available since PHP 8.4"]
     );
+
     let shop = disk.uri("work/shop/src/Hooks.php");
     client.open(&shop, hooks);
     assert!(messages(&client.diagnostics(&shop)).is_empty());
@@ -1566,12 +1816,14 @@ fn a_package_in_two_roots_is_listed_once() {
     let text = "<?php\nnamespace App;\nfunction f() {\n    new Wid\n}\n";
     client.open(&uri, text);
     let result = client.at("textDocument/completion", &uri, 3, 11);
+
     let count = result["items"]
         .as_array()
         .expect("items")
         .iter()
         .filter(|item| item["label"] == "Widget")
         .count();
+
     assert_eq!(count, 1);
 
     assert_eq!(
@@ -1579,6 +1831,7 @@ fn a_package_in_two_roots_is_listed_once() {
         1,
         "the standard library is listed once"
     );
+
     client.shutdown();
 }
 
@@ -1586,18 +1839,22 @@ fn a_package_in_two_roots_is_listed_once() {
 fn project_files_stay_with_the_project_that_holds_them() {
     let disk = nested_disk();
     let mut client = nested_server(&disk);
+
     assert_eq!(
         symbol_uris(&mut client, "page").len(),
         2,
         "a function of the project's own is listed for every project that has one"
     );
+
     let loose = symbol_uris(&mut client, "LooseHelper");
     assert_eq!(loose, [disk.uri("work/tools/Helper.php")]);
+
     assert_eq!(
         symbol_uris(&mut client, "OldBackup").len(),
         1,
         "a backup folder is read as part of the folder, without its own packages"
     );
+
     client.shutdown();
 }
 
@@ -1610,10 +1867,12 @@ fn a_folder_with_its_own_composer_json_stays_one_project() {
     let uri = disk.uri("work/backend/src/Page.php");
     client.open(&uri, NESTED_PAGE);
     let hover = client.at("textDocument/hover", &uri, 6, 17);
+
     assert!(
         hover.is_null(),
         "backend/vendor is not read for a folder that has a composer.json: {hover}"
     );
+
     assert_eq!(symbol_uris(&mut client, "DeepInBackend").len(), 1);
     client.shutdown();
 }
@@ -1621,15 +1880,18 @@ fn a_folder_with_its_own_composer_json_stays_one_project() {
 #[test]
 fn a_composer_json_that_appears_below_the_folder_becomes_a_project() {
     let disk = nested_disk();
+
     let (mut client, _) = Client::start_in(
         json!({ "window": { "workDoneProgress": true }, "workspace": { "didChangeWatchedFiles": { "dynamicRegistration": true } } }),
         disk.options(),
         json!(disk.uri("work")),
     );
+
     let registration = client.wait_for(|message| match message {
         Message::Request(request) if request.method == "client/registerCapability" => Some(request.clone()),
         _ => None,
     });
+
     client.send(Response::new_ok(registration.id, Value::Null));
     client.wait_for_indexing();
     assert_eq!(symbol_uris(&mut client, "Gadget").len(), 0);
@@ -1638,35 +1900,44 @@ fn a_composer_json_that_appears_below_the_folder_becomes_a_project() {
         "work/tools/composer.json",
         r#"{"config":{"platform":{"php":"8.2"}},"autoload":{"psr-4":{"Tools\\":"src/"}}}"#,
     );
+
     disk.write(
         "work/tools/src/Gadget.php",
         "<?php\nnamespace Tools;\nclass Gadget {}\n",
     );
+
     client.notify(
         "workspace/didChangeWatchedFiles",
         json!({ "changes": [{ "uri": disk.uri("work/tools/composer.json"), "type": 1 }] }),
     );
+
     client.wait_for_indexing();
+
     assert_eq!(
         symbol_uris(&mut client, "Gadget"),
         [disk.uri("work/tools/src/Gadget.php")]
     );
+
     assert!(
         symbol_uris(&mut client, "LooseHelper").len() == 1,
         "files of the folder that are not in a project stay in the folder's own"
     );
 
     std::fs::remove_file(disk.path("work/tools/composer.json")).expect("removed");
+
     client.notify(
         "workspace/didChangeWatchedFiles",
         json!({ "changes": [{ "uri": disk.uri("work/tools/composer.json"), "type": 3 }] }),
     );
+
     client.wait_for_indexing();
+
     assert_eq!(
         symbol_uris(&mut client, "Gadget"),
         [disk.uri("work/tools/src/Gadget.php")],
         "the folder reads the files of a root that is gone"
     );
+
     client.shutdown();
 }
 
@@ -1678,8 +1949,10 @@ fn apply_edits(text: &str, edits: &Value) -> String {
         let line = position["line"].as_u64().expect("a line") as usize;
         let character = position["character"].as_u64().expect("a character") as usize;
         let start: usize = text.split_inclusive('\n').take(line).map(str::len).sum();
+
         start + character
     };
+
     let mut edits: Vec<(usize, usize, String)> = edits
         .as_array()
         .expect("edits")
@@ -1692,11 +1965,14 @@ fn apply_edits(text: &str, edits: &Value) -> String {
             )
         })
         .collect();
+
     edits.sort_by_key(|edit| std::cmp::Reverse(edit.0));
     let mut out = text.to_string();
+
     for (start, end, replacement) in edits {
         out.replace_range(start..end, &replacement);
     }
+
     out
 }
 
@@ -1709,18 +1985,22 @@ fn formats_a_document_with_the_indent_the_client_asks_for() {
     assert_eq!(result["capabilities"]["documentRangeFormattingProvider"], true);
     client.open(URI, UNFORMATTED);
     client.diagnostics(URI);
+
     let edits = client.request(
         "textDocument/formatting",
         json!({ "textDocument": { "uri": URI }, "options": { "tabSize": 2, "insertSpaces": true } }),
     );
+
     assert_eq!(
         apply_edits(UNFORMATTED, &edits),
         "<?php\nclass A\n{\n  public function f($a, $b)\n  {\n    return [$a => $b];\n  }\n}\n"
     );
+
     let edits = client.request(
         "textDocument/formatting",
         json!({ "textDocument": { "uri": URI }, "options": { "tabSize": 4, "insertSpaces": false } }),
     );
+
     assert!(apply_edits(UNFORMATTED, &edits).contains("\n\tpublic function f($a, $b)\n\t{\n\t\treturn"));
     client.shutdown();
 }
@@ -1730,10 +2010,12 @@ fn leaves_a_document_with_syntax_errors_alone() {
     let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, "<?php\nclass A{\npublic function f(\n");
     client.diagnostics(URI);
+
     let edits = client.request(
         "textDocument/formatting",
         json!({ "textDocument": { "uri": URI }, "options": { "tabSize": 4, "insertSpaces": true } }),
     );
+
     assert!(edits.is_null());
     client.shutdown();
 }
@@ -1744,8 +2026,10 @@ fn formats_a_range_and_the_options_come_from_the_settings() {
         json!({}),
         json!({ "format": { "classBrace": "sameLine", "functionBrace": "sameLine" } }),
     );
+
     client.open(URI, UNFORMATTED);
     client.diagnostics(URI);
+
     let edits = client.request(
         "textDocument/rangeFormatting",
         json!({
@@ -1754,14 +2038,17 @@ fn formats_a_range_and_the_options_come_from_the_settings() {
             "options": { "tabSize": 4, "insertSpaces": true }
         }),
     );
+
     assert_eq!(
         apply_edits(UNFORMATTED, &edits),
         "<?php\nclass A{\npublic function f($a,$b){\n        return [$a => $b];\n}\n}\n"
     );
+
     let edits = client.request(
         "textDocument/formatting",
         json!({ "textDocument": { "uri": URI }, "options": { "tabSize": 4, "insertSpaces": true } }),
     );
+
     assert!(apply_edits(UNFORMATTED, &edits).starts_with("<?php\nclass A {\n    public function f($a, $b) {\n"));
     client.shutdown();
 }
@@ -1770,40 +2057,50 @@ fn formats_a_range_and_the_options_come_from_the_settings() {
 fn the_client_can_answer_the_format_settings_per_document() {
     let (mut client, _) = Client::start(json!({ "workspace": { "configuration": true } }), Value::Null);
     client.open(URI, UNFORMATTED);
+
     let request = client.wait_for(|message| match message {
         Message::Request(request) if request.method == "workspace/configuration" => Some(request.clone()),
         _ => None,
     });
+
     client.send(Response::new_ok(
         request.id,
         json!([{ "format": { "alignArrayArrows": true, "lineLength": 0 } }]),
     ));
+
     let text = "<?php\n$a = [\n'x' => 1,\n'yyy' => 2,\n];\n";
+
     client.notify(
         "textDocument/didChange",
         json!({ "textDocument": { "uri": URI, "version": 2 }, "contentChanges": [{ "text": text }] }),
     );
+
     let edits = client.request(
         "textDocument/formatting",
         json!({ "textDocument": { "uri": URI }, "options": { "tabSize": 4, "insertSpaces": true } }),
     );
+
     assert_eq!(
         apply_edits(text, &edits),
         "<?php\n$a = [\n    'x'   => 1,\n    'yyy' => 2,\n];\n"
     );
+
     client.shutdown();
 }
 
 #[test]
 fn formats_the_line_a_typed_brace_or_newline_belongs_to() {
     let (mut client, result) = Client::start(json!({}), Value::Null);
+
     assert_eq!(
         result["capabilities"]["documentOnTypeFormattingProvider"]["moreTriggerCharacter"],
         json!(["}", ";"])
     );
+
     let text = "<?php\nfunction a()\n{\nif ($x) {\nfoo();\n}\n}\n";
     client.open(URI, text);
     client.diagnostics(URI);
+
     let on_type = |client: &mut Client, line: u32, character: u32, ch: &str| {
         client.request(
             "textDocument/onTypeFormatting",
@@ -1815,43 +2112,55 @@ fn formats_the_line_a_typed_brace_or_newline_belongs_to() {
             }),
         )
     };
+
     let edits = on_type(&mut client, 5, 1, "}");
+
     assert_eq!(
         apply_edits(text, &edits),
         "<?php\nfunction a()\n{\nif ($x) {\nfoo();\n    }\n}\n"
     );
+
     let edits = on_type(&mut client, 4, 6, ";");
+
     assert_eq!(
         apply_edits(text, &edits),
         "<?php\nfunction a()\n{\nif ($x) {\n        foo();\n}\n}\n"
     );
 
     let unfinished = "<?php\nclass A\n{\n    public function f()\n    {\n\n";
+
     client.notify(
         "textDocument/didChange",
         json!({ "textDocument": { "uri": URI, "version": 2 }, "contentChanges": [{ "text": unfinished }] }),
     );
+
     let edits = on_type(&mut client, 5, 0, "\n");
+
     assert_eq!(
         apply_edits(unfinished, &edits),
         "<?php\nclass A\n{\n    public function f()\n    {\n        \n"
     );
+
     client.shutdown();
 }
 
 #[test]
 fn usages_in_the_installed_packages_are_found_when_asked_for() {
     let disk = Disk::new();
+
     disk.write(
         "project/vendor/acme/lib/src/Factory.php",
         "<?php\nnamespace Acme\\Lib;\n\nclass Factory\n{\n    public function make(): Widget\n    {\n        return new Widget();\n    }\n}\n",
     );
+
     disk.write(
         "project/src/Page.php",
         "<?php\nnamespace App;\n\nuse Acme\\Lib\\Widget;\n\nfunction page(Widget $widget) {}\n",
     );
+
     let page = disk.uri("project/src/Page.php");
     let text = std::fs::read_to_string(disk.path("project/src/Page.php")).expect("read");
+
     let files = |found: &Value| {
         let mut names: Vec<String> = found
             .as_array()
@@ -1867,10 +2176,13 @@ fn usages_in_the_installed_packages_are_found_when_asked_for() {
                     .to_string()
             })
             .collect();
+
         names.sort();
         names.dedup();
+
         names
     };
+
     let ask = |client: &mut Client| {
         client.request(
             "textDocument/references",
@@ -1898,23 +2210,30 @@ fn usages_in_the_installed_packages_are_found_when_asked_for() {
 
 fn call_completion(capabilities: Value, extra_options: Value) -> Value {
     let disk = Disk::new();
+
     disk.write(
         "project/src/Calls.php",
         "<?php\nnamespace App;\n\nclass Calls\n{\n    public function run(int $times, string $label = ''): void {}\n    public function reset(): void {}\n}\n",
     );
+
     let mut options = disk.options();
+
     for (key, value) in extra_options.as_object().into_iter().flatten() {
         options[key] = value.clone();
     }
+
     let (mut client, _) = Client::start_in(capabilities, options, json!(disk.uri("project")));
     client.wait_for_indexing();
     let uri = disk.uri("project/src/Page.php");
+
     client.open(
         &uri,
         "<?php\nnamespace App;\n\nfunction f(Calls $calls)\n{\n    $calls->ru\n}\n",
     );
+
     let result = client.at("textDocument/completion", &uri, 5, 14);
     client.shutdown();
+
     result["items"]
         .as_array()
         .expect("items")
@@ -1978,37 +2297,45 @@ fn last_is_test(uris: &[String]) -> bool {
 #[test]
 fn results_from_test_files_come_after_production_results() {
     let disk = Disk::new();
+
     // Names chosen so that path order would put the test files first.
     disk.write(
         "project/src/Shape.php",
         "<?php\nnamespace App;\ninterface Shape { public function area(): float; }\n",
     );
+
     disk.write(
         "project/src/AaaShapeTest.php",
         "<?php\nnamespace App;\nclass AaaShapeTest implements Shape { public function area(): float { return 1.0; } }\n",
     );
+
     disk.write(
         "project/src/Zzz.php",
         "<?php\nnamespace App;\nclass Zzz implements Shape { public function area(): float { return 2.0; } }\n",
     );
+
     disk.write(
         "project/src/Widgets.php",
         "<?php\nnamespace App;\nfunction helper(): int { return 1; }\nfunction caller(): int { return helper(); }\n",
     );
+
     disk.write(
         "project/tests/Aaa.php",
         "<?php\nnamespace App\\Tests;\nclass Aaa extends \\App\\Models\\User {}\nfunction first(): int { return \\App\\helper() + \\App\\helper(); }\n",
     );
+
     disk.write(
         "project/src/Zed.php",
         "<?php\nnamespace App;\nclass Zed extends Models\\User {}\nfunction second(): int { return helper(); }\n",
     );
+
     disk.write("project/src/Dup.php", "<?php\nnamespace App;\nclass Dup {}\n");
     disk.write("project/tests/Dup.php", "<?php\nnamespace App\\Tests;\nclass Dup {}\n");
     let mut client = indexed_server(&disk);
     let shape = disk.uri("project/src/Shape.php");
     let widgets = disk.uri("project/src/Widgets.php");
     let user = disk.uri("project/src/Models/User.php");
+
     for (uri, path) in [
         (&shape, "project/src/Shape.php"),
         (&widgets, "project/src/Widgets.php"),
@@ -2030,12 +2357,15 @@ fn results_from_test_files_come_after_production_results() {
             "context": { "includeDeclaration": true }
         }),
     );
+
     let found = uris_of(&references, "location");
     assert!(found.len() >= 3, "{references}");
+
     let first_test = found
         .iter()
         .position(|uri| uri.contains("/tests/"))
         .expect("a test hit");
+
     assert!(
         found[first_test..].iter().all(|uri| uri.contains("/tests/")),
         "{found:?}"
@@ -2063,16 +2393,19 @@ fn results_from_test_files_come_after_production_results() {
 #[test]
 fn an_exact_match_in_a_test_file_stays_above_many_production_matches() {
     let disk = Disk::new();
+
     disk.write(
         "project/tests/UserServiceTest.php",
         "<?php\nnamespace App\\Tests;\nclass UserServiceTest {}\n",
     );
+
     for number in 0..220 {
         disk.write(
             &format!("project/src/UserServiceTest{number}.php"),
             &format!("<?php\nnamespace App;\nclass UserServiceTest{number} {{}}\n"),
         );
     }
+
     let mut client = indexed_server(&disk);
     let symbols = client.request("workspace/symbol", json!({ "query": "UserServiceTest" }));
     assert_eq!(symbols[0]["name"], "UserServiceTest", "{}", symbols[0]);

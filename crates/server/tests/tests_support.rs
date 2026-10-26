@@ -15,6 +15,7 @@ fn project() -> Disk {
     disk.write("project/phpunit.xml", "<phpunit/>");
     disk.write("project/tests/Support/PHPUnitTestCase.php", TEST_CASE);
     disk.write("project/tests/Unit/FooTest.php", FOO_TEST);
+
     disk
 }
 
@@ -33,14 +34,17 @@ fn lists_what_a_phpunit_file_can_run_as_a_request_and_as_code_lenses() {
     assert_eq!(listed[0]["filter"], "/^Tests\\\\Unit\\\\FooTest::/");
     assert_eq!(listed[0]["range"]["start"], json!({ "line": 6, "character": 12 }));
     assert_eq!(listed[1]["label"], "FooTest::testIt");
+
     assert_eq!(
         listed[1]["filter"],
         "/^Tests\\\\Unit\\\\FooTest::testIt( with data set .*)?$/"
     );
+
     assert_eq!(
         listed[1]["file"],
         disk.path("project/tests/Unit/FooTest.php").to_str().unwrap()
     );
+
     assert_eq!(
         listed[1]["configFile"],
         disk.path("project/phpunit.xml").to_str().unwrap()
@@ -74,23 +78,27 @@ fn a_provider_string_leads_to_its_method_completes_and_renames() {
             "context": { "includeDeclaration": true }
         }),
     );
+
     let lines: Vec<u64> = found
         .as_array()
         .expect("locations")
         .iter()
         .map(|location| location["range"]["start"]["line"].as_u64().unwrap())
         .collect();
+
     assert_eq!(lines, vec![8, 11]);
 
     let renamed = client.request(
         "textDocument/rename",
         json!({ "textDocument": { "uri": uri }, "position": { "line": 8, "character": 23 }, "newName": "rows" }),
     );
+
     let edits = renamed["changes"][&uri].as_array().expect("edits");
     assert_eq!(edits.len(), 2);
     assert!(edits.iter().all(|edit| edit["newText"] == "rows"));
 
     let edited = FOO_TEST.replace("#[DataProvider('numbers')]", "#[DataProvider('')]");
+
     client.notify(
         "textDocument/didChange",
         json!({
@@ -98,7 +106,9 @@ fn a_provider_string_leads_to_its_method_completes_and_renames() {
             "contentChanges": [{ "text": edited }]
         }),
     );
+
     let completion = client.at("textDocument/completion", &uri, 8, 20);
+
     let labels: Vec<&str> = completion["items"]
         .as_array()
         .or_else(|| completion.as_array())
@@ -106,6 +116,7 @@ fn a_provider_string_leads_to_its_method_completes_and_renames() {
         .iter()
         .map(|item| item["label"].as_str().unwrap())
         .collect();
+
     assert_eq!(labels, vec!["numbers"]);
     client.shutdown();
 }
@@ -113,24 +124,29 @@ fn a_provider_string_leads_to_its_method_completes_and_renames() {
 #[test]
 fn pest_closures_run_as_the_test_case_bound_to_their_folder() {
     let disk = project();
+
     disk.write(
         "project/tests/Support/AppCase.php",
         "<?php\nnamespace Tests\\Support;\nabstract class AppCase extends \\PHPUnit\\Framework\\TestCase {\n    public function login(): string { return ''; }\n}\n",
     );
+
     disk.write(
         "project/tests/Pest.php",
         "<?php\nuses(Tests\\Support\\AppCase::class)->in('Feature');\n",
     );
+
     disk.write(
         "project/tests/Pest/functions.php",
         "<?php\nfunction it(string $d, ?Closure $c = null) {}\nfunction beforeEach(?Closure $c = null) {}\nfunction describe(string $d, Closure $c) {}\n",
     );
+
     let mut client = indexed_server(&disk);
     let uri = disk.uri("project/tests/Feature/LoginTest.php");
     let text = "<?php\nbeforeEach(function () {\n    $this->name = 'bas';\n});\n\ndescribe('login', function () {\n    it('works', function () {\n        $this->\n    });\n});\n";
     client.open(&uri, text);
 
     let completion = client.at("textDocument/completion", &uri, 7, 15);
+
     let labels: Vec<&str> = completion["items"]
         .as_array()
         .or_else(|| completion.as_array())
@@ -138,17 +154,20 @@ fn pest_closures_run_as_the_test_case_bound_to_their_folder() {
         .iter()
         .map(|item| item["label"].as_str().unwrap())
         .collect();
+
     assert!(labels.contains(&"login"), "{labels:?}");
     assert!(labels.contains(&"assertTrue"), "{labels:?}");
     assert!(labels.contains(&"name"), "{labels:?}");
 
     let listed = client.request("php/runnables", json!({ "uri": uri }));
+
     let found: Vec<(&str, &str)> = listed
         .as_array()
         .expect("a list")
         .iter()
         .map(|runnable| (runnable["kind"].as_str().unwrap(), runnable["label"].as_str().unwrap()))
         .collect();
+
     assert_eq!(found, vec![("pest", "login"), ("pest", "login → it works")]);
     let plain = disk.uri("project/src/Models/User.php");
     client.open(&plain, "<?php\nclass User {}\n");

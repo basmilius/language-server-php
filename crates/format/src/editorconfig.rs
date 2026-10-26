@@ -16,6 +16,7 @@ pub enum IndentStyle {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndentSize {
     Spaces(usize),
+
     /// `indent_size = tab`: the width of a tab.
     Tab,
 }
@@ -48,28 +49,36 @@ struct Parsed {
 fn parse(text: &str) -> Parsed {
     let mut root = false;
     let mut sections: Vec<Section> = Vec::new();
+
     for line in text.lines() {
         let line = line.trim();
+
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
             continue;
         }
+
         if let Some(glob) = line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
             sections.push(Section {
                 glob: glob.to_string(),
                 properties: Vec::new(),
             });
+
             continue;
         }
+
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
+
         let (key, value) = (key.trim().to_ascii_lowercase(), value.trim().to_ascii_lowercase());
+
         match sections.last_mut() {
             Some(section) => section.properties.push((key, value)),
             None if key == "root" => root = value == "true",
             None => {}
         }
     }
+
     Parsed { root, sections }
 }
 
@@ -79,6 +88,7 @@ fn expand_braces(pattern: &str) -> Vec<String> {
     let mut depth = 0usize;
     let mut open = None;
     let mut bracket = false;
+
     for (at, c) in chars.iter().enumerate() {
         match c {
             '\\' => {}
@@ -88,18 +98,24 @@ fn expand_braces(pattern: &str) -> Vec<String> {
                 if depth == 0 {
                     open = Some(at);
                 }
+
                 depth += 1;
             }
             '}' if !bracket && depth > 0 => {
                 depth -= 1;
+
                 if depth == 0 {
                     let Some(start) = open else {
                         continue;
                     };
+
                     let inner: String = chars[start + 1..at].iter().collect();
+
                     let (before, after): (String, String) =
                         (chars[..start].iter().collect(), chars[at + 1..].iter().collect());
+
                     let choices = alternatives(&inner);
+
                     if choices.len() < 2 && !inner.contains("..") {
                         // A lone `{x}` stands for itself.
                         return expand_braces(&after)
@@ -107,6 +123,7 @@ fn expand_braces(pattern: &str) -> Vec<String> {
                             .map(|rest| format!("{before}{{{inner}}}{rest}"))
                             .collect();
                     }
+
                     return choices
                         .into_iter()
                         .flat_map(|choice| expand_braces(&format!("{before}{choice}{after}")))
@@ -116,6 +133,7 @@ fn expand_braces(pattern: &str) -> Vec<String> {
             _ => {}
         }
     }
+
     vec![pattern.to_string()]
 }
 
@@ -123,12 +141,15 @@ fn alternatives(inner: &str) -> Vec<String> {
     if let Some((from, to)) = inner.split_once("..") {
         if let (Ok(from), Ok(to)) = (from.parse::<i64>(), to.parse::<i64>()) {
             let (low, high) = (from.min(to), from.max(to));
+
             return (low..=high).map(|number| number.to_string()).collect();
         }
     }
+
     let mut out = Vec::new();
     let mut depth = 0;
     let mut current = String::new();
+
     for c in inner.chars() {
         match c {
             '{' => {
@@ -143,7 +164,9 @@ fn alternatives(inner: &str) -> Vec<String> {
             _ => current.push(c),
         }
     }
+
     out.push(current);
+
     out
 }
 
@@ -151,13 +174,16 @@ fn glob_matches(pattern: &[char], text: &[char]) -> bool {
     let Some((&first, rest)) = pattern.split_first() else {
         return text.is_empty();
     };
+
     match first {
         '*' if rest.first() == Some(&'*') => {
             let rest = &rest[1..];
+
             (0..=text.len()).any(|skip| glob_matches(rest, &text[skip..]))
         }
         '*' => {
             let limit = text.iter().position(|c| *c == '/').unwrap_or(text.len());
+
             (0..=limit).any(|skip| glob_matches(rest, &text[skip..]))
         }
         '?' => text.first().is_some_and(|c| *c != '/') && glob_matches(rest, &text[1..]),
@@ -165,16 +191,21 @@ fn glob_matches(pattern: &[char], text: &[char]) -> bool {
             let Some(close) = rest.iter().position(|c| *c == ']') else {
                 return text.first() == Some(&'[') && glob_matches(rest, &text[1..]);
             };
+
             let class = &rest[..close];
+
             let Some(&c) = text.first() else {
                 return false;
             };
+
             let (negated, class) = match class.split_first() {
                 Some((&'!', tail)) => (true, tail),
                 _ => (false, class),
             };
+
             let mut found = false;
             let mut at = 0;
+
             while at < class.len() {
                 if at + 2 < class.len() && class[at + 1] == '-' {
                     found |= (class[at]..=class[at + 2]).contains(&c);
@@ -184,6 +215,7 @@ fn glob_matches(pattern: &[char], text: &[char]) -> bool {
                     at += 1;
                 }
             }
+
             c != '/' && found != negated && glob_matches(&rest[close + 1..], &text[1..])
         }
         '\\' => match rest.split_first() {
@@ -199,13 +231,16 @@ fn section_matches(glob: &str, relative: &str) -> bool {
     let anchored = glob.contains('/');
     let glob = glob.trim_start_matches('/');
     let text: Vec<char> = relative.chars().collect();
+
     expand_braces(glob).iter().any(|pattern| {
         let pattern = if anchored {
             pattern.clone()
         } else {
             format!("**/{pattern}")
         };
+
         let chars: Vec<char> = pattern.chars().collect();
+
         glob_matches(&chars, &text) || !anchored && glob_matches(&pattern.chars().skip(3).collect::<Vec<char>>(), &text)
     })
 }
@@ -216,23 +251,30 @@ impl EditorConfig {
     pub fn for_path(path: &Path, read: &dyn Fn(&Path) -> Option<String>) -> EditorConfig {
         let mut layers: Vec<(PathBuf, Parsed)> = Vec::new();
         let mut folder = path.parent();
+
         while let Some(dir) = folder {
             if let Some(text) = read(&dir.join(".editorconfig")) {
                 let parsed = parse(&text);
                 let is_root = parsed.root;
                 layers.push((dir.to_path_buf(), parsed));
+
                 if is_root {
                     break;
                 }
             }
+
             folder = dir.parent();
         }
+
         let mut properties: HashMap<String, String> = HashMap::new();
+
         for (dir, parsed) in layers.iter().rev() {
             let Ok(relative) = path.strip_prefix(dir) else {
                 continue;
             };
+
             let relative = relative.to_string_lossy().replace('\\', "/");
+
             for section in &parsed.sections {
                 if section_matches(&section.glob, &relative) {
                     for (key, value) in &section.properties {
@@ -245,6 +287,7 @@ impl EditorConfig {
                 }
             }
         }
+
         EditorConfig::from_properties(&properties)
     }
 
@@ -255,6 +298,7 @@ impl EditorConfig {
                 .and_then(|value| value.parse::<usize>().ok())
                 .filter(|value| *value > 0)
         };
+
         EditorConfig {
             indent_style: match properties.get("indent_style").map(String::as_str) {
                 Some("space") => Some(IndentStyle::Space),
@@ -282,6 +326,7 @@ impl FormatOptions {
             (Some(IndentSize::Tab) | None, Some(width)) => Some(width),
             _ => None,
         };
+
         match config.indent_style {
             Some(IndentStyle::Tab) => self.indent = Indent::Tab,
             Some(IndentStyle::Space) => {
@@ -289,6 +334,7 @@ impl FormatOptions {
                     Indent::Spaces(width) => width,
                     Indent::Tab => 4,
                 };
+
                 self.indent = Indent::Spaces(width.unwrap_or(current));
             }
             None => {
@@ -299,11 +345,13 @@ impl FormatOptions {
                 }
             }
         }
+
         match config.max_line_length {
             Some(LineLength::Limit(limit)) => self.line_length = limit,
             Some(LineLength::Off) => self.line_length = 0,
             None => {}
         }
+
         self
     }
 }
@@ -319,6 +367,7 @@ mod tests {
                 .find(|(file, _)| Path::new(file) == wanted)
                 .map(|(_, text)| (*text).to_string())
         };
+
         EditorConfig::for_path(Path::new(path), &read)
     }
 
@@ -331,6 +380,7 @@ mod tests {
             )],
             "/p/src/A.php",
         );
+
         assert_eq!(found.indent_style, Some(IndentStyle::Space));
         assert_eq!(found.indent_size, Some(IndentSize::Spaces(4)));
         assert_eq!(found.max_line_length, Some(LineLength::Limit(100)));
@@ -346,6 +396,7 @@ mod tests {
                 "[*.php]\nindent_size = 3\nmax_line_length = off\n",
             ),
         ];
+
         let found = config(&files, "/p/src/A.php");
         assert_eq!(found.indent_style, Some(IndentStyle::Space));
         assert_eq!(found.indent_size, Some(IndentSize::Spaces(3)));
@@ -376,6 +427,7 @@ mod tests {
             )],
             "/p/A.php",
         );
+
         assert_eq!(found.indent_style, None);
     }
 
@@ -386,14 +438,17 @@ mod tests {
             max_line_length: Some(LineLength::Limit(90)),
             ..EditorConfig::default()
         });
+
         assert_eq!(tabs.indent, Indent::Tab);
         assert_eq!(tabs.line_length, 90);
+
         let two = FormatOptions::default().with_editorconfig(&EditorConfig {
             indent_style: Some(IndentStyle::Space),
             indent_size: Some(IndentSize::Spaces(2)),
             max_line_length: Some(LineLength::Off),
             ..EditorConfig::default()
         });
+
         assert_eq!(two.indent, Indent::Spaces(2));
         assert_eq!(two.line_length, 0);
         let untouched = FormatOptions::default().with_editorconfig(&EditorConfig::default());

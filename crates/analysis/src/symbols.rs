@@ -20,13 +20,18 @@ pub enum SymbolKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Symbol {
     pub name: String,
+
     /// The signature or the type: what a reader wants next to the name.
     pub detail: Option<String>,
+
     pub kind: SymbolKind,
+
     /// The whole declaration, with its doc comment.
     pub range: TextRange,
+
     /// The name, which lies inside `range`.
     pub selection_range: TextRange,
+
     pub deprecated: bool,
     pub children: Vec<Symbol>,
 }
@@ -35,6 +40,7 @@ pub struct Symbol {
 pub fn document_symbols(root: &SyntaxNode) -> Vec<Symbol> {
     let mut symbols = Vec::new();
     collect_statements(root, &mut symbols);
+
     symbols
 }
 
@@ -79,6 +85,7 @@ fn is_deprecated(node: &SyntaxNode) -> bool {
             _ => return false,
         }
     }
+
     false
 }
 
@@ -98,6 +105,7 @@ fn namespace(node: &SyntaxNode) -> Symbol {
     let name = name_node(node);
     let mut children = Vec::new();
     collect_statements(node, &mut children);
+
     Symbol {
         name: name.as_ref().map_or_else(|| "(global)".to_string(), text_of),
         detail: None,
@@ -112,6 +120,7 @@ fn namespace(node: &SyntaxNode) -> Symbol {
 /// `(int $a, ?string $b): string`, with the whitespace of the source collapsed.
 fn signature(node: &SyntaxNode) -> String {
     let mut out = String::new();
+
     for kind in [PARAMETER_LIST, RETURN_TYPE] {
         if let Some(part) = node.children().find(|child| child.kind() == kind) {
             let text = text_of(&part);
@@ -119,11 +128,13 @@ fn signature(node: &SyntaxNode) -> String {
             out.push_str(&collapsed.join(" "));
         }
     }
+
     out.replace("( ", "(").replace(" )", ")").replace(" ,", ",")
 }
 
 fn function(node: &SyntaxNode) -> Option<Symbol> {
     let name = name_node(node)?;
+
     Some(symbol(node, &name, SymbolKind::Function, Some(signature(node))))
 }
 
@@ -134,6 +145,7 @@ fn constants(node: &SyntaxNode) -> Vec<Symbol> {
             let name = name_node(&element)?;
             let mut found = symbol(node, &name, SymbolKind::Constant, None);
             found.range = element.text_range();
+
             Some(found)
         })
         .collect()
@@ -141,40 +153,50 @@ fn constants(node: &SyntaxNode) -> Vec<Symbol> {
 
 fn class_like(node: &SyntaxNode) -> Option<Symbol> {
     let name = name_node(node)?;
+
     let kind = match node.kind() {
         INTERFACE_DECLARATION => SymbolKind::Interface,
         TRAIT_DECLARATION => SymbolKind::Trait,
         ENUM_DECLARATION => SymbolKind::Enum,
         _ => SymbolKind::Class,
     };
+
     let mut found = symbol(node, &name, kind, None);
+
     if let Some(body) = node.children().find(|child| child.kind() == CLASS_BODY) {
         found.children = members(&body);
     }
+
     Some(found)
 }
 
 fn members(body: &SyntaxNode) -> Vec<Symbol> {
     let mut out = Vec::new();
+
     for member in body.children() {
         match member.kind() {
             METHOD_DECLARATION => {
                 let Some(name) = name_node(&member) else {
                     continue;
                 };
+
                 let is_constructor = text_of(&name).eq_ignore_ascii_case("__construct");
+
                 let kind = if is_constructor {
                     SymbolKind::Constructor
                 } else {
                     SymbolKind::Method
                 };
+
                 out.push(symbol(&member, &name, kind, Some(signature(&member))));
+
                 if is_constructor {
                     out.extend(promoted_properties(&member));
                 }
             }
             PROPERTY_DECLARATION => {
                 let detail = property_type(&member);
+
                 for element in member.children().filter(|child| child.kind() == PROPERTY_ELEMENT) {
                     let Some(variable) = element
                         .children_with_tokens()
@@ -183,6 +205,7 @@ fn members(body: &SyntaxNode) -> Vec<Symbol> {
                     else {
                         continue;
                     };
+
                     out.push(Symbol {
                         name: variable.text().to_string(),
                         detail: detail.clone(),
@@ -209,6 +232,7 @@ fn members(body: &SyntaxNode) -> Vec<Symbol> {
             _ => {}
         }
     }
+
     out
 }
 
@@ -230,6 +254,7 @@ fn promoted_properties(constructor: &SyntaxNode) -> Vec<Symbol> {
     let Some(list) = constructor.children().find(|child| child.kind() == PARAMETER_LIST) else {
         return Vec::new();
     };
+
     list.children()
         .filter(|parameter| {
             parameter.kind() == PARAMETER && parameter.children().any(|child| child.kind() == MODIFIER_LIST)
@@ -239,6 +264,7 @@ fn promoted_properties(constructor: &SyntaxNode) -> Vec<Symbol> {
                 .children_with_tokens()
                 .filter_map(SyntaxElement::into_token)
                 .find(|t| t.kind() == VARIABLE)?;
+
             Some(Symbol {
                 name: variable.text().to_string(),
                 detail: property_type(&parameter),
@@ -265,13 +291,16 @@ mod tests {
                 .as_deref()
                 .map(|detail| format!(" {detail}"))
                 .unwrap_or_default();
+
             let tag = if symbol.deprecated { " (deprecated)" } else { "" };
+
             out.push_str(&format!(
                 "{}{:?} {}{detail}{tag}\n",
                 "  ".repeat(depth),
                 symbol.kind,
                 symbol.name
             ));
+
             outline(&symbol.children, depth + 1, out);
         }
     }

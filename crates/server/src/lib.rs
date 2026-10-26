@@ -9,8 +9,10 @@ mod documents;
 mod features;
 mod formatting;
 mod hierarchies;
+
 #[doc(hidden)]
 pub mod hold;
+
 mod insight;
 mod refactors;
 mod runnables;

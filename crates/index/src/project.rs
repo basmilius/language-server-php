@@ -13,16 +13,22 @@ use crate::words::WordIndex;
 
 pub struct Project {
     pub root: PathBuf,
+
     /// The workspace folder that brought this project in. It is `root` itself unless the project is
     /// a composer root found below a folder that has no `composer.json`.
     pub folder: PathBuf,
+
     pub composer: Option<Composer>,
     pub level: PhpVersion,
+
     /// The level came from `composer.json` and not from the settings.
     pub level_from_composer: bool,
+
     pub index: Index,
+
     /// The words of the project's own files, for searches. Built when the first one asks.
     pub words: WordIndex,
+
     /// The words of the files of the installed packages, for a search that asks for them.
     pub package_words: WordIndex,
 }
@@ -36,6 +42,7 @@ impl Project {
     pub fn open_in(root: &Path, folder: &Path, default_level: PhpVersion) -> Project {
         let composer = Composer::load(root);
         let (level, level_from_composer) = level_for(composer.as_ref(), default_level);
+
         let mut project = Project {
             root: root.to_path_buf(),
             folder: folder.to_path_buf(),
@@ -46,7 +53,9 @@ impl Project {
             words: WordIndex::default(),
             package_words: WordIndex::default(),
         };
+
         project.configure_index();
+
         project
     }
 
@@ -86,6 +95,7 @@ impl Project {
         self.level_from_composer = from_composer;
         self.index.level = level;
         self.configure_index();
+
         changed
     }
 
@@ -108,6 +118,7 @@ impl Project {
     /// Where the extracted declarations of this project are cached inside a storage folder.
     pub fn cache_path(&self, storage: &Path) -> PathBuf {
         let name = crate::cache::path_key(&self.root);
+
         storage.join("cache").join(format!("project-{name}.bin"))
     }
 
@@ -115,6 +126,7 @@ impl Project {
     pub fn words_path(&self, storage: &Path, packages: bool) -> PathBuf {
         let name = crate::cache::path_key(&self.root);
         let kind = if packages { "package-words" } else { "words" };
+
         storage.join("cache").join(format!("{kind}-{name}.bin"))
     }
 
@@ -125,6 +137,7 @@ impl Project {
             .as_ref()
             .map(|composer| composer.extensions.clone())
             .unwrap_or_default();
+
         crate::stubs::selected_extensions(&required)
     }
 
@@ -162,6 +175,7 @@ mod tests {
             r#"{"require":{"php":"^8.1"},"config":{"platform":{"php":"8.3"}}}"#,
         )
         .expect("written");
+
         let mut project = project;
         assert!(project.reload_composer(PhpVersion::V8_4));
         assert_eq!(project.level, PhpVersion::V8_3);

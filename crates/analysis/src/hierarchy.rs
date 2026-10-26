@@ -42,6 +42,7 @@ pub fn prepare_type_hierarchy(index: &Index, root: &php_syntax::SyntaxNode, offs
     let Some((_, symbols)) = symbols_at(index, root, offset) else {
         return Vec::new();
     };
+
     symbols
         .iter()
         .filter_map(|symbol| match symbol {
@@ -57,17 +58,21 @@ pub fn supertypes(index: &Index, name: &str) -> Vec<TypeItem> {
     let Some(class) = index.class(name) else {
         return Vec::new();
     };
+
     let decl = class.decl;
     let mut out: Vec<TypeItem> = Vec::new();
+
     let types = decl
         .extends
         .iter()
         .chain(&decl.implements)
         .chain(decl.trait_uses.iter().map(|usage| &usage.ty));
+
     for ty in types {
         for parent in ty.class_names() {
             if let Some(found) = index.class(parent) {
                 let item = type_item(found);
+
                 if !out
                     .iter()
                     .any(|existing| existing.name.eq_ignore_ascii_case(&item.name))
@@ -77,6 +82,7 @@ pub fn supertypes(index: &Index, name: &str) -> Vec<TypeItem> {
             }
         }
     }
+
     out
 }
 
@@ -84,6 +90,7 @@ pub fn supertypes(index: &Index, name: &str) -> Vec<TypeItem> {
 pub fn subtypes(index: &Index, name: &str) -> Vec<TypeItem> {
     let mut out: Vec<TypeItem> = index.direct_subtypes(name).into_iter().map(type_item).collect();
     out.sort_by(|left, right| left.name.cmp(&right.name));
+
     out
 }
 
@@ -97,6 +104,7 @@ pub enum CallSymbol {
         class: Name,
         name: String,
     },
+
     /// A closure or arrow function that sits outside every named function, such as the body of a
     /// Pest test. The label is what the callers list shows for it.
     Closure {
@@ -104,6 +112,7 @@ pub enum CallSymbol {
         start: u32,
         label: String,
     },
+
     /// The code of a file that belongs to no function.
     File(PathBuf),
 }
@@ -122,6 +131,7 @@ pub fn prepare_call_hierarchy(index: &Index, root: &SyntaxNode, offset: u32) -> 
     let Some((_, symbols)) = symbols_at(index, root, offset) else {
         return Vec::new();
     };
+
     symbols
         .iter()
         .find_map(|symbol| match symbol {
@@ -144,6 +154,7 @@ pub fn call_item(index: &Index, symbol: &CallSymbol) -> Option<CallItem> {
     match symbol {
         CallSymbol::Function(name) => {
             let function = index.function(name)?;
+
             Some(CallItem {
                 symbol: symbol.clone(),
                 path: function.file.path.clone(),
@@ -155,6 +166,7 @@ pub fn call_item(index: &Index, symbol: &CallSymbol) -> Option<CallItem> {
         CallSymbol::Method { class, name } => {
             let class = index.class(class)?;
             let method = class.decl.method(name)?;
+
             Some(CallItem {
                 symbol: symbol.clone(),
                 path: class.file.path.clone(),
@@ -190,6 +202,7 @@ pub fn call_item(index: &Index, symbol: &CallSymbol) -> Option<CallItem> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IncomingCall {
     pub from: CallItem,
+
     /// The ranges of the called names, in the file of the caller.
     pub ranges: Vec<TextRange>,
 }
@@ -207,20 +220,26 @@ pub fn incoming_calls(index: &Index, sources: &dyn Sources, symbol: &CallSymbol)
         ),
         CallSymbol::Closure { .. } | CallSymbol::File(_) => return Vec::new(),
     };
+
     let mut grouped: BTreeMap<(PathBuf, u32), IncomingCall> = BTreeMap::new();
+
     for file in find_hits(index, sources, None, &query) {
         let Some(text) = sources.text(&file.path) else {
             continue;
         };
+
         let root = parse(&text).syntax();
         let ctx = FileContext::new(index, &root);
+
         for hit in &file.hits {
             if hit.kind != HitKind::Reference {
                 continue;
             }
+
             let Some(item) = enclosing_callable(&ctx, &file.path, u32::from(hit.range.start())) else {
                 continue;
             };
+
             grouped
                 .entry((file.path.clone(), item.span.start))
                 .or_insert_with(|| IncomingCall {
@@ -231,19 +250,23 @@ pub fn incoming_calls(index: &Index, sources: &dyn Sources, symbol: &CallSymbol)
                 .push(hit.range);
         }
     }
+
     grouped.into_values().collect()
 }
 
 /// The named function or method a position is in, else the closure around it, else the file.
 fn enclosing_callable(ctx: &FileContext, path: &Path, offset: u32) -> Option<CallItem> {
     let node = ast::node_at(&ctx.root, offset + 1);
+
     let function = node
         .ancestors()
         .find(|ancestor| matches!(ancestor.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION));
+
     let Some(function) = function else {
         let closure = node
             .ancestors()
             .find(|ancestor| matches!(ancestor.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR));
+
         return Some(match closure {
             Some(closure) => closure_item(&closure, path),
             None => CallItem {
@@ -258,8 +281,10 @@ fn enclosing_callable(ctx: &FileContext, path: &Path, offset: u32) -> Option<Cal
             },
         });
     };
+
     let name = ast::child_of(&function, NAME)?;
     let analyzer = ctx.analyzer(&function);
+
     let symbol = match function.kind() {
         FUNCTION_DECLARATION => CallSymbol::Function(analyzer.resolver.qualify(&ast::text_of(&name))),
         _ => CallSymbol::Method {
@@ -267,6 +292,7 @@ fn enclosing_callable(ctx: &FileContext, path: &Path, offset: u32) -> Option<Cal
             name: ast::text_of(&name),
         },
     };
+
     Some(CallItem {
         symbol,
         path: path.to_path_buf(),
@@ -285,9 +311,11 @@ fn enclosing_callable(ctx: &FileContext, path: &Path, offset: u32) -> Option<Cal
 /// A closure as an item, labeled by the call it is an argument of: `it('does a thing')` for a test.
 fn closure_item(closure: &SyntaxNode, path: &Path) -> CallItem {
     let start = ast::start(closure);
+
     let keyword_end = closure
         .first_token()
         .map_or(start, |token| u32::from(token.text_range().end()));
+
     CallItem {
         symbol: CallSymbol::Closure {
             path: path.to_path_buf(),
@@ -312,13 +340,16 @@ fn closure_label(closure: &SyntaxNode) -> String {
         .ancestors()
         .skip(1)
         .find(|ancestor| ancestor.kind() == CALL_EXPR);
+
     let described = call.and_then(|call| {
         let callee = ast::child_of(&call, NAME)?;
         let first = ast::child_of(&call, ARGUMENT_LIST)?.children().next()?;
         let text = ast::text_of(&first);
         let quoted = text.len() >= 2 && (text.starts_with('\'') || text.starts_with('"')) && text.ends_with(&text[..1]);
+
         quoted.then(|| format!("{}({})", ast::text_of(&callee), text))
     });
+
     described.unwrap_or_else(|| "{closure}".to_string())
 }
 
@@ -334,7 +365,9 @@ pub fn outgoing_calls(index: &Index, text: &str, item: &CallItem) -> Vec<Outgoin
     if matches!(item.symbol, CallSymbol::File(_)) {
         return Vec::new();
     }
+
     let root = parse(text).syntax();
+
     let function = if matches!(item.symbol, CallSymbol::Closure { .. }) {
         let Some(token) = root
             .token_at_offset(php_syntax::TextSize::from(item.span.start))
@@ -342,11 +375,13 @@ pub fn outgoing_calls(index: &Index, text: &str, item: &CallItem) -> Vec<Outgoin
         else {
             return Vec::new();
         };
+
         token.parent_ancestors().find(|node| {
             matches!(node.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR) && ast::start(node) == item.span.start
         })
     } else {
         let range = range_of(item.span.start, item.span.end);
+
         let covering = match root.covering_element(range) {
             php_syntax::SyntaxElement::Node(node) => node,
             php_syntax::SyntaxElement::Token(token) => match token.parent() {
@@ -354,24 +389,31 @@ pub fn outgoing_calls(index: &Index, text: &str, item: &CallItem) -> Vec<Outgoin
                 None => return Vec::new(),
             },
         };
+
         covering
             .ancestors()
             .find(|node| matches!(node.kind(), FUNCTION_DECLARATION | METHOD_DECLARATION))
     };
+
     let Some(function) = function else {
         return Vec::new();
     };
+
     let ctx = FileContext::new(index, &root);
     let mut grouped: Vec<(CallSymbol, Vec<TextRange>)> = Vec::new();
+
     for node in function.descendants() {
         if !matches!(node.kind(), CALL_EXPR | NEW_EXPR) || in_nested_declaration(&node, &function) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&node);
         let env = analyzer.env_around(&node);
+
         let Some(called_range) = called_name_range(&node) else {
             continue;
         };
+
         for callee in analyzer.callees(&node, &env) {
             let symbol = match callee.name.rsplit_once("::") {
                 Some((class, method)) => CallSymbol::Method {
@@ -381,12 +423,14 @@ pub fn outgoing_calls(index: &Index, text: &str, item: &CallItem) -> Vec<Outgoin
                 None if callee.name == "closure" => continue,
                 None => CallSymbol::Function(callee.name.clone()),
             };
+
             match grouped.iter_mut().find(|(existing, _)| *existing == symbol) {
                 Some((_, ranges)) => ranges.push(called_range),
                 None => grouped.push((symbol, vec![called_range])),
             }
         }
     }
+
     grouped
         .into_iter()
         .filter_map(|(symbol, ranges)| {
@@ -412,6 +456,7 @@ fn called_name_range(call: &SyntaxNode) -> Option<TextRange> {
         NEW_EXPR => call.children().find(|child| child.kind() == NAME),
         _ => {
             let callee = call.children().next()?;
+
             match callee.kind() {
                 NAME => Some(callee),
                 PROPERTY_FETCH_EXPR | SCOPED_ACCESS_EXPR => {
@@ -421,6 +466,7 @@ fn called_name_range(call: &SyntaxNode) -> Option<TextRange> {
             }
         }
     }?;
+
     Some(
         name.last_token()
             .map_or_else(|| name.text_range(), |token| ast::last_segment_of_token(&token)),

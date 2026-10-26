@@ -13,22 +13,31 @@ pub type Documents = lsc_server::Documents<Parse, DocumentState>;
 pub struct DocumentState {
     /// The language level of this document alone, when the client gave one.
     pub level: Option<PhpVersion>,
+
     /// The inspection settings of this document alone, when the client gave some.
     pub inspections: Option<InspectionSettings>,
+
     /// The formatting settings of this document alone, when the client gave some.
     pub format: Option<FormatSettings>,
+
     /// Whether a search from this document reads the installed packages, when the client said.
     pub usages_packages: Option<bool>,
+
     /// Whether completion of this document writes a call's arguments, when the client said.
     pub completion_call_arguments: Option<bool>,
+
     /// The version whose declarations the index holds.
     pub indexed_version: Option<i32>,
+
     /// A Blade template: only the names it holds and the PHP in it are read.
     pub blade: bool,
+
     /// A Twig template, which is no PHP at all.
     pub twig: bool,
+
     /// A YAML file, of which only a Symfony project's configuration is read.
     pub yaml: bool,
+
     /// The `sql` setting of this document alone, when the client gave one.
     pub sql: Option<serde_json::Value>,
 }
@@ -53,6 +62,7 @@ mod tests {
     #[test]
     fn parses_the_text_after_incremental_changes() {
         let mut document = Document::new(1, "<?php\n$a = 1;\n$b = 2;\n".to_string());
+
         document.apply_changes(
             2,
             &[TextDocumentContentChangeEvent {
@@ -62,6 +72,7 @@ mod tests {
             }],
             PositionEncoding::Utf16,
         );
+
         assert_eq!(document.text, "<?php\n$a = 42;\n$b = 2;\n");
         assert!(document.parse().errors().is_empty());
         assert!(document.cached().is_some());

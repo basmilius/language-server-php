@@ -27,10 +27,12 @@ fn language(name: &str) -> Option<Option<Dialect>> {
 fn comment_marker(text: &str) -> Option<Marker> {
     let lower = text.to_ascii_lowercase();
     let at = lower.find("language=")?;
+
     let name: String = text[at + "language=".len()..]
         .chars()
         .take_while(|character| character.is_ascii_alphanumeric())
         .collect();
+
     language(&name).map(|dialect| Marker { dialect })
 }
 
@@ -48,20 +50,27 @@ fn is_comment(token: &SyntaxToken) -> bool {
 pub(crate) fn before(node: &SyntaxNode) -> Option<Marker> {
     let first = node.first_token()?;
     let mut token = Some(first.clone());
+
     while let Some(current) = token {
         if current.kind() == WHITESPACE {
             token = current.next_token();
+
             continue;
         }
+
         if !is_comment(&current) || !node.text_range().contains_range(current.text_range()) {
             break;
         }
+
         if let Some(marker) = comment_marker(current.text()) {
             return Some(marker);
         }
+
         token = current.next_token();
     }
+
     let mut token = first.prev_token();
+
     while let Some(current) = token {
         match current.kind() {
             WHITESPACE => {}
@@ -72,14 +81,17 @@ pub(crate) fn before(node: &SyntaxNode) -> Option<Marker> {
             }
             _ => break,
         }
+
         token = current.prev_token();
     }
+
     None
 }
 
 /// The statement or member a node is part of.
 pub(crate) fn statement_of(node: &SyntaxNode) -> SyntaxNode {
     let mut current = node.clone();
+
     while let Some(parent) = current.parent() {
         if matches!(
             parent.kind(),
@@ -87,8 +99,10 @@ pub(crate) fn statement_of(node: &SyntaxNode) -> SyntaxNode {
         ) {
             break;
         }
+
         current = parent;
     }
+
     current
 }
 
@@ -99,18 +113,21 @@ mod tests {
     #[test]
     fn reads_the_language_of_a_comment() {
         assert_eq!(comment_marker("/* language=SQL */"), Some(Marker { dialect: None }));
+
         assert_eq!(
             comment_marker("// Language=PostgreSQL"),
             Some(Marker {
                 dialect: Some(Dialect::Postgres)
             })
         );
+
         assert_eq!(
             comment_marker("/** @lang x language=mariadb */"),
             Some(Marker {
                 dialect: Some(Dialect::Mariadb)
             })
         );
+
         assert_eq!(comment_marker("// language=HTML"), None);
         assert_eq!(comment_marker("// select a file"), None);
         assert_eq!(label_marker("SQL"), Some(Marker { dialect: None }));

@@ -5,6 +5,7 @@ fn var(fixture: &Fixture, code: &str, name: &str) -> String {
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
     let env = analyzer.env_at(offset);
+
     env.get(name)
         .map_or_else(|| "<unset>".to_string(), |ty| ty.display(true))
 }
@@ -57,6 +58,7 @@ function assertBar(mixed $value): void {}
 #[test]
 fn an_assert_tag_narrows_the_variable_after_the_call() {
     let fixture = library();
+
     let code = r#"<?php
 namespace App;
 use Lib\{Check, Foo};
@@ -69,6 +71,7 @@ function f(mixed $a, ?Foo $b, int|string $c, mixed $d, mixed $e) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "a"), "Foo");
     assert_eq!(var(&fixture, code, "b"), "Foo");
     assert_eq!(var(&fixture, code, "c"), "string");
@@ -79,6 +82,7 @@ function f(mixed $a, ?Foo $b, int|string $c, mixed $d, mixed $e) {
 #[test]
 fn an_assert_function_narrows_to_the_type_of_its_tag() {
     let fixture = library();
+
     let code = r#"<?php
 namespace App;
 use Lib\Foo;
@@ -88,12 +92,14 @@ function f(?Foo $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "a"), "Bar");
 }
 
 #[test]
 fn if_true_and_if_false_narrow_in_the_branch_they_hold_for() {
     let fixture = library();
+
     let inside = r#"<?php
 namespace App;
 use Lib\{Check, Foo};
@@ -103,7 +109,9 @@ function f(mixed $a, mixed $b) {
     }
 }
 "#;
+
     assert_eq!(var(&fixture, inside, "a"), "Foo");
+
     let negated = r#"<?php
 namespace App;
 use Lib\{Check, Foo};
@@ -114,7 +122,9 @@ function f(mixed $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, negated, "a"), "Foo");
+
     let if_false = r#"<?php
 namespace App;
 use Lib\{Check, Foo};
@@ -125,7 +135,9 @@ function f(Foo|string $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, if_false, "a"), "Foo");
+
     let untouched = r#"<?php
 namespace App;
 use Lib\{Check, Foo};
@@ -135,12 +147,14 @@ function f(mixed $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, untouched, "a"), "mixed");
 }
 
 #[test]
 fn assertions_through_this_and_a_receiver() {
     let fixture = library();
+
     let code = r#"<?php
 namespace App;
 use Lib\Foo;
@@ -151,5 +165,6 @@ class Case1 extends \Lib\Check {
     }
 }
 "#;
+
     assert_eq!(var(&fixture, code, "a"), "mixed");
 }

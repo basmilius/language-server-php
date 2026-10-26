@@ -29,10 +29,13 @@ impl Server {
             .as_ref()
             .and_then(|settings| settings.editorconfig)
             .unwrap_or(true);
+
         let Some(path) = lsc_server::paths::uri_to_path(uri).filter(|_| wanted) else {
             return options;
         };
+
         let config = php_format::EditorConfig::for_path(&path, &|file| std::fs::read_to_string(file).ok());
+
         options.with_editorconfig(&config)
     }
 
@@ -41,10 +44,13 @@ impl Server {
             indent: indent_of(asked),
             ..FormatOptions::default()
         };
+
         options = self.with_editorconfig(uri, options);
+
         if let Some(settings) = &self.settings.format {
             options = settings.apply(options);
         }
+
         if let Some(settings) = self
             .documents
             .get(uri)
@@ -52,6 +58,7 @@ impl Server {
         {
             options = settings.apply(options);
         }
+
         options
     }
 
@@ -67,6 +74,7 @@ impl Server {
         let document = self.documents.get(uri)?;
         let edits = run(&document.text, &options)?;
         let mapper = document.mapper(self.encoding);
+
         Some(
             edits
                 .into_iter()
@@ -91,6 +99,7 @@ impl Server {
         let mapper = document.mapper(self.encoding);
         let start = usize::from(mapper.offset(params.range.start));
         let end = usize::from(mapper.offset(params.range.end));
+
         self.formatted_edits(
             &uri,
             |text, options| php_format::range_edits(text, start, end, options),
@@ -105,10 +114,12 @@ impl Server {
             .chars()
             .next()
             .filter(|typed| matches!(typed, '}' | ';' | '\n'))?;
+
         let uri = &params.text_document_position.text_document.uri;
         let document = self.documents.get(uri)?;
         let mapper = document.mapper(self.encoding);
         let offset = usize::from(mapper.offset(params.text_document_position.position));
+
         self.formatted_edits(
             uri,
             |text, options| php_format::on_type_edits(text, offset, typed, options),

@@ -14,15 +14,18 @@ enum Item {
         raw: String,
         start: u32,
         style: EscapeStyle,
+
         /// The indentation of a heredoc's closing marker, which PHP leaves out of every line, and
         /// whether the text starts a line.
         indent: Option<(u32, bool)>,
     },
+
     /// A `%%` of a format, which is one `%`.
     Percent {
         span: Span,
         style: EscapeStyle,
     },
+
     Hole {
         span: Span,
         kind: Option<HoleKind>,
@@ -33,8 +36,10 @@ enum Item {
 #[derive(Clone, Debug)]
 pub(crate) struct Pieces {
     items: Vec<Item>,
+
     /// The labels of the heredocs and nowdocs in it.
     pub labels: Vec<String>,
+
     pub range: TextRange,
 }
 
@@ -63,6 +68,7 @@ pub(crate) fn is_string_expression(node: &SyntaxNode) -> bool {
     if is_string_leaf(node) {
         return true;
     }
+
     match node.kind() {
         PAREN_EXPR => node.children().next().is_some_and(|inner| is_string_expression(&inner)),
         _ if is_concat(node) => node.children().any(|operand| is_string_expression(&operand)),
@@ -73,6 +79,7 @@ pub(crate) fn is_string_expression(node: &SyntaxNode) -> bool {
 /// The outermost string expression a string literal is part of.
 pub(crate) fn root_of(leaf: &SyntaxNode) -> SyntaxNode {
     let mut node = leaf.clone();
+
     while let Some(parent) = node.parent() {
         if parent.kind() == PAREN_EXPR || is_concat(&parent) {
             node = parent;
@@ -80,6 +87,7 @@ pub(crate) fn root_of(leaf: &SyntaxNode) -> SyntaxNode {
             break;
         }
     }
+
     node
 }
 
@@ -89,6 +97,7 @@ fn hinted(expression: &SyntaxNode) -> Option<HoleKind> {
         LITERAL => Some(HoleKind::Value),
         CAST_EXPR => {
             let cast = text_of(expression).to_ascii_lowercase();
+
             ["(int", "(integer", "(float", "(double", "(bool"]
                 .iter()
                 .any(|prefix| cast.starts_with(prefix))
@@ -96,11 +105,13 @@ fn hinted(expression: &SyntaxNode) -> Option<HoleKind> {
         }
         CALL_EXPR => {
             let callee = expression.children().next()?;
+
             let name = callee
                 .descendants()
                 .filter(|node| node.kind() == NAME)
                 .last()
                 .map(|name| text_of(&name).trim_start_matches('\\').to_ascii_lowercase())?;
+
             match name.as_str() {
                 "implode" | "join" => Some(HoleKind::List),
                 "intval" | "floatval" | "count" | "time" | "quote" | "number_format" | "abs" | "round" | "max"
@@ -126,21 +137,27 @@ fn quoted(node: &SyntaxNode) -> Option<(String, u32, EscapeStyle)> {
         .children_with_tokens()
         .filter_map(SyntaxElement::into_token)
         .find(|token| token.kind() == STRING_LITERAL)?;
+
     let text = token.text();
     let prefix = usize::from(text.starts_with(['b', 'B']));
     let quote = text.as_bytes().get(prefix).copied()?;
+
     let style = match quote {
         b'\'' => EscapeStyle::SingleQuoted,
         b'"' => EscapeStyle::DoubleQuoted,
         _ => return None,
     };
+
     let body_start = prefix + 1;
+
     let body_end = if text.len() > body_start && text.ends_with(quote as char) {
         text.len() - 1
     } else {
         text.len()
     };
+
     let start = u32::from(token.text_range().start()) + body_start as u32;
+
     Some((text[body_start..body_end].to_string(), start, style))
 }
 
@@ -150,12 +167,15 @@ fn heredoc_label(node: &SyntaxNode) -> Option<(String, bool)> {
         .children_with_tokens()
         .filter_map(SyntaxElement::into_token)
         .find(|token| token.kind() == HEREDOC_START)?;
+
     let text = start
         .text()
         .trim_start_matches(['b', 'B'])
         .trim_start_matches("<<<")
         .trim();
+
     let nowdoc = text.starts_with('\'');
+
     Some((text.trim_matches(['\'', '"']).to_string(), nowdoc))
 }
 
@@ -163,13 +183,17 @@ fn collect_heredoc(node: &SyntaxNode, out: &mut Vec<Item>, labels: &mut Vec<Stri
     let Some((label, nowdoc)) = heredoc_label(node) else {
         return hole(out, node);
     };
+
     labels.push(label);
+
     let style = if nowdoc {
         EscapeStyle::Verbatim
     } else {
         EscapeStyle::Heredoc
     };
+
     let elements: Vec<SyntaxElement> = node.children_with_tokens().collect();
+
     let indent = elements
         .iter()
         .find(|element| element.kind() == HEREDOC_END)
@@ -181,32 +205,39 @@ fn collect_heredoc(node: &SyntaxNode, out: &mut Vec<Item>, labels: &mut Vec<Stri
                 .take_while(|byte| matches!(byte, b' ' | b'\t'))
                 .count() as u32
         });
+
     let body_start = elements
         .iter()
         .find(|element| element.kind() == HEREDOC_START)
         .map_or(start(node), |element| u32::from(element.text_range().end()));
+
     let body: Vec<&SyntaxElement> = elements
         .iter()
         .filter(|element| !matches!(element.kind(), HEREDOC_START | HEREDOC_END))
         .collect();
+
     let first = out.len();
     let mut line_start = true;
+
     for (position, element) in body.iter().enumerate() {
         match element {
             SyntaxElement::Token(token) if token.kind() == STRING_CONTENT => {
                 let mut raw = token.text().to_string();
+
                 // The line break before the closing marker is not part of the value.
                 if position + 1 == body.len() {
                     if let Some(stripped) = raw.strip_suffix('\n') {
                         raw = stripped.strip_suffix('\r').unwrap_or(stripped).to_string();
                     }
                 }
+
                 out.push(Item::Text {
                     raw,
                     start: u32::from(token.text_range().start()),
                     style,
                     indent: Some((indent, line_start)),
                 });
+
                 line_start = token.text().ends_with('\n');
             }
             SyntaxElement::Node(child) => {
@@ -216,6 +247,7 @@ fn collect_heredoc(node: &SyntaxNode, out: &mut Vec<Item>, labels: &mut Vec<Stri
             SyntaxElement::Token(_) => {}
         }
     }
+
     if out.len() == first {
         out.push(Item::Text {
             raw: String::new(),
@@ -239,10 +271,12 @@ fn collect(node: &SyntaxNode, out: &mut Vec<Item>, labels: &mut Vec<String>) {
         },
         INTERPOLATED_STRING => {
             let mut any = false;
+
             for element in node.children_with_tokens() {
                 match element {
                     SyntaxElement::Token(token) if token.kind() == STRING_CONTENT => {
                         any = true;
+
                         out.push(Item::Text {
                             raw: token.text().to_string(),
                             start: u32::from(token.text_range().start()),
@@ -257,6 +291,7 @@ fn collect(node: &SyntaxNode, out: &mut Vec<Item>, labels: &mut Vec<String>) {
                     SyntaxElement::Token(_) => {}
                 }
             }
+
             if !any {
                 out.push(Item::Text {
                     raw: String::new(),
@@ -287,22 +322,28 @@ fn placeholder(raw: &[u8], format: Format) -> Option<(usize, Option<Option<HoleK
     if raw.first() != Some(&b'%') {
         return None;
     }
+
     if raw.get(1) == Some(&b'%') {
         return Some((2, None));
     }
+
     let mut at = 1;
+
     let digits = |at: &mut usize| {
         while raw.get(*at).is_some_and(u8::is_ascii_digit) {
             *at += 1;
         }
     };
+
     let mark = at;
     digits(&mut at);
+
     if raw.get(at) == Some(&b'$') && at > mark {
         at += 1;
     } else {
         at = mark;
     }
+
     loop {
         match raw.get(at) {
             Some(b'-' | b'+' | b' ' | b'0') => at += 1,
@@ -310,11 +351,14 @@ fn placeholder(raw: &[u8], format: Format) -> Option<(usize, Option<Option<HoleK
             _ => break,
         }
     }
+
     digits(&mut at);
+
     if raw.get(at) == Some(&b'.') {
         at += 1;
         digits(&mut at);
     }
+
     let kind = match (raw.get(at)?, format) {
         (b's', _) => None,
         (b'i', Format::Wpdb) => Some(HoleKind::Identifier),
@@ -322,17 +366,20 @@ fn placeholder(raw: &[u8], format: Format) -> Option<(usize, Option<Option<HoleK
         | (b'd' | b'f' | b'F', Format::Wpdb) => Some(HoleKind::Value),
         _ => return None,
     };
+
     // `wpdb::prepare()` quotes what `%s` gives it.
     let kind = match (kind, format) {
         (None, Format::Wpdb) => Some(HoleKind::Value),
         (kind, _) => kind,
     };
+
     Some((at + 1, Some(kind)))
 }
 
 /// The text items split at the placeholders of a format.
 fn split_formats(items: Vec<Item>, format: Format) -> Vec<Item> {
     let mut out = Vec::with_capacity(items.len());
+
     for item in items {
         let Item::Text {
             raw,
@@ -342,13 +389,16 @@ fn split_formats(items: Vec<Item>, format: Format) -> Vec<Item> {
         } = &item
         else {
             out.push(item);
+
             continue;
         };
+
         let bytes = raw.as_bytes();
         let mut run = 0;
         let mut at = 0;
         // A piece after a placeholder never starts a line of a heredoc.
         let after_placeholder = |run: usize| indent.map(|(indent, line_start)| (indent, line_start && run == 0));
+
         while at < bytes.len() {
             match placeholder(&bytes[at..], format) {
                 Some((length, found)) => {
@@ -360,17 +410,21 @@ fn split_formats(items: Vec<Item>, format: Format) -> Vec<Item> {
                             indent: after_placeholder(run),
                         });
                     }
+
                     let span = Span::new(start + at as u32, start + (at + length) as u32);
+
                     out.push(match found {
                         None => Item::Percent { span, style: *style },
                         Some(kind) => Item::Hole { span, kind },
                     });
+
                     at += length;
                     run = at;
                 }
                 None => at += 1,
             }
         }
+
         if run < bytes.len() || raw.is_empty() {
             out.push(Item::Text {
                 raw: raw[run..].to_string(),
@@ -380,6 +434,7 @@ fn split_formats(items: Vec<Item>, format: Format) -> Vec<Item> {
             });
         }
     }
+
     out
 }
 
@@ -388,9 +443,11 @@ pub(crate) fn pieces(expression: &SyntaxNode, format: Option<Format>) -> Pieces 
     let mut items = Vec::new();
     let mut labels = Vec::new();
     collect(expression, &mut items, &mut labels);
+
     if let Some(format) = format {
         items = split_formats(items, format);
     }
+
     Pieces {
         items,
         labels,
@@ -406,6 +463,7 @@ fn is_word(byte: u8) -> bool {
 /// or glued to the letters of one a name, after an operator a value, after `IN (` a list.
 fn by_context(before: &str, after: &str, previous_is_hole: bool, next_is_hole: bool) -> HoleKind {
     let (mut single, mut double, mut backtick) = (false, false, false);
+
     for byte in before.bytes() {
         match byte {
             b'\'' if !double && !backtick => single = !single,
@@ -414,35 +472,47 @@ fn by_context(before: &str, after: &str, previous_is_hole: bool, next_is_hole: b
             _ => {}
         }
     }
+
     if single || double {
         return HoleKind::Value;
     }
+
     if backtick {
         return HoleKind::Identifier;
     }
+
     let glued_before = !previous_is_hole && before.bytes().last().is_some_and(is_word);
     let glued_after = !next_is_hole && after.bytes().next().is_some_and(is_word);
+
     if glued_before || glued_after {
         return HoleKind::Identifier;
     }
+
     if previous_is_hole {
         return HoleKind::Unknown;
     }
+
     let trimmed = before.trim_end();
+
     if trimmed.ends_with(['=', '<', '>', '+', '-', '*', '/', '%']) {
         return HoleKind::Value;
     }
+
     let upper = trimmed.to_ascii_uppercase();
+
     if upper.ends_with("IN (") || upper.ends_with("IN(") {
         return HoleKind::List;
     }
+
     let last_word = upper
         .rsplit(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .next()
         .unwrap_or_default();
+
     if matches!(last_word, "LIMIT" | "OFFSET" | "LIKE" | "ILIKE" | "BETWEEN") {
         return HoleKind::Value;
     }
+
     HoleKind::Unknown
 }
 
@@ -480,6 +550,7 @@ impl Pieces {
     /// afterwards, a hole at its end that stands for what comes.
     pub fn fragment(&self, kind: FragmentKind, tables: &[ScopeTable], appended: bool) -> Fragment {
         let mut fragment = Fragment::new(kind);
+
         let texts: Vec<Option<&str>> = self
             .items
             .iter()
@@ -489,6 +560,7 @@ impl Pieces {
                 Item::Hole { .. } => None,
             })
             .collect();
+
         for (position, item) in self.items.iter().enumerate() {
             match item {
                 Item::Text {
@@ -518,6 +590,7 @@ impl Pieces {
                             // A list from `implode()` is one only inside parentheses; after
                             // `VALUES` it is rows, which only an open hole reads.
                             let in_parentheses = before.trim_end().ends_with('(');
+
                             match (kind, found) {
                                 (Some(HoleKind::List), HoleKind::Unknown | HoleKind::Value) if in_parentheses => {
                                     HoleKind::List
@@ -528,17 +601,21 @@ impl Pieces {
                         }
                         Some(kind) => *kind,
                     };
+
                     fragment.hole(*span, kind);
                 }
             }
         }
+
         if appended {
             let end = self.end();
             fragment.hole(Span::empty(end), HoleKind::Unknown);
         }
+
         for table in tables {
             fragment.table(table.clone());
         }
+
         fragment
     }
 }
@@ -551,6 +628,7 @@ mod tests {
     fn first_string(code: &str) -> SyntaxNode {
         let root = parse(code).syntax();
         let leaf = root.descendants().find(is_string_leaf).expect("a string");
+
         root_of(&leaf)
     }
 
@@ -558,6 +636,7 @@ mod tests {
         let pieces = pieces(&first_string(code), format);
         let fragment = pieces.fragment(FragmentKind::Statements, &[], false);
         let env = sql_embed::Environment::new(sql_embed::Settings::default(), None, None);
+
         sql_embed::Analysis::new(&env, &fragment).sql().to_string()
     }
 
@@ -567,6 +646,7 @@ mod tests {
             sql(r#"<?php $x = 'SELECT * FROM t WHERE a = \'x\' AND id = ' . $id;"#, None),
             "SELECT * FROM t WHERE a = 'x' AND id = ?"
         );
+
         assert_eq!(
             sql(
                 r#"<?php $x = "SELECT * FROM {$prefix}users WHERE id = {$user->id} AND n = \"$name\"";"#,
@@ -574,6 +654,7 @@ mod tests {
             ),
             r#"SELECT * FROM hole__1users WHERE id = ? AND n = "?""#
         );
+
         assert_eq!(
             sql(
                 "<?php $x = 'SELECT * FROM t WHERE id IN (' . implode(',', $ids) . ')';",
@@ -581,6 +662,7 @@ mod tests {
             ),
             "SELECT * FROM t WHERE id IN (hole__1)"
         );
+
         assert_eq!(sql("<?php $x = b'SELECT 1';", None), "SELECT 1");
     }
 
@@ -603,6 +685,7 @@ mod tests {
             ),
             "SELECT * FROM hole__1 WHERE id = ? AND p LIKE '%x'"
         );
+
         assert_eq!(
             sql(
                 "<?php $wpdb->prepare('SELECT * FROM %i WHERE a = %s AND b = %1$d', $t, $a);",
@@ -618,24 +701,31 @@ mod tests {
             by_context("SELECT * FROM t WHERE id = ", "", false, false),
             HoleKind::Value
         );
+
         assert_eq!(
             by_context("SELECT * FROM ", "users", false, false),
             HoleKind::Identifier
         );
+
         assert_eq!(
             by_context("SELECT * FROM t_", " WHERE", false, false),
             HoleKind::Identifier
         );
+
         assert_eq!(
             by_context("SELECT * FROM t WHERE a = '", "'", false, false),
             HoleKind::Value
         );
+
         assert_eq!(by_context("SELECT * FROM `", "`", false, false), HoleKind::Identifier);
+
         assert_eq!(
             by_context("SELECT * FROM t WHERE a IN (", ")", false, false),
             HoleKind::List
         );
+
         assert_eq!(by_context("SELECT * FROM t LIMIT ", "", false, false), HoleKind::Value);
+
         assert_eq!(
             by_context("SELECT * FROM t ", " ORDER BY a", false, false),
             HoleKind::Unknown

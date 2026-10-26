@@ -29,10 +29,12 @@ fn setup() -> Setup {
 #[test]
 fn makes_an_interface_of_the_public_methods_that_the_class_implements() {
     let result = done_with(setup(), &files(), USER, "Extract interface UserInterface");
+
     assert_eq!(
         result.files["src/Models/UserInterface.php"],
         "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Models;\n\nuse App\\Support\\Name;\n\ninterface UserInterface\n{\n    /**\n     * The name, as written.\n     */\n    public function name(): Name;\n\n    public static function make(string $name = 'x'): static;\n}\n"
     );
+
     assert!(
         result
             .text
@@ -40,6 +42,7 @@ fn makes_an_interface_of_the_public_methods_that_the_class_implements() {
         "{}",
         result.text
     );
+
     let focus = result.change.focus.expect("a focus");
     assert_eq!(&result.text[focus.start as usize..focus.end as usize], "UserInterface");
 }
@@ -48,6 +51,7 @@ fn makes_an_interface_of_the_public_methods_that_the_class_implements() {
 fn joins_what_the_class_implements_already() {
     let source = "<?php\nnamespace App\\Models;\n\nclass Te$0am implements \\Countable\n{\n    public function count(): int\n    {\n        return 0;\n    }\n}\n";
     let result = done_with(setup(), &[], source, "Extract interface TeamInterface");
+
     assert!(
         result
             .text
@@ -60,6 +64,7 @@ fn joins_what_the_class_implements_already() {
 #[test]
 fn is_offered_on_a_class_with_public_methods_only() {
     let empty = "<?php\nnamespace App\\Models;\n\nclass Em$0pty\n{\n    private function hidden(): void {}\n}\n";
+
     assert!(
         !offered_with(setup(), &[], empty)
             .iter()
@@ -70,15 +75,19 @@ fn is_offered_on_a_class_with_public_methods_only() {
 #[test]
 fn refuses_a_name_that_is_taken_and_a_parameter_of_the_class_itself() {
     let mut taken = files();
+
     taken.push((
         "src/Models/UserInterface.php",
         "<?php\nnamespace App\\Models;\n\ninterface UserInterface {}\n",
     ));
+
     assert_eq!(
         refused_with(setup(), &taken, USER, "Extract interface UserInterface"),
         "'App\\Models\\UserInterface' is taken"
     );
+
     let source = "<?php\nnamespace App\\Models;\n\nclass Mo$0ney\n{\n    public function add(self $other): static\n    {\n        return $this;\n    }\n}\n";
+
     assert_eq!(
         refused_with(setup(), &[], source, "Extract interface MoneyInterface"),
         "A parameter of add() names the class itself"

@@ -17,6 +17,7 @@ const FORM_REQUEST: &str = "Illuminate\\Foundation\\Http\\FormRequest";
 pub struct Field {
     pub name: String,
     pub path: PathBuf,
+
     /// The name inside its quotes.
     pub span: Span,
 }
@@ -24,22 +25,29 @@ pub struct Field {
 /// The fields of a form request, read from the `rules()` of the nearest class that declares it.
 pub fn fields_of(index: &Index, class: &str) -> Vec<Field> {
     let ty = Type::class(class.to_string());
+
     let Some(found) = index.find_declared_method(&ty, "rules") else {
         return Vec::new();
     };
+
     if found.class.decl.name.eq_ignore_ascii_case(FORM_REQUEST) {
         return Vec::new();
     }
+
     let Some(tree) = tree_of(index, &found.class.file.path) else {
         return Vec::new();
     };
+
     let Some(method) = method_at(&tree, found.member.name_span.start) else {
         return Vec::new();
     };
+
     let Some(returned) = returned_expression(&method) else {
         return Vec::new();
     };
+
     let mut out = Vec::new();
+
     for array in arrays_of(&returned) {
         for (key, _) in array_items(&array).unwrap_or_default() {
             if let Some(Literal::Text(name, span)) = key.as_ref().and_then(literal_of) {
@@ -51,6 +59,7 @@ pub fn fields_of(index: &Index, class: &str) -> Vec<Field> {
             }
         }
     }
+
     out
 }
 
@@ -88,12 +97,15 @@ mod tests {
                 "<?php namespace App\\Http\\Requests; class UpdateUserRequest extends StoreUserRequest { public function rules(): array { return array_merge(parent::rules(), ['nickname' => 'string']); } }",
             ),
         ]);
+
         let names =
             |class: &str| -> Vec<String> { fields_of(&index, class).into_iter().map(|field| field.name).collect() };
+
         assert_eq!(
             names("App\\Http\\Requests\\StoreUserRequest"),
             ["name", "email", "items.*.id"]
         );
+
         assert_eq!(names("App\\Http\\Requests\\UpdateUserRequest"), ["nickname"]);
     }
 }
@@ -109,6 +121,7 @@ pub struct CustomRules {
 impl super::Section for CustomRules {
     fn build(index: &Index) -> Self {
         let mut rules = CustomRules::default();
+
         for file in index.files() {
             let read = match file.origin {
                 crate::index::Origin::Project => true,
@@ -120,16 +133,20 @@ impl super::Section for CustomRules {
                 }),
                 crate::index::Origin::Stub => false,
             };
+
             if !read {
                 continue;
             }
+
             let Some(text) = index.read_text(&file.path) else {
                 continue;
             };
+
             if text.contains("extend") {
                 rules.scan(&text);
             }
         }
+
         rules
     }
 
@@ -143,15 +160,18 @@ impl CustomRules {
     fn scan(&mut self, text: &str) {
         for call in ["extend(", "extendImplicit(", "extendDependent("] {
             let mut rest = text;
+
             while let Some(at) = rest.find(call) {
                 let line_start = rest[..at].rfind('\n').map_or(0, |found| found + 1);
                 let line = &rest[line_start..at];
                 rest = &rest[at + call.len()..];
                 let argument = rest.trim_start();
+
                 match argument.chars().next() {
                     Some(quote @ ('\'' | '"')) => {
                         if let Some(end) = argument[1..].find(quote) {
                             let name = argument[1..1 + end].to_string();
+
                             if !self.names.contains(&name) {
                                 self.names.push(name);
                             }
@@ -173,17 +193,20 @@ pub fn rule_method(name: &str) -> String {
         .filter(|word| !word.is_empty())
         .map(|word| {
             let mut chars = word.chars();
+
             chars
                 .next()
                 .map(|first| first.to_uppercase().chain(chars).collect::<String>())
                 .unwrap_or_default()
         })
         .collect();
+
     let studly = match studly.as_str() {
         "Int" => "Integer".to_string(),
         "Bool" => "Boolean".to_string(),
         _ => studly,
     };
+
     format!("validate{studly}")
 }
 
@@ -191,16 +214,19 @@ pub fn rule_method(name: &str) -> String {
 pub fn rule_name(method: &str) -> Option<String> {
     let rest = method.strip_prefix("validate")?;
     let mut out = String::new();
+
     for character in rest.chars() {
         if character.is_uppercase() {
             if !out.is_empty() {
                 out.push('_');
             }
+
             out.extend(character.to_lowercase());
         } else {
             out.push(character);
         }
     }
+
     (!out.is_empty()).then_some(out)
 }
 

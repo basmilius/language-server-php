@@ -37,13 +37,16 @@ pub enum Symbol {
         callee: Callee,
         name: String,
     },
+
     /// A local variable, by the range of the function or file it lives in.
     Variable {
         name: String,
         scope: (u32, u32),
     },
+
     /// A Pest dataset, by the name it is declared and used under.
     Dataset(String),
+
     /// A string that names a route, a config key, a view and the like. The scope is the class a
     /// form request field or an entity field belongs to.
     Key {
@@ -66,6 +69,7 @@ impl Symbol {
             | Symbol::Dataset(name)
             | Symbol::Key { name, .. } => name,
         };
+
         match self {
             Symbol::Dataset(name) => name
                 .split(|c: char| !c.is_alphanumeric() && c != '_')
@@ -81,11 +85,15 @@ impl Symbol {
 pub enum HitKind {
     /// The name in the declaration itself.
     Declaration,
+
     Reference,
+
     /// A name in a `use` statement.
     Import,
+
     /// A name in a doc comment.
     Doc,
+
     /// A class or method a string holds by name.
     String,
 }
@@ -101,20 +109,26 @@ pub enum Access {
 pub struct Hit {
     /// The name alone: the last segment of a qualified name, the `$` of a variable included.
     pub range: TextRange,
+
     pub kind: HitKind,
     pub access: Access,
+
     /// The name is written with a `$`.
     pub dollar: bool,
+
     /// A class written under an alias, which a rename of the class leaves alone.
     pub via_alias: bool,
+
     pub symbol: Symbol,
 }
 
 /// A symbol and every declaration that is one thing with it.
 pub struct Query {
     pub symbol: Symbol,
+
     /// Lowercase names of the classes whose member is the symbol, for a member.
     family: HashSet<String>,
+
     /// Words besides the symbol's own that a file naming it may hold. A constructor is also called
     /// by `new` and the name of the class (or of a class below it, that has none of its own).
     extra_words: Vec<String>,
@@ -146,20 +160,24 @@ impl Query {
             }
             _ => HashSet::new(),
         };
+
         let extra_words = match &symbol {
             Symbol::Method { class, name } if name.eq_ignore_ascii_case("__construct") => {
                 let mut words = vec![crate::short(class).to_ascii_lowercase()];
+
                 words.extend(
                     index
                         .all_subtypes(class)
                         .iter()
                         .map(|subtype| crate::short(&subtype.decl.name).to_ascii_lowercase()),
                 );
+
                 words
             }
             // Twig reads `getTitle()` as `post.title`.
             Symbol::Method { name, .. } if index.frameworks().symfony || index.frameworks().twig => {
                 let twig = crate::twig::types::twig_name(name).to_ascii_lowercase();
+
                 if twig == name.to_ascii_lowercase() {
                     Vec::new()
                 } else {
@@ -168,6 +186,7 @@ impl Query {
             }
             _ => Vec::new(),
         };
+
         Query {
             symbol,
             family,
@@ -179,6 +198,7 @@ impl Query {
     pub fn words(&self) -> Vec<String> {
         let mut words = vec![self.symbol.word()];
         words.extend(self.extra_words.iter().cloned());
+
         words
     }
 
@@ -227,6 +247,7 @@ impl Query {
                     }
                     _ => wanted_name == name,
                 };
+
                 wanted_kind == kind
                     && same_name
                     && (!matches!(
@@ -246,6 +267,7 @@ fn single(class: &str) -> HashSet<String> {
 
 fn same_constant(left: &str, right: &str) -> bool {
     let (left, right) = (left.trim_start_matches('\\'), right.trim_start_matches('\\'));
+
     match (left.rsplit_once('\\'), right.rsplit_once('\\')) {
         (Some((left_ns, left_name)), Some((right_ns, right_name))) => {
             left_ns.eq_ignore_ascii_case(right_ns) && left_name == right_name
@@ -287,6 +309,7 @@ pub(crate) fn declares_property(decl: &ClassDecl, name: &str) -> bool {
 
 fn is_private(index: &Index, symbol: &Symbol) -> bool {
     use php_index::Visibility::Private;
+
     match symbol {
         Symbol::Method { class, name } => index
             .class(class)
@@ -310,22 +333,27 @@ fn member_family(index: &Index, class: &str, declares: impl Fn(&ClassDecl) -> bo
     let mut family = single(class);
     let mut pending = vec![class.to_string()];
     let mut seen = HashSet::new();
+
     while let Some(current) = pending.pop() {
         if !seen.insert(current.to_ascii_lowercase()) {
             continue;
         }
+
         let up = index.ancestors(&Type::class(current.clone()));
         let down = index.all_subtypes(&current);
+
         let related = up
             .iter()
             .map(|ancestor| ancestor.class.decl)
             .chain(down.iter().map(|subtype| subtype.decl));
+
         for decl in related {
             if declares(decl) && family.insert(decl.name.to_ascii_lowercase()) {
                 pending.push(decl.name.clone());
             }
         }
     }
+
     family
 }
 
@@ -334,29 +362,38 @@ pub fn symbols_of_token(ctx: &FileContext, token: &SyntaxToken) -> Vec<Symbol> {
     let Some(parent) = token.parent() else {
         return Vec::new();
     };
+
     let analyzer = ctx.analyzer(&parent);
+
     if token.kind() == VARIABLE {
         return variable_symbols(&analyzer, token, &parent);
     }
+
     from_targets(&analyzer, analyzer.targets_of_token(token))
 }
 
 fn variable_symbols(analyzer: &Analyzer<'_>, token: &SyntaxToken, parent: &SyntaxNode) -> Vec<Symbol> {
     let name = token.text().trim_start_matches('$').to_string();
+
     if name == "this" {
         return Vec::new();
     }
+
     let static_property = parent.kind() == VARIABLE_EXPR
         && parent.parent().is_some_and(|grand| {
             grand.kind() == STATIC_PROPERTY_EXPR && grand.children().next().as_ref() != Some(parent)
         });
+
     if static_property || parent.kind() == PROPERTY_ELEMENT {
         return from_targets(analyzer, analyzer.targets_of_token(token));
     }
+
     let mut out = Vec::new();
+
     match parent.kind() {
         VARIABLE_EXPR | CLOSURE_USE_VARIABLE | STATIC_VARIABLE | CATCH_CLAUSE | PARAMETER => {
             let scope = binding_scope(&analyzer.root, token, &name);
+
             out.push(Symbol::Variable {
                 name: name.clone(),
                 scope: (start(&scope), ast::end(&scope)),
@@ -364,6 +401,7 @@ fn variable_symbols(analyzer: &Analyzer<'_>, token: &SyntaxToken, parent: &Synta
         }
         _ => {}
     }
+
     if parent.kind() == PARAMETER {
         if let Some(function) = parent.ancestors().find(|node| ast::is_function_like(node.kind())) {
             if let Some(callee) = callee_of_declaration(analyzer, &function) {
@@ -373,6 +411,7 @@ fn variable_symbols(analyzer: &Analyzer<'_>, token: &SyntaxToken, parent: &Synta
                 });
             }
         }
+
         if child_of(parent, MODIFIER_LIST).is_some() {
             if let Some(class) = &analyzer.class {
                 out.push(Symbol::Property {
@@ -382,12 +421,14 @@ fn variable_symbols(analyzer: &Analyzer<'_>, token: &SyntaxToken, parent: &Synta
             }
         }
     }
+
     out
 }
 
 /// The function or method a declaration node is, as a call names it.
 pub fn callee_of_declaration(analyzer: &Analyzer<'_>, function: &SyntaxNode) -> Option<Callee> {
     let name = child_of(function, NAME).map(|name| ast::text_of(&name))?;
+
     match function.kind() {
         FUNCTION_DECLARATION => Some(Callee::Function(analyzer.resolver.qualify(&name))),
         METHOD_DECLARATION => analyzer.class.as_ref().map(|class| Callee::Method {
@@ -401,11 +442,13 @@ pub fn callee_of_declaration(analyzer: &Analyzer<'_>, function: &SyntaxNode) -> 
 pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol> {
     let index = analyzer.index;
     let mut out: Vec<Symbol> = Vec::new();
+
     let mut push = |symbol: Symbol| {
         if !out.contains(&symbol) {
             out.push(symbol);
         }
     };
+
     for target in targets {
         match target {
             Target::Class(name) => push(Symbol::Class(name)),
@@ -451,6 +494,7 @@ pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol
                                 .iter()
                                 .any(|param| param.name == name && param.promoted.is_some())
                         });
+
                     if promoted && method.eq_ignore_ascii_case("__construct") {
                         push(Symbol::Property {
                             class: class.clone(),
@@ -458,6 +502,7 @@ pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol
                         });
                     }
                 }
+
                 push(Symbol::Parameter { callee, name });
             }
             Target::Dataset(name) => push(Symbol::Dataset(name)),
@@ -465,6 +510,7 @@ pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol
             Target::Variable { .. } | Target::TypeAlias { .. } => {}
         }
     }
+
     out
 }
 
@@ -472,6 +518,7 @@ pub fn from_targets(analyzer: &Analyzer<'_>, targets: Vec<Target>) -> Vec<Symbol
 
 fn has_parameter(function: &SyntaxNode, name: &str) -> bool {
     let wanted = format!("${name}");
+
     child_of(function, PARAMETER_LIST).is_some_and(|list| {
         list.children()
             .filter(|child| child.kind() == PARAMETER)
@@ -481,6 +528,7 @@ fn has_parameter(function: &SyntaxNode, name: &str) -> bool {
 
 fn uses_variable(closure: &SyntaxNode, name: &str) -> bool {
     let wanted = format!("${name}");
+
     child_of(closure, CLOSURE_USE).is_some_and(|uses| {
         uses.children()
             .filter(|child| child.kind() == CLOSURE_USE_VARIABLE)
@@ -492,6 +540,7 @@ fn uses_variable(closure: &SyntaxNode, name: &str) -> bool {
 /// the variables around it, and a closure sees the ones it lists after `use`.
 pub fn binding_scope(root: &SyntaxNode, token: &SyntaxToken, name: &str) -> SyntaxNode {
     let mut from = token.parent();
+
     if let Some(parent) = from.clone().filter(|parent| parent.kind() == CLOSURE_USE_VARIABLE) {
         // A name after `use` is the variable of the scope around the closure.
         from = parent
@@ -499,18 +548,22 @@ pub fn binding_scope(root: &SyntaxNode, token: &SyntaxToken, name: &str) -> Synt
             .find(|node| node.kind() == CLOSURE_EXPR)
             .and_then(|closure| closure.parent());
     }
+
     loop {
         let Some(scope) = from.as_ref().and_then(enclosing_function) else {
             return root.clone();
         };
+
         let outward = match scope.kind() {
             CLOSURE_EXPR => !has_parameter(&scope, name) && uses_variable(&scope, name),
             ARROW_FUNCTION_EXPR => !has_parameter(&scope, name),
             _ => false,
         };
+
         if !outward {
             return scope;
         }
+
         from = scope.parent();
     }
 }
@@ -520,15 +573,19 @@ pub fn variable_hits(ctx: &FileContext, scope: (u32, u32), name: &str) -> Vec<Hi
     let scope_node = scope_node(&ctx.root, scope);
     let wanted = format!("${name}");
     let mut hits = Vec::new();
+
     let symbol = Symbol::Variable {
         name: name.to_string(),
         scope,
     };
+
     let mut preorder = scope_node.preorder_with_tokens();
+
     while let Some(event) = preorder.next() {
         let php_syntax::WalkEvent::Enter(element) = event else {
             continue;
         };
+
         match element {
             php_syntax::SyntaxElement::Node(node) => {
                 if node != scope_node && is_separate_scope(&node, name) {
@@ -538,18 +595,24 @@ pub fn variable_hits(ctx: &FileContext, scope: (u32, u32), name: &str) -> Vec<Hi
             php_syntax::SyntaxElement::Token(token) => {
                 if token.kind() == DOC_COMMENT {
                     doc_variable_hits(&token, name, &symbol, &mut hits);
+
                     continue;
                 }
+
                 if token.kind() != VARIABLE || token.text() != wanted {
                     continue;
                 }
+
                 let Some(parent) = token.parent() else {
                     continue;
                 };
+
                 if is_property_name(&parent) {
                     continue;
                 }
+
                 let declaration = parent.kind() == PARAMETER;
+
                 let access = if declaration
                     || is_write_target(&parent)
                     || matches!(parent.kind(), CATCH_CLAUSE | STATIC_VARIABLE)
@@ -558,6 +621,7 @@ pub fn variable_hits(ctx: &FileContext, scope: (u32, u32), name: &str) -> Vec<Hi
                 } else {
                     Access::Read
                 };
+
                 hits.push(Hit {
                     range: token.text_range(),
                     kind: if declaration {
@@ -573,14 +637,17 @@ pub fn variable_hits(ctx: &FileContext, scope: (u32, u32), name: &str) -> Vec<Hi
             }
         }
     }
+
     hits
 }
 
 fn scope_node(root: &SyntaxNode, scope: (u32, u32)) -> SyntaxNode {
     let range = range_of(scope.0, scope.1);
+
     if range == root.text_range() {
         return root.clone();
     }
+
     match root.covering_element(range) {
         php_syntax::SyntaxElement::Node(node) => node
             .ancestors()
@@ -614,10 +681,13 @@ fn is_property_name(parent: &SyntaxNode) -> bool {
 
 fn doc_variable_hits(token: &SyntaxToken, name: &str, symbol: &Symbol, hits: &mut Vec<Hit>) {
     let text = token.text();
+
     if !text.contains(name) {
         return;
     }
+
     let base = u32::from(token.text_range().start());
+
     for item in doc_items(text, base) {
         if let DocItemKind::Variable(found) = &item.kind {
             if found == name {
@@ -638,11 +708,14 @@ fn doc_variable_hits(token: &SyntaxToken, name: &str, symbol: &Symbol, hits: &mu
 /// target of a `foreach` or a destructuring.
 pub fn is_write_target(node: &SyntaxNode) -> bool {
     let mut current = node.clone();
+
     loop {
         let Some(parent) = current.parent() else {
             return false;
         };
+
         let first = parent.children().next().as_ref() == Some(&current);
+
         match parent.kind() {
             INDEX_EXPR if first => current = parent,
             ASSIGN_EXPR => return first,
@@ -663,6 +736,7 @@ fn is_declaration_name(token: &SyntaxToken, name: &SyntaxNode) -> bool {
     let Some(owner) = name.parent() else {
         return false;
     };
+
     match owner.kind() {
         CLASS_DECLARATION
         | INTERFACE_DECLARATION
@@ -674,6 +748,7 @@ fn is_declaration_name(token: &SyntaxToken, name: &SyntaxNode) -> bool {
         CONST_ELEMENT => owner.children().next().as_ref() == Some(name),
         _ => {
             let _ = token;
+
             false
         }
     }
@@ -683,6 +758,7 @@ fn node_is_alias_declaration(name: &SyntaxNode) -> bool {
     let Some(owner) = name.parent() else {
         return false;
     };
+
     match owner.kind() {
         USE_CLAUSE => ast::tokens(&owner)
             .take_while(|token| token.text_range().start() < name.text_range().start())
@@ -708,16 +784,20 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
     if let Symbol::Variable { name, scope } = &query.symbol {
         return variable_hits(ctx, *scope, name);
     }
+
     if let Symbol::Key { name, .. } = &query.symbol {
         return key_hits(ctx, name, query);
     }
+
     let word = query.symbol.word();
     let aliases = class_aliases(ctx, query);
     let mut hits: Vec<Hit> = Vec::new();
+
     for element in ctx.root.descendants_with_tokens() {
         let Some(token) = element.into_token() else {
             continue;
         };
+
         match token.kind() {
             DOC_COMMENT => doc_hits(ctx, &token, &word, query, &mut hits),
             VARIABLE => {
@@ -726,79 +806,98 @@ pub fn hits_in_file(ctx: &FileContext, text: &str, query: &Query) -> Vec<Hit> {
                 {
                     continue;
                 }
+
                 push_token_hit(ctx, text, &token, query, &mut hits, false);
             }
             kind if is_name_token(&token, kind) => {
                 let Some(parent) = token.parent() else {
                     continue;
                 };
+
                 if parent.kind() == ARGUMENT {
                     if matches!(query.symbol, Symbol::Parameter { .. } | Symbol::Property { .. })
                         && token.text().eq_ignore_ascii_case(&word)
                     {
                         push_token_hit(ctx, text, &token, query, &mut hits, false);
                     }
+
                     continue;
                 }
+
                 if parent.kind() != NAME || node_is_alias_declaration(&parent) {
                     continue;
                 }
+
                 let written = token.text();
                 let last = written.rsplit('\\').next().unwrap_or(written).to_ascii_lowercase();
                 let first = written.trim_start_matches('\\').split('\\').next().unwrap_or(written);
                 let aliased = aliases.contains(&first.to_ascii_lowercase());
+
                 if last != word && !aliased {
                     continue;
                 }
+
                 push_token_hit(ctx, text, &token, query, &mut hits, aliased);
             }
             _ => {}
         }
     }
+
     if query.is_constructor() {
         constructor_hits(ctx, text, query, &mut hits);
     }
+
     if matches!(
         query.symbol,
         Symbol::Method { .. } | Symbol::Function(_) | Symbol::Dataset(_)
     ) {
         test_string_hits(ctx, query, &mut hits);
     }
+
     if let Symbol::Method { name, .. } = &query.symbol {
         if ctx.index.frameworks().eloquent {
             relation_string_hits(ctx, name, query, &mut hits);
         }
     }
+
     if let Symbol::Property { name, .. } = &query.symbol {
         if ctx.index.frameworks().symfony {
             dql_hits(ctx, name, query, &mut hits);
         }
     }
+
     if let Symbol::Parameter { callee, name } = &query.symbol {
         if ctx.index.frameworks().raxos {
             route_path_hits(ctx, callee, name, query, &mut hits);
         }
     }
+
     if matches!(query.symbol, Symbol::Class(_) | Symbol::Method { .. }) {
         class_string_hits(ctx, &word, query, &mut hits);
     }
+
     hits.sort_by_key(|hit| (hit.range.start(), hit.range.end()));
     hits.dedup_by_key(|hit| (hit.range.start(), hit.range.end()));
+
     hits
 }
 
 /// The `$name` of a Raxos route path is a usage of the parameter the router puts there.
 fn route_path_hits(ctx: &FileContext, callee: &Callee, name: &str, query: &Query, hits: &mut Vec<Hit>) {
     let written = format!("${name}");
+
     for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
         if !node.text().to_string().contains(&written) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&node);
+
         for segment in crate::frameworks::raxos::route_segments(&analyzer, &node) {
             if segment.name != name || !same_callee(&segment.callee, callee) {
                 continue;
             }
+
             hits.push(Hit {
                 range: segment.range,
                 kind: HitKind::Reference,
@@ -818,18 +917,23 @@ fn relation_string_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut
         if php_index::test_facts::string_value(&node).is_none_or(|(value, _)| !value.contains(name)) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&node);
+
         let Some(key) = crate::frameworks::keys::key_of_literal(&analyzer, &node, None) else {
             continue;
         };
+
         for segment in crate::frameworks::relations::segments(ctx.index, &key) {
             let Some(relation) = segment.relation else {
                 continue;
             };
+
             let symbol = Symbol::Method {
                 class: relation.owner,
                 name: relation.name,
             };
+
             if query.matches(&symbol) {
                 hits.push(Hit {
                     range: segment.range,
@@ -850,32 +954,38 @@ fn class_string_hits(ctx: &FileContext, word: &str, query: &Query, hits: &mut Ve
         let Some(token) = element.into_token() else {
             continue;
         };
+
         if token.kind() != STRING_LITERAL
             || !token.text().contains('\\')
             || !token.text().to_ascii_lowercase().contains(word)
         {
             continue;
         }
+
         let Some(found) = token
             .parent()
             .and_then(|literal| crate::class_strings::read(ctx.index, &literal))
         else {
             continue;
         };
+
         let (symbol, range) = match (&query.symbol, &found.method) {
             (Symbol::Method { .. }, Some((name, range))) => {
                 let Some(declared) = ctx.index.find_method(&Type::class(found.class.clone()), name) else {
                     continue;
                 };
+
                 let symbol = Symbol::Method {
                     class: declared.class.decl.name.clone(),
                     name: declared.member.name.clone(),
                 };
+
                 (symbol, *range)
             }
             (Symbol::Class(_), _) => (Symbol::Class(found.class.clone()), found.short_range),
             _ => continue,
         };
+
         if query.matches(&symbol) {
             hits.push(Hit {
                 range,
@@ -900,16 +1010,20 @@ fn dql_hits(ctx: &FileContext, name: &str, query: &Query, hits: &mut Vec<Hit>) {
         else {
             continue;
         };
+
         if field != name {
             continue;
         }
+
         let Some(found) = ctx.index.find_property(&Type::class(entity), &field) else {
             continue;
         };
+
         let symbol = Symbol::Property {
             class: found.class.decl.name.clone(),
             name: found.member.name.clone(),
         };
+
         if query.matches(&symbol) {
             hits.push(Hit {
                 range,
@@ -937,6 +1051,7 @@ fn query_is_column(query: &Query) -> bool {
 /// asked what it is, which is what keeps a search cheap.
 fn key_hits(ctx: &FileContext, name: &str, query: &Query) -> Vec<Hit> {
     let mut hits = Vec::new();
+
     for node in ctx.root.descendants().filter(|node| node.kind() == LITERAL) {
         // A column may be written with its table, `posts.title`.
         if php_index::test_facts::string_value(&node)
@@ -944,15 +1059,19 @@ fn key_hits(ctx: &FileContext, name: &str, query: &Query) -> Vec<Hit> {
         {
             continue;
         }
+
         let analyzer = ctx.analyzer(&node);
+
         let Some(key) = crate::frameworks::keys::key_of_literal(&analyzer, &node, None) else {
             continue;
         };
+
         let symbol = Symbol::Key {
             kind: key.kind,
             name: key.value,
             scope: key.scope,
         };
+
         if query.matches(&symbol) {
             hits.push(Hit {
                 range: key.range,
@@ -964,21 +1083,26 @@ fn key_hits(ctx: &FileContext, name: &str, query: &Query) -> Vec<Hit> {
             });
         }
     }
+
     hits
 }
 
 /// The strings of a test that name the symbol: a data provider, a dependency, a dataset.
 fn test_string_hits(ctx: &FileContext, query: &Query, hits: &mut Vec<Hit>) {
     use crate::phpunit::strings::{strings_in, symbol_of};
+
     for string in strings_in(ctx) {
         let node = ast::node_at(&ctx.root, u32::from(string.range.start()));
         let analyzer = ctx.analyzer(&node);
+
         let Some(symbol) = symbol_of(ctx.index, &string, &analyzer) else {
             continue;
         };
+
         if !query.matches(&symbol) {
             continue;
         }
+
         hits.push(Hit {
             range: string.range,
             kind: if string.declaration {
@@ -1000,27 +1124,35 @@ fn constructor_hits(ctx: &FileContext, text: &str, query: &Query, hits: &mut Vec
         let Some(name) = node.children().find(|child| child.kind() == NAME) else {
             continue;
         };
+
         let written = ast::text_of(&name);
         let last = written.rsplit('\\').next().unwrap_or(&written).to_ascii_lowercase();
         let relative = matches!(last.as_str(), "self" | "static" | "parent");
+
         if !relative && !query.extra_words.contains(&last) {
             continue;
         }
+
         let analyzer = ctx.analyzer(&name);
         let class = analyzer.class_type(&written);
+
         let Some(found) = ctx.index.find_method(&class, "__construct") else {
             continue;
         };
+
         let symbol = Symbol::Method {
             class: found.class.decl.name.clone(),
             name: found.member.name.clone(),
         };
+
         if !query.matches(&symbol) {
             continue;
         }
+
         let Some(token) = ast::tokens(&name).find(|token| !token.kind().is_trivia()) else {
             continue;
         };
+
         hits.push(Hit {
             range: last_segment(token.text_range(), text),
             kind: HitKind::Reference,
@@ -1041,14 +1173,18 @@ fn push_token_hit(
     _aliased: bool,
 ) {
     let symbols = symbols_of_token(ctx, token);
+
     let Some(symbol) = symbols.into_iter().find(|symbol| query.matches(symbol)) else {
         return;
     };
+
     let Some(parent) = token.parent() else {
         return;
     };
+
     let (range, kind, dollar) = if token.kind() == VARIABLE {
         let declaration = matches!(parent.kind(), PROPERTY_ELEMENT | PARAMETER);
+
         (
             token.text_range(),
             if declaration {
@@ -1063,6 +1199,7 @@ fn push_token_hit(
     } else {
         let declaration = is_declaration_name(token, &parent);
         let import = parent.parent().is_some_and(|owner| owner.kind() == USE_CLAUSE);
+
         (
             last_segment(token.text_range(), text),
             if declaration {
@@ -1075,13 +1212,16 @@ fn push_token_hit(
             false,
         )
     };
+
     let via_alias = match &symbol {
         Symbol::Class(name) => {
             let written = &text[usize::from(range.start())..usize::from(range.end())];
+
             kind == HitKind::Reference && !written.eq_ignore_ascii_case(crate::short(name))
         }
         _ => false,
     };
+
     let access_node = if token.kind() == VARIABLE {
         parent
             .parent()
@@ -1093,6 +1233,7 @@ fn push_token_hit(
             _ => parent.clone(),
         }
     };
+
     let access = if kind != HitKind::Import
         && matches!(symbol, Symbol::Property { .. } | Symbol::ClassConst { .. })
         && (is_write_target(&access_node)
@@ -1102,6 +1243,7 @@ fn push_token_hit(
     } else {
         Access::Read
     };
+
     hits.push(Hit {
         range,
         kind,
@@ -1117,8 +1259,10 @@ fn class_aliases(ctx: &FileContext, query: &Query) -> HashSet<String> {
     let Symbol::Class(name) = &query.symbol else {
         return HashSet::new();
     };
+
     let end = ast::end(&ctx.root);
     let resolver = php_index::extract::resolver_at(&ctx.root, end);
+
     resolver
         .imports(php_index::UseKind::Class)
         .filter(|(_, target)| target.eq_ignore_ascii_case(name.trim_start_matches('\\')))
@@ -1128,26 +1272,34 @@ fn class_aliases(ctx: &FileContext, query: &Query) -> HashSet<String> {
 
 fn doc_hits(ctx: &FileContext, token: &SyntaxToken, word: &str, query: &Query, hits: &mut Vec<Hit>) {
     let text = token.text();
+
     if !text.to_ascii_lowercase().contains(word) {
         return;
     }
+
     let Some(parent) = token.parent() else {
         return;
     };
+
     let analyzer = ctx.analyzer(&parent);
     let base = u32::from(token.text_range().start());
     let index = ctx.index;
+
     for item in doc_items(text, base) {
         let range = range_of(item.start, item.end);
+
         let (symbol, kind, dollar, range) = match &item.kind {
             DocItemKind::Class(raw) => {
                 let lower = raw.to_ascii_lowercase();
+
                 if matches!(lower.as_str(), "self" | "static" | "parent" | "this") {
                     continue;
                 }
+
                 let resolved = analyzer.resolver.resolve_class(raw);
                 let local = &text[(item.start - base) as usize..(item.end - base) as usize];
                 let last = local.rfind('\\').map_or(0, |at| at + 1) as u32;
+
                 (
                     Symbol::Class(resolved),
                     HitKind::Doc,
@@ -1159,6 +1311,7 @@ fn doc_hits(ctx: &FileContext, token: &SyntaxToken, word: &str, query: &Query, h
                 let Some(class) = enclosing_class_name(&analyzer, &parent) else {
                     continue;
                 };
+
                 (
                     Symbol::Property {
                         class,
@@ -1173,6 +1326,7 @@ fn doc_hits(ctx: &FileContext, token: &SyntaxToken, word: &str, query: &Query, h
                 let Some(class) = enclosing_class_name(&analyzer, &parent) else {
                     continue;
                 };
+
                 (
                     Symbol::Method {
                         class,
@@ -1191,6 +1345,7 @@ fn doc_hits(ctx: &FileContext, token: &SyntaxToken, word: &str, query: &Query, h
                         .map_or(Type::Unknown, |class| Type::class(class.name.clone())),
                     _ => Type::class(analyzer.resolver.resolve_class(class)),
                 };
+
                 let symbol = match kind {
                     MemberKind::Method => index.find_method(&class_type, name).map(|found| Symbol::Method {
                         class: found.class.decl.name.clone(),
@@ -1205,30 +1360,38 @@ fn doc_hits(ctx: &FileContext, token: &SyntaxToken, word: &str, query: &Query, h
                         name: found.member.name.clone(),
                     }),
                 };
+
                 let Some(symbol) = symbol else {
                     continue;
                 };
+
                 (symbol, HitKind::Doc, false, range)
             }
             DocItemKind::Function(name) => {
                 let candidates = analyzer.resolver.function_candidates(name);
+
                 let Some(function) = index.first_function(&candidates) else {
                     continue;
                 };
+
                 (Symbol::Function(function.decl.name.clone()), HitKind::Doc, false, range)
             }
             DocItemKind::Tag(_) | DocItemKind::Variable(_) | DocItemKind::Template(_) => continue,
         };
+
         if !query.matches(&symbol) {
             continue;
         }
+
         let via_alias = match &symbol {
             Symbol::Class(name) => {
                 let written = &ctx_text_slice(token, base, range);
+
                 !written.eq_ignore_ascii_case(crate::short(name))
             }
             _ => false,
         };
+
         hits.push(Hit {
             range,
             kind,
@@ -1244,6 +1407,7 @@ fn ctx_text_slice(token: &SyntaxToken, base: u32, range: TextRange) -> String {
     let text = token.text();
     let from = (u32::from(range.start()) - base) as usize;
     let to = (u32::from(range.end()) - base) as usize;
+
     text[from..to].to_string()
 }
 

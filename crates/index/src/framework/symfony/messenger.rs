@@ -53,43 +53,54 @@ fn argument<'a>(attribute: &'a Attribute, name: &str) -> Option<&'a str> {
 impl Section for MessageHandlers {
     fn build(index: &Index) -> Self {
         let mut found = MessageHandlers::default();
+
         if !index.frameworks().symfony
             || index.class(AS_MESSAGE_HANDLER).is_none() && index.class(HANDLER_INTERFACE).is_none()
         {
             return found;
         }
+
         let mut handlers: Vec<(Name, Handler)> = Vec::new();
+
         for name in index.class_names() {
             if name.file.origin != Origin::Project {
                 continue;
             }
+
             let Some(class) = name.load() else {
                 continue;
             };
+
             let decl = class.decl;
             let marked = handler_attribute(&decl.attributes);
             let implements = index.is_subclass_of(&decl.name, HANDLER_INTERFACE);
+
             if marked.is_some() || implements {
                 let method_name = marked
                     .and_then(|attribute| argument(attribute, "method"))
                     .map(|value| value.trim().trim_matches(['\'', '"']).to_string())
                     .unwrap_or_else(|| "__invoke".to_string());
+
                 if let Some(method) = decl.method(&method_name) {
                     let handles = marked.and_then(|attribute| argument(attribute, "handles"));
+
                     if let Some(message) = message_of(index, class, method, handles) {
                         handlers.push((message, handler(class, method)));
                     }
                 }
             }
+
             for method in &decl.methods {
                 let Some(attribute) = handler_attribute(&method.attributes) else {
                     continue;
                 };
+
                 if let Some(message) = message_of(index, class, method, argument(attribute, "handles")) {
                     handlers.push((message, handler(class, method)));
                 }
             }
         }
+
         for (message, handler) in handlers {
             found
                 .by_message
@@ -97,6 +108,7 @@ impl Section for MessageHandlers {
                 .or_default()
                 .push(handler);
         }
+
         found
     }
 
@@ -119,9 +131,11 @@ fn message_of(index: &Index, class: Class<'_>, method: &Method, handles: Option<
     if let Some(handles) = handles {
         return class_in_attribute(index, class, handles);
     }
+
     let param = method.callable.params.first()?;
     let ty = param.doc_ty.as_ref().or(param.ty.as_ref())?;
     let names = ty.class_names();
+
     // A union handles each of its classes; one is enough to lead somewhere.
     names.first().map(|name| name.to_string())
 }

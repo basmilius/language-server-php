@@ -15,22 +15,28 @@ use php_syntax::{PhpVersion, parse};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
     if args.len() < 2 {
         eprintln!("usage: survey <project> <stubs> [--code <code>] [--samples <n>] [--vendor] [--all]");
         std::process::exit(2);
     }
+
     let flag_value = |name: &str| {
         args.iter()
             .position(|arg| arg == name)
             .and_then(|at| args.get(at + 1))
             .cloned()
     };
+
     let only_code = flag_value("--code");
+
     let samples: usize = flag_value("--samples")
         .and_then(|value| value.parse().ok())
         .unwrap_or(5);
+
     let threads = std::thread::available_parallelism().map_or(4, usize::from);
     let stubs = Mutex::new(Vec::new());
+
     indexer::run(
         indexer::discover_stubs(Path::new(&args[1])),
         None,
@@ -45,33 +51,41 @@ fn main() {
             }
         },
     );
+
     let stubs = stubs.into_inner().expect("lock");
     let mut classes: HashSet<String> = HashSet::new();
     let mut functions: HashSet<String> = HashSet::new();
     let mut constants: HashSet<String> = HashSet::new();
+
     for stub in &stubs {
         classes.extend(stub.summary.classes.iter().map(|class| class.name.to_ascii_lowercase()));
+
         functions.extend(
             stub.summary
                 .functions
                 .iter()
                 .map(|function| function.name.to_ascii_lowercase()),
         );
+
         constants.extend(stub.summary.constants.iter().map(|constant| constant.name.clone()));
     }
+
     let mut project = Project::open(Path::new(&args[0]), PhpVersion::V8_4);
     let files = indexer::discover_project(&project.root, project.composer.as_ref(), &[]);
     let collected = Mutex::new(Vec::new());
+
     indexer::run(files, None, None, threads, &|event| {
         if let IndexEvent::Files(batch) = event {
             collected.lock().expect("lock").extend(batch);
         }
     });
+
     let extensions = project.extensions();
     project.apply(collected.into_inner().expect("lock"));
     project.index.set_stubs(&stubs, &extensions);
 
     let mut settings = InspectionSettings::default();
+
     if args.iter().any(|arg| arg == "--all") {
         for info in INSPECTIONS {
             settings.set(
@@ -83,9 +97,11 @@ fn main() {
             );
         }
     }
+
     let is_class = |name: &str| classes.contains(&name.to_ascii_lowercase());
     let is_function = |name: &str| functions.contains(&name.to_ascii_lowercase());
     let is_constant = |name: &str| constants.contains(name);
+
     let externals = Externals {
         class: &is_class,
         function: &is_function,
@@ -97,6 +113,7 @@ fn main() {
     } else {
         Origin::Project
     };
+
     let mut paths: Vec<_> = project
         .index
         .files()
@@ -105,6 +122,7 @@ fn main() {
         // The server reads a Blade template as a template; `blade_survey` measures those.
         .filter(|path| !php_analysis::blade::is_template(path))
         .collect();
+
     paths.sort();
     let started = Instant::now();
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
@@ -113,14 +131,17 @@ fn main() {
     let mut dql = (0usize, 0usize, 0usize);
     // Counting reads every query and string a second time, so it stays out of the timing unless asked for.
     let count_dql = std::env::var("STRING_PARTS").is_ok();
+
     for path in &paths {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
+
         let text = String::from_utf8_lossy(&bytes).into_owned();
         lines += text.lines().count();
         let tree = parse(&text);
         let root = tree.syntax();
+
         let env = InspectionEnv {
             index: &project.index,
             text: &text,
@@ -129,11 +150,13 @@ fn main() {
             ready: true,
             externals: &externals,
         };
+
         let parts = if count_dql {
             php_analysis::frameworks::dql::parts_in(&php_analysis::context::FileContext::new(&project.index, &root))
         } else {
             Vec::new()
         };
+
         if count_dql {
             dql.2 += root
                 .descendants()
@@ -141,27 +164,34 @@ fn main() {
                 .filter(|literal| php_analysis::class_strings::read(&project.index, literal).is_some())
                 .count();
         }
+
         for part in parts {
             match part {
                 php_analysis::frameworks::dql::Part::Field { .. } => dql.0 += 1,
                 php_analysis::frameworks::dql::Part::Class { .. } => dql.1 += 1,
             }
         }
+
         for finding in inspect(&env) {
             let code = finding.diagnostic.code;
             *counts.entry(code).or_default() += 1;
+
             if only_code.as_deref().is_some_and(|only| only != code) {
                 continue;
             }
+
             let shown_here = shown.entry(code).or_default();
+
             if *shown_here >= samples {
                 continue;
             }
+
             *shown_here += 1;
             let offset = usize::from(finding.diagnostic.range.start());
             let line = text[..offset].matches('\n').count() + 1;
             let relative = path.strip_prefix(&project.root).unwrap_or(path);
             let snippet = text.lines().nth(line - 1).unwrap_or("").trim();
+
             println!(
                 "{code}  {}:{line}  {}\n      {snippet}",
                 relative.display(),
@@ -169,21 +199,25 @@ fn main() {
             );
         }
     }
+
     println!(
         "\n{} files, {} lines, {} ms",
         paths.len(),
         lines,
         started.elapsed().as_millis()
     );
+
     if count_dql {
         println!(
             "DQL: {} fields and {} classes; {} strings hold a class name",
             dql.0, dql.1, dql.2
         );
     }
+
     for (code, count) in &counts {
         println!("{count:6}  {code}");
     }
+
     if counts.is_empty() {
         println!("nothing reported");
     }

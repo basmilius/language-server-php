@@ -29,55 +29,80 @@ pub enum KeyKind {
     Translation,
     Env,
     Ability,
+
     /// A field of the form request the call is made on.
     Field,
+
     /// The name of a Blade component, after `<x-`.
     Component,
+
     /// The id of a service of the container.
     Service,
+
     /// The name of a container parameter.
     Parameter,
+
     /// A Twig template.
     Template,
+
     /// The name of an event to listen to or dispatch.
     Event,
+
     /// A field of the entity a repository serves.
     EntityField,
+
     /// A section a layout yields and a child fills.
     Section,
+
     /// A stack a layout renders and templates push to.
     Stack,
+
     /// A slot of the component the scope names.
     Slot,
+
     /// An attribute of the component the scope names, which fills one of its props.
     Attribute,
+
     /// A block of a Twig template; the scope is the template it is written in, whose parents
     /// declare it.
     Block,
+
     /// A relation of the Eloquent model the scope names.
     Relation,
+
     /// A table the migrations create.
     Table,
+
     /// A column of the table the scope names.
     Column,
+
     /// A Livewire component, by the name a template writes it under.
     Livewire,
+
     /// An Inertia page component, by its path below the pages folder.
     InertiaPage,
+
     /// A Pennant feature.
     Feature,
+
     /// A group of Symfony's serializer.
     SerializerGroup,
+
     /// A Symfony workflow or state machine.
     Workflow,
+
     /// A transition of a Symfony workflow.
     WorkflowTransition,
+
     /// A place of a Symfony workflow.
     WorkflowPlace,
+
     /// A column of the Raxos model the scope names, by its key, alias or property name.
     ModelColumn,
+
     /// Any property the Raxos ORM knows of the model the scope names: a column, relation or macro.
     ModelProperty,
+
     /// A relation of the Raxos model the scope names.
     ModelRelation,
 }
@@ -85,6 +110,7 @@ pub enum KeyKind {
 impl KeyKind {
     fn workflow_part(self) -> Option<super::symfony::workflow::WorkflowPart> {
         use super::symfony::workflow::WorkflowPart;
+
         match self {
             KeyKind::Workflow => Some(WorkflowPart::Workflow),
             KeyKind::WorkflowTransition => Some(WorkflowPart::Transition),
@@ -213,6 +239,7 @@ fn definition(path: &std::path::Path, span: Span, detail: impl Into<String>) -> 
 pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Candidate> {
     let frameworks = index.frameworks();
     let mut out = Vec::new();
+
     match kind {
         KeyKind::ModelColumn | KeyKind::ModelProperty | KeyKind::ModelRelation => {
             if let Some(model) = scope {
@@ -258,6 +285,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                         .map(|route| candidate(&route.name, None)),
                 );
             }
+
             if frameworks.symfony {
                 out.extend(
                     index
@@ -284,8 +312,10 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         ),
         KeyKind::Translation => {
             let mut seen = std::collections::HashSet::new();
+
             if frameworks.laravel {
                 let translations = index.section::<Translations>();
+
                 out.extend(
                     translations
                         .keys()
@@ -294,8 +324,10 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
                         .map(|entry| candidate(&entry.key, entry.value.clone())),
                 );
             }
+
             if frameworks.symfony {
                 let translations = index.section::<SfTranslations>();
+
                 out.extend(
                     translations
                         .entries
@@ -308,6 +340,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         KeyKind::Env => {
             let env = index.section::<EnvNames>();
             let mut seen = std::collections::HashSet::new();
+
             out.extend(
                 env.names
                     .iter()
@@ -318,6 +351,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         KeyKind::Ability => {
             let abilities = index.section::<Abilities>();
             let mut seen = std::collections::HashSet::new();
+
             out.extend(
                 abilities
                     .abilities
@@ -328,6 +362,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         }
         KeyKind::Service => {
             let services = index.section::<Services>();
+
             out.extend(services.services.iter().map(|service| {
                 candidate(
                     &service.id,
@@ -340,6 +375,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         }
         KeyKind::Parameter => {
             let services = index.section::<Services>();
+
             out.extend(
                 services
                     .parameters
@@ -349,6 +385,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         }
         KeyKind::Event => {
             let events = index.section::<EventNames>();
+
             out.extend(events.events.iter().map(|event| {
                 candidate(
                     &event.name,
@@ -358,12 +395,15 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         }
         KeyKind::Section | KeyKind::Stack => {
             let layouts = index.section::<Layouts>();
+
             let placed = if kind == KeyKind::Section {
                 &layouts.sections
             } else {
                 &layouts.stacks
             };
+
             let mut seen = std::collections::HashSet::new();
+
             out.extend(
                 placed
                     .iter()
@@ -384,6 +424,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         }
         KeyKind::Column => {
             let tables = index.section::<super::migrations::Tables>();
+
             if let Some(table) = scope.and_then(|table| tables.table(table)) {
                 out.extend(table.columns.iter().map(|column| candidate(&column.name, None)));
             }
@@ -391,6 +432,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         KeyKind::Relation => {
             if let Some(found) = scope.and_then(|model| super::eloquent::relations(index, model)) {
                 let mut seen = std::collections::HashSet::new();
+
                 out.extend(
                     found
                         .into_iter()
@@ -408,6 +450,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
         }
         KeyKind::Block => {
             let mut seen = std::collections::HashSet::new();
+
             for (_, block, _) in twig_blocks(index, scope) {
                 if seen.insert(block.clone()) {
                     out.push(candidate(&block, None));
@@ -463,6 +506,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
             }
         }
     }
+
     out
 }
 
@@ -471,6 +515,7 @@ pub fn candidates(index: &Index, kind: KeyKind, scope: Option<&str>) -> Vec<Cand
 fn twig_blocks(index: &Index, template: Option<&str>) -> Vec<(std::path::PathBuf, String, Span)> {
     let shapes = index.section::<TwigShapes>();
     let templates = index.section::<Templates>();
+
     let Some(name) = template else {
         return shapes
             .all()
@@ -482,27 +527,34 @@ fn twig_blocks(index: &Index, template: Option<&str>) -> Vec<(std::path::PathBuf
             })
             .collect();
     };
+
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
+
     let mut parent = templates
         .find(name)
         .and_then(|found| shapes.of(&found.path))
         .and_then(|shape| shape.extends.clone());
+
     while let Some(next) = parent.filter(|next| seen.insert(next.clone())) {
         let Some(found) = templates.find(&next) else {
             break;
         };
+
         let Some(shape) = shapes.of(&found.path) else {
             break;
         };
+
         out.extend(
             shape
                 .blocks
                 .iter()
                 .map(|(block, span)| (found.path.clone(), block.clone(), *span)),
         );
+
         parent = shape.extends.clone();
     }
+
     out
 }
 
@@ -516,16 +568,20 @@ struct Prop {
 
 fn component_text(index: &Index, tag: &str) -> Option<String> {
     let path = component_template(index, tag)?;
+
     index.read_text(&path).map(|text| text.to_string())
 }
 
 fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
     let mut out = Vec::new();
+
     if let Some(name) = tag.strip_prefix("livewire:") {
         let livewire = index.section::<super::livewire::Livewire>();
+
         let Some(class) = livewire.find(name).and_then(|component| index.class(&component.class)) else {
             return out;
         };
+
         // A Livewire component takes its attributes into its public properties, or into `mount()`.
         out.extend(
             class
@@ -540,6 +596,7 @@ fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
                     detail: property.ty.as_ref().map(|ty| ty.display(true)),
                 }),
         );
+
         if let Some(mount) = class.decl.method("mount") {
             out.extend(mount.callable.params.iter().map(|param| Prop {
                 name: param.name.clone(),
@@ -548,9 +605,12 @@ fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
                 detail: param.ty.as_ref().map(|ty| ty.display(true)),
             }));
         }
+
         return out;
     }
+
     let views = index.section::<Views>();
+
     if let Some(class) = views
         .components
         .iter()
@@ -567,6 +627,7 @@ fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
             }));
         }
     }
+
     if let Some(path) = component_template(index, tag) {
         if let Some(text) = index.read_text(&path) {
             out.extend(props_of(&text).into_iter().map(|(name, span)| Prop {
@@ -577,6 +638,7 @@ fn component_props(index: &Index, tag: &str) -> Vec<Prop> {
             }));
         }
     }
+
     out
 }
 
@@ -612,11 +674,13 @@ fn model_candidates(index: &Index, kind: KeyKind, model: &str) -> Vec<Candidate>
 /// The property of a Raxos model a key names, under any of its names.
 fn model_definition(index: &Index, kind: KeyKind, model: &str, key: &str) -> Option<Definition> {
     let models = index.section::<Models>();
+
     properties_of(index, model)
         .into_iter()
         .find(|(_, property)| model_fits(kind, property) && property.answers_to(key))
         .and_then(|(declaring, property)| {
             let info = models.get(&declaring)?;
+
             Some(definition(
                 &info.path,
                 property.name_span,
@@ -629,6 +693,7 @@ fn model_definition(index: &Index, kind: KeyKind, model: &str, key: &str) -> Opt
 /// the project does not declare is never said to miss anything.
 pub fn is_missing_model_key(index: &Index, kind: KeyKind, model: &str, key: &str) -> bool {
     let properties = properties_of(index, model);
+
     !properties.is_empty()
         && !properties
             .iter()
@@ -639,6 +704,7 @@ pub fn is_missing_model_key(index: &Index, kind: KeyKind, model: &str, key: &str
 pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>) -> Vec<Definition> {
     let frameworks = index.frameworks();
     let mut out = Vec::new();
+
     match kind {
         KeyKind::ModelColumn | KeyKind::ModelProperty | KeyKind::ModelRelation => {
             if let Some(model) = scope {
@@ -684,6 +750,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                         .map(|route| definition(&route.path, route.span, "")),
                 );
             }
+
             if frameworks.symfony {
                 out.extend(
                     index
@@ -713,9 +780,11 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                         (Some(locale), None) => locale.clone(),
                         _ => String::new(),
                     };
+
                     definition(&entry.path, entry.span, detail)
                 }));
             }
+
             if frameworks.symfony {
                 out.extend(
                     index
@@ -727,6 +796,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
                                 Some(value) => format!("{}: {value}", entry.locale),
                                 None => entry.locale.clone(),
                             };
+
                             definition(&entry.path, entry.span, detail)
                         }),
                 );
@@ -748,6 +818,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
         ),
         KeyKind::Service => {
             let services = index.section::<Services>();
+
             if let Some(service) = services.find(key) {
                 out.push(definition(
                     &service.path,
@@ -797,6 +868,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
         }
         KeyKind::Table => {
             let tables = index.section::<super::migrations::Tables>();
+
             // The first column that names itself, in the migration that creates the table.
             if let Some(first) = tables
                 .table(key)
@@ -807,6 +879,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
         }
         KeyKind::Column => {
             let tables = index.section::<super::migrations::Tables>();
+
             if let Some(column) = scope
                 .and_then(|table| tables.table(table))
                 .and_then(|table| table.column(key))
@@ -833,6 +906,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
         KeyKind::Attribute => {
             if let Some(tag) = scope {
                 let wanted = attribute_key(key);
+
                 out.extend(
                     component_props(index, tag)
                         .into_iter()
@@ -880,6 +954,7 @@ pub fn definitions(index: &Index, kind: KeyKind, key: &str, scope: Option<&str>)
             }
         }
     }
+
     out
 }
 
@@ -897,6 +972,7 @@ pub fn declared_at(index: &Index, path: &std::path::Path, offset: u32) -> Option
 /// The column a migration adds at an offset, with its table.
 pub fn column_declared_at(index: &Index, path: &std::path::Path, offset: u32) -> Option<(String, String, Span)> {
     let tables = index.section::<super::migrations::Tables>();
+
     tables.names().find_map(|table| {
         tables.table(table)?.columns.iter().find_map(|column| {
             (column.path == path && column.span.start <= offset && offset <= column.span.end)
@@ -926,16 +1002,19 @@ fn declared_where(index: &Index, wanted: impl Fn(&str, &Definition) -> bool) -> 
         KeyKind::Ability,
         KeyKind::Env,
     ];
+
     for kind in DECLARED {
         for candidate in candidates(index, kind, None) {
             let found = definitions(index, kind, &candidate.key, None)
                 .into_iter()
                 .find(|definition| wanted(&candidate.key, definition));
+
             if let Some(definition) = found {
                 return Some((kind, candidate.key, definition.span));
             }
         }
     }
+
     None
 }
 
@@ -943,11 +1022,13 @@ fn declared_where(index: &Index, wanted: impl Fn(&str, &Definition) -> bool) -> 
 /// and the name is not among it.
 pub fn is_missing(index: &Index, kind: KeyKind, key: &str) -> bool {
     let frameworks = index.frameworks();
+
     match kind {
         KeyKind::Config => frameworks.laravel && index.section::<ConfigKeys>().is_missing(index, key),
         KeyKind::Route => {
             let laravel = !frameworks.laravel || index.section::<Routes>().is_missing(index, key);
             let symfony = !frameworks.symfony || index.section::<SfRoutes>().is_missing(key);
+
             (frameworks.laravel || frameworks.symfony) && laravel && symfony
         }
         KeyKind::View => frameworks.laravel && index.section::<Views>().is_missing(key),

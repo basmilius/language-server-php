@@ -19,15 +19,18 @@ impl Analyzer<'_> {
             }
             Type::Array(param_key, param_value) | Type::Iterable(param_key, param_value) => {
                 let (key, value) = self.iterable_types(arg);
+
                 if !key.is_unknown() {
                     self.bind_templates(param_key, &key, map);
                 }
+
                 if !value.is_unknown() {
                     self.bind_templates(param_value, &value, map);
                 }
             }
             Type::List(param_value) => {
                 let (_, value) = self.iterable_types(arg);
+
                 if !value.is_unknown() {
                     self.bind_templates(param_value, &value, map);
                 }
@@ -50,6 +53,7 @@ impl Analyzer<'_> {
             }
             Type::Union(members) => {
                 let non_null = arg.without_null();
+
                 for member in members {
                     if !matches!(member, Type::Null) {
                         self.bind_templates(member, &non_null, map);
@@ -64,6 +68,7 @@ impl Analyzer<'_> {
                                 self.bind_templates(&param_param.ty, &actual_param.ty, map);
                             }
                         }
+
                         if let (Some(expected), Some(actual)) = (&signature.ret, &actual.ret) {
                             self.bind_templates(expected, actual, map);
                         }
@@ -79,10 +84,12 @@ impl Analyzer<'_> {
         if !matches!(ty, Type::Class { .. }) {
             return None;
         }
+
         for ancestor in self.index.ancestors(ty) {
             if !ancestor.class.decl.name.eq_ignore_ascii_case(ancestor_name) {
                 continue;
             }
+
             let args = ancestor
                 .class
                 .decl
@@ -91,11 +98,13 @@ impl Analyzer<'_> {
                 .flat_map(|doc| doc.templates.iter())
                 .map(|template| ancestor.subst.get(&template.name).cloned().unwrap_or(Type::Unknown))
                 .collect();
+
             return Some(Type::Class {
                 name: ancestor.class.decl.name.clone(),
                 args,
             });
         }
+
         None
     }
 
@@ -104,9 +113,11 @@ impl Analyzer<'_> {
         if matches!(expected, Type::Mixed) {
             return Some(true);
         }
+
         let mut any_yes = false;
         let mut any_no = false;
         let mut any_unknown = false;
+
         for member in ty.members() {
             match self.member_satisfies(member, expected) {
                 Some(true) => any_yes = true,
@@ -114,6 +125,7 @@ impl Analyzer<'_> {
                 None => any_unknown = true,
             }
         }
+
         match (any_yes, any_no, any_unknown) {
             (true, false, false) => Some(true),
             (false, true, false) => Some(false),
@@ -123,6 +135,7 @@ impl Analyzer<'_> {
 
     fn member_satisfies(&self, member: &Type, expected: &Type) -> Option<bool> {
         let mut unknown = false;
+
         for candidate in expected.members() {
             match (member, candidate) {
                 (Type::Unknown | Type::Mixed, _) => return None,
@@ -151,6 +164,7 @@ impl Analyzer<'_> {
                     if self.index.is_subclass_of(sub, sup) {
                         return Some(true);
                     }
+
                     if self.index.class(sub).is_none() || self.index.class(sup).is_none() {
                         unknown = true;
                     }
@@ -162,6 +176,7 @@ impl Analyzer<'_> {
                 _ => {}
             }
         }
+
         if unknown { None } else { Some(false) }
     }
 
@@ -180,11 +195,13 @@ impl Analyzer<'_> {
                 } else {
                     map.get(&conditional.subject).cloned()
                 };
+
                 let expected = conditional.is.substitute(map, None, None);
                 let verdict = subject.as_ref().and_then(|subject| self.satisfies(subject, &expected));
                 let verdict = verdict.map(|verdict| verdict != conditional.negated);
                 let then = self.resolve_conditionals(&conditional.then, arguments, map);
                 let otherwise = self.resolve_conditionals(&conditional.otherwise, arguments, map);
+
                 match verdict {
                     Some(true) => then,
                     Some(false) => otherwise,
@@ -232,6 +249,7 @@ pub fn template_names(ty: &Type, out: &mut Vec<String>) {
         Type::Shape(fields) => fields.iter().for_each(|field| template_names(&field.ty, out)),
         Type::Callable(Some(callable)) => {
             callable.params.iter().for_each(|param| template_names(&param.ty, out));
+
             if let Some(ret) = &callable.ret {
                 template_names(ret, out);
             }

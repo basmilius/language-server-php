@@ -5,6 +5,7 @@ fn var(fixture: &Fixture, code: &str, name: &str) -> String {
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
     let env = analyzer.env_at(offset);
+
     env.get(name)
         .map_or_else(|| "<unset>".to_string(), |ty| ty.display(true))
 }
@@ -88,6 +89,7 @@ final class Generator implements Iterator {}
 #[test]
 fn array_map_types_the_closure_parameter_and_the_result() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 /** @param list<User> $users */
@@ -99,7 +101,9 @@ function f(array $users) {
     }, $users);
 }
 "#;
+
     assert_eq!(var(&fixture, code, "user"), "User");
+
     let after = r#"<?php
 namespace App;
 /** @param list<User> $users */
@@ -109,6 +113,7 @@ function f(array $users) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, after, "names"), "array<int, string>");
     assert_eq!(var(&fixture, after, "posts"), "array<int, Posts>");
 }
@@ -116,6 +121,7 @@ function f(array $users) {
 #[test]
 fn a_closure_parameter_with_its_own_type_keeps_it() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 /** @param list<User> $users */
@@ -123,12 +129,14 @@ function f(array $users) {
     array_map(fn(object $user) => $0, $users);
 }
 "#;
+
     assert_eq!(var(&fixture, code, "user"), "object");
 }
 
 #[test]
 fn array_filter_usort_and_array_reduce_type_their_callbacks() {
     let fixture = fixture();
+
     let filter = r#"<?php
 namespace App;
 /** @param array<string, User> $users */
@@ -137,8 +145,10 @@ function f(array $users) {
     array_filter($users, function ($user, $key) { $0 });
 }
 "#;
+
     assert_eq!(var(&fixture, filter, "user"), "User");
     assert_eq!(var(&fixture, filter, "key"), "string");
+
     let kept = r#"<?php
 namespace App;
 /** @param array<string, User> $users */
@@ -147,7 +157,9 @@ function f(array $users) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, kept, "adults"), "array<string, User>");
+
     let sorted = r#"<?php
 namespace App;
 /** @param list<User> $users */
@@ -155,8 +167,10 @@ function f(array $users) {
     usort($users, function ($left, $right) { $0 });
 }
 "#;
+
     assert_eq!(var(&fixture, sorted, "left"), "User");
     assert_eq!(var(&fixture, sorted, "right"), "User");
+
     let reduced = r#"<?php
 namespace App;
 /** @param list<User> $users */
@@ -165,6 +179,7 @@ function f(array $users) {
     array_reduce($users, function ($carry, $user) { $0 }, 0);
 }
 "#;
+
     assert_eq!(var(&fixture, reduced, "user"), "User");
     assert_eq!(var(&fixture, reduced, "carry"), "int");
 }
@@ -172,6 +187,7 @@ function f(array $users) {
 #[test]
 fn only_a_use_key_filter_gives_the_callback_the_key() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 /** @param array<string, User> $users */
@@ -179,12 +195,14 @@ function f(array $users) {
     array_filter($users, function ($key) { $0 }, ARRAY_FILTER_USE_KEY);
 }
 "#;
+
     assert_eq!(var(&fixture, code, "key"), "string");
 }
 
 #[test]
 fn methods_with_callable_templates_bind_from_the_receiver() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 /** @param Bag<int, User> $bag */
@@ -193,7 +211,9 @@ function f(Bag $bag) {
     $bag->each(function ($user) { $0 });
 }
 "#;
+
     assert_eq!(var(&fixture, code, "user"), "User");
+
     let result = r#"<?php
 namespace App;
 /** @param Bag<int, User> $bag */
@@ -202,12 +222,14 @@ function f(Bag $bag) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, result, "names"), "Bag<int, string>");
 }
 
 #[test]
 fn array_functions_keep_the_element_type() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 /** @param array<string, User> $users */
@@ -217,6 +239,7 @@ function f(array $users) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "values"), "list<User>");
     assert_eq!(var(&fixture, code, "first"), "User|false");
 }
@@ -224,6 +247,7 @@ function f(array $users) {
 #[test]
 fn return_types_come_from_the_body_when_none_is_declared() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 function f(Maker $maker) {
@@ -238,6 +262,7 @@ function f(Maker $maker) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "user"), "User");
     assert_eq!(var(&fixture, code, "self"), "Maker");
     assert_eq!(var(&fixture, code, "number"), "int|float");
@@ -251,6 +276,7 @@ function f(Maker $maker) {
 #[test]
 fn a_generator_body_gives_its_key_and_value_types() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 function f(Maker $maker) {
@@ -259,8 +285,10 @@ function f(Maker $maker) {
     }
 }
 "#;
+
     assert_eq!(var(&fixture, code, "key"), "string");
     assert_eq!(var(&fixture, code, "user"), "User");
+
     let listed = r#"<?php
 namespace App;
 function f(Maker $maker) {
@@ -269,6 +297,7 @@ function f(Maker $maker) {
     }
 }
 "#;
+
     assert_eq!(var(&fixture, listed, "key"), "int");
     assert_eq!(var(&fixture, listed, "post"), "Post");
 }
@@ -276,6 +305,7 @@ function f(Maker $maker) {
 #[test]
 fn a_closure_called_later_returns_what_its_body_returns() {
     let fixture = fixture();
+
     let code = r#"<?php
 namespace App;
 function f() {
@@ -286,6 +316,7 @@ function f() {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "made"), "User");
     assert_eq!(var(&fixture, code, "built"), "Post");
 }

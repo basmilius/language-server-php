@@ -226,6 +226,7 @@ fn follows_the_options() {
         blank_lines_between_members: 2,
         ..FormatOptions::default()
     };
+
     check_with(
         "<?php\nclass A\n{\n    public function a()\n    {\n        return 1;\n    }\n    public function b()\n    {\n        return 2;\n    }\n}\n",
         &options,
@@ -255,6 +256,7 @@ fn aligns_arrows_and_assignments_when_asked() {
         align_array_arrows: true,
         ..FormatOptions::default()
     };
+
     check_with(
         "<?php\n$a = 1;\n$bcd = 2;\n$ef = [\n    'a' => 1,\n    'bbbb' => 2,\n    'cc' => [\n        'x' => 1,\n        'yyy' => 2,\n    ],\n];\n$z = 3;\n",
         &options,
@@ -281,6 +283,7 @@ fn breaks_a_long_argument_list_and_nested_ones_in_turn() {
         line_length: 60,
         ..FormatOptions::default()
     };
+
     check_with(
         "<?php\n$result = $service->process($first, $second, $this->other($third, $fourth, $fifth, $sixth), $last);\nfunction a(int $one, string $two, array $three, ?object $four = null): void {}\n",
         &options,
@@ -309,6 +312,7 @@ fn keeps_the_line_endings_the_file_has() {
         "<?php\r\nclass A{\r\npublic function f(){\r\nreturn 1;\r\n}\r\n}",
         &FormatOptions::default(),
     );
+
     assert_eq!(
         formatted.as_deref(),
         Some("<?php\r\nclass A\r\n{\r\n    public function f()\r\n    {\r\n        return 1;\r\n    }\r\n}\r\n")
@@ -319,10 +323,12 @@ fn keeps_the_line_endings_the_file_has() {
 fn leaves_what_it_cannot_lay_out() {
     let options = FormatOptions::default();
     assert_eq!(try_format("<?php\nfoo(", &options), Err(Refusal::SyntaxErrors));
+
     assert_eq!(
         try_format("<div><?php echo 1; ?></div>", &options),
         Err(Refusal::Markup)
     );
+
     assert_eq!(try_format("  \n", &options), Err(Refusal::Empty));
     assert_eq!(try_format("<?php", &options).as_deref(), Ok("<?php"));
 }
@@ -342,6 +348,7 @@ fn on_type_formatting_indents_the_line_it_ends() {
     let text = "<?php\nfunction a()\n{\nif ($x) {\n$y = 1;\n}\n}\n";
     let offset = text.find("}\n}").expect("found") + 1;
     let edits = on_type_edits(text, offset, '}', &options).expect("edits");
+
     assert_eq!(
         apply(text, &edits),
         "<?php\nfunction a()\n{\nif ($x) {\n$y = 1;\n    }\n}\n"
@@ -349,6 +356,7 @@ fn on_type_formatting_indents_the_line_it_ends() {
 
     let offset = text.find("$y = 1;").expect("found") + "$y = 1;".len();
     let edits = on_type_edits(text, offset, ';', &options).expect("edits");
+
     assert_eq!(
         apply(text, &edits),
         "<?php\nfunction a()\n{\nif ($x) {\n        $y = 1;\n}\n}\n"
@@ -358,6 +366,7 @@ fn on_type_formatting_indents_the_line_it_ends() {
 #[test]
 fn on_type_formatting_indents_a_new_line_in_text_that_is_not_finished() {
     let options = FormatOptions::default();
+
     for (text, expected) in [
         ("<?php\nclass A\n{\n\n", "    "),
         (
@@ -380,6 +389,7 @@ fn on_type_formatting_indents_a_new_line_in_text_that_is_not_finished() {
 fn edits_do_not_overlap() {
     let text = "<?php\nclass A{public function f(){return[1,2];}}\n";
     let edits: Vec<Edit> = crate::edits(text, &FormatOptions::default()).expect("edits");
+
     for pair in edits.windows(2) {
         assert!(pair[0].end <= pair[1].start);
     }
@@ -390,8 +400,10 @@ fn corpus_files(name: &str) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(dir) else {
             return;
         };
+
         for entry in entries.flatten() {
             let path = entry.path();
+
             if path.is_dir() {
                 if !path.ends_with(".git") {
                     walk(&path, out);
@@ -401,13 +413,16 @@ fn corpus_files(name: &str) -> Vec<PathBuf> {
             }
         }
     }
+
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus").join(name);
     let mut files = Vec::new();
     walk(&dir, &mut files);
     files.sort();
+
     if files.is_empty() {
         eprintln!("skipped: {name} is not fetched (run scripts/fetch-corpus.sh)");
     }
+
     files
 }
 
@@ -423,14 +438,17 @@ fn the_stubs_keep_their_tokens_and_format_the_same_twice() {
             ..FormatOptions::default()
         },
     ];
+
     for (files_seen, path) in corpus_files("phpstorm-stubs").into_iter().enumerate() {
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
+
         for (index, options) in option_sets.iter().enumerate() {
             if index > 0 && files_seen % 8 != 0 {
                 continue;
             }
+
             match try_format(&text, options) {
                 Ok(once) => assert_eq!(
                     try_format(&once, options).as_deref(),
@@ -449,13 +467,16 @@ fn the_stubs_keep_their_tokens_and_format_the_same_twice() {
 fn typing_anywhere_in_a_file_never_panics() {
     let text = "<?php\nnamespace A;\n\nclass B extends C\n{\n    public function f(int $a = 1, ...$rest): ?string\n    {\n        $x = [1, 'é' => fn($y) => $y + 1];\n        return match ($a) { 1 => 'ü', default => \"{$x['a']}\" };\n    }\n}\n";
     let options = FormatOptions::default();
+
     for offset in 0..=text.len() + 1 {
         for typed in ['}', ';', '\n'] {
             let _ = on_type_edits(text, offset, typed, &options);
         }
+
         let _ = range_edits(text, offset, text.len(), &options);
         let _ = range_edits(text, 0, offset, &options);
     }
+
     for end in (0..text.len()).filter(|end| text.is_char_boundary(*end)) {
         let _ = on_type_edits(&text[..end], end, '\n', &options);
         let _ = try_format(&text[..end], &options);
@@ -581,6 +602,7 @@ fn a_short_ternary_keeps_its_question_mark_and_colon_together() {
 #[test]
 fn nothing_is_broken_that_fits_or_when_wrapping_is_off() {
     let text = "<?php\n$message = 'The quick brown fox' . $this->describe($animal) . ' jumps over the lazy dog ' . $another;\n";
+
     check_with(
         text,
         &wrapped(0),
@@ -589,6 +611,7 @@ fn nothing_is_broken_that_fits_or_when_wrapping_is_off() {
         $message = 'The quick brown fox' . $this->describe($animal) . ' jumps over the lazy dog ' . $another;
     "#]],
     );
+
     check_with(
         text,
         &wrapped(200),

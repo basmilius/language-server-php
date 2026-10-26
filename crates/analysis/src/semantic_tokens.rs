@@ -89,10 +89,12 @@ pub fn semantic_tokens(index: &Index, root: &SyntaxNode, range: Option<TextRange
     let ctx = FileContext::new(index, root);
     let mut out: Vec<SemanticToken> = Vec::new();
     let mut preorder = root.preorder_with_tokens();
+
     while let Some(event) = preorder.next() {
         let WalkEvent::Enter(element) = event else {
             continue;
         };
+
         match element {
             php_syntax::SyntaxElement::Node(node) => {
                 if range.is_some_and(|range| range.intersect(node.text_range()).is_none()) {
@@ -103,6 +105,7 @@ pub fn semantic_tokens(index: &Index, root: &SyntaxNode, range: Option<TextRange
                 if range.is_some_and(|range| range.intersect(token.text_range()).is_none()) {
                     continue;
                 }
+
                 match token.kind() {
                     DOC_COMMENT => doc_tokens(&ctx, &token, &mut out),
                     VARIABLE => variable_token(&ctx, &token, &mut out),
@@ -115,7 +118,9 @@ pub fn semantic_tokens(index: &Index, root: &SyntaxNode, range: Option<TextRange
             }
         }
     }
+
     out.sort_by_key(|token| token.start);
+
     out
 }
 
@@ -124,7 +129,9 @@ fn route_path_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<Seman
     let Some(literal) = token.parent().filter(|node| node.kind() == LITERAL) else {
         return;
     };
+
     let analyzer = ctx.analyzer(&literal);
+
     for segment in crate::frameworks::raxos::route_segments(&analyzer, &literal) {
         push(out, segment.range, Kind::Parameter, 0);
     }
@@ -134,6 +141,7 @@ fn push(out: &mut Vec<SemanticToken>, range: TextRange, kind: Kind, modifiers: u
     if range.is_empty() {
         return;
     }
+
     out.push(SemanticToken {
         start: u32::from(range.start()),
         end: u32::from(range.end()),
@@ -169,15 +177,18 @@ fn describe(index: &Index, symbol: &Symbol) -> Option<(Kind, u32)> {
         Symbol::Class(name) => match index.class(name) {
             Some(class) => {
                 let mut modifiers = origin_bit(class.file.origin) | deprecated_bit(class.decl.doc.as_deref());
+
                 if class.decl.is_abstract {
                     modifiers |= ABSTRACT;
                 }
+
                 Some((class_kind(class.decl.kind), modifiers))
             }
             None => Some((Kind::Class, 0)),
         },
         Symbol::Function(name) => {
             let function = index.function(name)?;
+
             Some((
                 Kind::Function,
                 origin_bit(function.file.origin) | deprecated_bit(function.decl.doc.as_deref()),
@@ -185,6 +196,7 @@ fn describe(index: &Index, symbol: &Symbol) -> Option<(Kind, u32)> {
         }
         Symbol::Constant(name) => {
             let constant = index.constant(name)?;
+
             Some((
                 Kind::Variable,
                 READONLY | origin_bit(constant.file.origin) | deprecated_bit(constant.decl.doc.as_deref()),
@@ -194,35 +206,44 @@ fn describe(index: &Index, symbol: &Symbol) -> Option<(Kind, u32)> {
             let class = index.class(class)?;
             let method = class.decl.method(name);
             let mut modifiers = origin_bit(class.file.origin);
+
             if let Some(method) = method {
                 if method.is_static {
                     modifiers |= STATIC;
                 }
+
                 if method.is_abstract {
                     modifiers |= ABSTRACT;
                 }
+
                 modifiers |= deprecated_bit(method.doc.as_deref());
             }
+
             Some((Kind::Method, modifiers))
         }
         Symbol::Property { class, name } => {
             let class = index.class(class)?;
             let mut modifiers = origin_bit(class.file.origin);
+
             if let Some(property) = class.decl.property(name) {
                 if property.is_static {
                     modifiers |= STATIC;
                 }
+
                 if property.is_readonly || class.decl.is_readonly {
                     modifiers |= READONLY;
                 }
+
                 modifiers |= deprecated_bit(property.doc.as_deref());
             }
+
             Some((Kind::Property, modifiers))
         }
         Symbol::ClassConst { class, name } => {
             let class = index.class(class)?;
             let constant = class.decl.constant(name)?;
             let modifiers = origin_bit(class.file.origin) | deprecated_bit(constant.doc.as_deref());
+
             if constant.is_case {
                 Some((Kind::EnumMember, modifiers | READONLY | STATIC))
             } else {
@@ -239,45 +260,62 @@ fn name_token(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToke
     let Some(parent) = token.parent() else {
         return;
     };
+
     if parent.kind() == ARGUMENT {
         if ast::has_token(&parent, COLON) {
             push(out, token.text_range(), Kind::Parameter, 0);
         }
+
         return;
     }
+
     if parent.kind() != NAME || is_alias_declaration(&parent) {
         return;
     }
+
     let owner_kind = parent.parent().map(|owner| owner.kind());
+
     if matches!(owner_kind, Some(NAMESPACE_DECLARATION | USE_GROUP)) {
         push(out, token.text_range(), Kind::Namespace, 0);
+
         return;
     }
+
     if owner_kind == Some(ATTRIBUTE) {
         attribute_name_token(ctx, token, out);
+
         return;
     }
+
     let written = token.text();
+
     if BUILTIN.contains(&written.to_ascii_lowercase().as_str()) {
         return;
     }
+
     let symbols = symbols_of_token(ctx, token);
+
     let Some(symbol) = symbols.first() else {
         return;
     };
+
     let Some((kind, mut modifiers)) = describe(ctx.index, symbol) else {
         return;
     };
+
     if is_declaration_name(&parent) {
         modifiers |= DECLARATION;
     }
+
     let name_range = last_segment_of_token(token);
     let token_start = u32::from(token.text_range().start());
     let name_start = u32::from(name_range.start());
+
     if name_start > token_start {
         let lead = (written.len() - written.trim_start_matches('\\').len()) as u32;
         push(out, range_of(token_start + lead, name_start - 1), Kind::Namespace, 0);
     }
+
     push(out, name_range, kind, modifiers);
 }
 
@@ -288,6 +326,7 @@ fn attribute_name_token(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<Se
         .first()
         .and_then(|symbol| describe(ctx.index, symbol))
         .map_or(0, |(_, modifiers)| modifiers & (DEPRECATED | DEFAULT_LIBRARY));
+
     push(out, token.text_range(), Kind::Decorator, modifiers);
 }
 
@@ -303,6 +342,7 @@ fn is_declaration_name(name: &SyntaxNode) -> bool {
     let Some(owner) = name.parent() else {
         return false;
     };
+
     match owner.kind() {
         CLASS_DECLARATION
         | INTERFACE_DECLARATION
@@ -320,39 +360,50 @@ fn variable_token(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<Semantic
     let Some(parent) = token.parent() else {
         return;
     };
+
     let name = token.text().trim_start_matches('$');
+
     if name == "this" {
         return;
     }
+
     let symbols = symbols_of_token(ctx, token);
     let promoted = parent.kind() == PARAMETER && ast::child_of(&parent, MODIFIER_LIST).is_some();
+
     let variable = symbols.iter().find_map(|symbol| match symbol {
         Symbol::Variable { name, scope } => Some((name, *scope)),
         _ => None,
     });
+
     let (kind, mut modifiers) = match variable {
         Some((name, scope)) if !promoted => {
             let is_parameter = scope_has_parameter(&ctx.root, scope, name);
+
             (if is_parameter { Kind::Parameter } else { Kind::Variable }, 0)
         }
         _ => {
             let Some(property) = symbols.iter().find(|symbol| matches!(symbol, Symbol::Property { .. })) else {
                 return;
             };
+
             describe(ctx.index, property).unwrap_or((Kind::Property, 0))
         }
     };
+
     if matches!(parent.kind(), PARAMETER | PROPERTY_ELEMENT) {
         modifiers |= DECLARATION;
     }
+
     push(out, token.text_range(), kind, modifiers);
 }
 
 fn scope_has_parameter(root: &SyntaxNode, scope: (u32, u32), name: &str) -> bool {
     let range = range_of(scope.0, scope.1);
+
     if range == root.text_range() {
         return false;
     }
+
     let node = match root.covering_element(range) {
         php_syntax::SyntaxElement::Node(node) => node,
         php_syntax::SyntaxElement::Token(token) => match token.parent() {
@@ -360,10 +411,13 @@ fn scope_has_parameter(root: &SyntaxNode, scope: (u32, u32), name: &str) -> bool
             None => return false,
         },
     };
+
     let Some(function) = node.ancestors().find(|ancestor| ast::is_function_like(ancestor.kind())) else {
         return false;
     };
+
     let wanted = format!("${name}");
+
     ast::child_of(&function, PARAMETER_LIST).is_some_and(|list| {
         list.children()
             .filter(|child| child.kind() == PARAMETER)
@@ -377,23 +431,29 @@ fn doc_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToke
     let Some(parent) = token.parent() else {
         return;
     };
+
     let text = token.text();
     let base = u32::from(token.text_range().start());
     let analyzer = ctx.analyzer(&parent);
+
     for item in doc_items(text, base) {
         let range = range_of(item.start, item.end);
+
         match &item.kind {
             DocItemKind::Tag(_) => push(out, range, Kind::Keyword, DOCUMENTATION),
             DocItemKind::Template(_) => push(out, range, Kind::TypeParameter, DOCUMENTATION),
             DocItemKind::Class(raw) => {
                 let lower = raw.to_ascii_lowercase();
+
                 if matches!(lower.as_str(), "self" | "static" | "parent" | "this") {
                     continue;
                 }
+
                 let resolved = analyzer.resolver.resolve_class(raw);
                 let local = &text[(item.start - base) as usize..(item.end - base) as usize];
                 let last = local.rfind('\\').map_or(0, |at| at + 1) as u32;
                 let name_range = range_of(item.start + last, item.end);
+
                 let (kind, modifiers) = if ctx.index.class(&resolved).is_some() {
                     match describe(ctx.index, &Symbol::Class(resolved)) {
                         Some(found) => found,
@@ -404,6 +464,7 @@ fn doc_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToke
                 } else {
                     continue;
                 };
+
                 push(out, name_range, kind, modifiers | DOCUMENTATION);
             }
             DocItemKind::Variable(name) => {
@@ -412,12 +473,14 @@ fn doc_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToke
                     .find(|node| ast::is_function_like(node.kind()))
                     .is_some_and(|function| {
                         let wanted = format!("${name}");
+
                         ast::child_of(&function, PARAMETER_LIST).is_some_and(|list| {
                             list.children().any(|parameter| {
                                 ast::first_token(&parameter, VARIABLE).is_some_and(|token| token.text() == wanted)
                             })
                         })
                     });
+
                 push(
                     out,
                     range,
@@ -435,6 +498,7 @@ fn doc_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToke
                         .map_or(Type::Unknown, |class| Type::class(class.name.clone())),
                     _ => Type::class(analyzer.resolver.resolve_class(class)),
                 };
+
                 let symbol = match kind {
                     MemberKind::Method => ctx.index.find_method(&class_type, name).map(|found| Symbol::Method {
                         class: found.class.decl.name.clone(),
@@ -456,12 +520,14 @@ fn doc_tokens(ctx: &FileContext, token: &SyntaxToken, out: &mut Vec<SemanticToke
                             })
                     }
                 };
+
                 if let Some((kind, modifiers)) = symbol.and_then(|symbol| describe(ctx.index, &symbol)) {
                     push(out, range, kind, modifiers | DOCUMENTATION);
                 }
             }
             DocItemKind::Function(name) => {
                 let candidates = analyzer.resolver.function_candidates(name);
+
                 if let Some(function) = ctx.index.first_function(&candidates) {
                     push(
                         out,

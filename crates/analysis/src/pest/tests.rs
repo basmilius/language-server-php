@@ -25,11 +25,13 @@ fn this_type(code: &str, expression: &str) -> String {
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
     let env = analyzer.env_at(offset);
     let parsed = php_syntax::parse(&format!("<?php {expression};")).syntax();
+
     let node = parsed
         .descendants()
         .find(|node| node.kind() == php_syntax::SyntaxKind::EXPR_STATEMENT)
         .and_then(|statement| statement.children().next())
         .expect("an expression");
+
     analyzer.type_of(&node, &env).display(true)
 }
 
@@ -41,12 +43,16 @@ it('works', function () {
     $0
 });
 "#;
+
     assert_eq!(this_type(code, "$this"), "static");
+
     let analyzer_class = {
         let fixture = fixture(code);
         let (_, root, offset) = split_cursor(code);
+
         Analyzer::new(&fixture.index, &root, offset).this_type().display(false)
     };
+
     assert_eq!(analyzer_class, "PHPUnit\\Framework\\TestCase");
 }
 
@@ -55,6 +61,7 @@ fn describe_and_the_top_of_the_file_have_no_test_case() {
     let code = "<?php\ndescribe('group', function () {\n    $0\n});\n";
     let fixture = fixture(code);
     let (_, root, offset) = split_cursor(code);
+
     assert_eq!(
         Analyzer::new(&fixture.index, &root, offset).this_type().display(false),
         "mixed"
@@ -74,6 +81,7 @@ it('works', function () {
     $0
 });
 "#;
+
     assert_eq!(this_type(code, "$this->event"), "Event");
     assert_eq!(this_type(code, "$this->event->venue"), "?Venue");
     assert_eq!(this_type(code, "$this->event->startsOn()"), "DateTimeImmutable");
@@ -91,7 +99,9 @@ describe('inner', function () {
 });
 it('does not', function () { $this->event; });
 "#;
+
     assert_eq!(this_type(code, "$this->event"), "Event");
+
     let outside = r#"<?php
 use App\Event;
 describe('inner', function () {
@@ -99,6 +109,7 @@ describe('inner', function () {
 });
 it('does not', function () { $0 });
 "#;
+
     assert_eq!(this_type(outside, "$this->event"), "mixed");
 }
 
@@ -107,6 +118,7 @@ fn the_case_class_and_traits_come_from_uses_for_the_folder() {
     let pest_php = "<?php\nnamespace Tests;\nuse Tests\\Support\\AppCase;\nuse Tests\\Support\\Refreshes;\nuses(AppCase::class, Refreshes::class)->in('Feature');\nuses(Other::class)->in('Unit');\n";
     let support = "<?php\nnamespace Tests\\Support;\nclass AppCase extends \\PHPUnit\\Framework\\TestCase { public function login(): void {} }\ntrait Refreshes { public function refreshDatabase(): bool {} }\n";
     let code = "<?php\nit('works', function () {\n    $0\n});\n";
+
     let fixture = Fixture::new(&[
         ("pest.php", PEST),
         ("phpunit.php", PHPUNIT),
@@ -114,19 +126,24 @@ fn the_case_class_and_traits_come_from_uses_for_the_folder() {
         ("tests/Support/Support.php", support),
     ])
     .with_current(code);
+
     let (_, root, offset) = split_cursor(code);
     let _guard = crate::document::enter(Some(&PathBuf::from("/project/tests/Feature/Http/FooTest.php")));
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     assert_eq!(
         analyzer.this_type().display(false),
         "Tests\\Support\\AppCase&Tests\\Support\\Refreshes"
     );
+
     let env = analyzer.env_at(offset);
     let parsed = php_syntax::parse("<?php $this->refreshDatabase();").syntax();
+
     let call = parsed
         .descendants()
         .find(|node| node.kind() == php_syntax::SyntaxKind::CALL_EXPR)
         .unwrap();
+
     assert_eq!(analyzer.type_of(&call, &env).display(true), "bool");
     drop(_guard);
     let _unit = crate::document::enter(Some(&PathBuf::from("/project/tests/Unit/FooTest.php")));
@@ -145,13 +162,16 @@ it('works', function () {
     $this->ev$0
 });
 "#;
+
     let fixture = fixture(code);
     let (offset, text) = lsc_text::testing::cursor(code);
+
     let labels: Vec<String> = complete(&fixture.index, &text, offset, CompletionOptions::default())
         .items
         .into_iter()
         .map(|item| item.label)
         .collect();
+
     assert_eq!(labels, vec!["event"]);
 }
 
@@ -174,12 +194,14 @@ fn definitions(code: &str) -> Vec<String> {
     let fixture = dataset_fixture(&clean);
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     analyzer
         .definitions(offset)
         .into_iter()
         .map(|place| {
             let path = place.path.unwrap();
             let source = &fixture.sources[&path];
+
             format!(
                 "{} {}",
                 path.file_name().unwrap().to_string_lossy(),
@@ -201,10 +223,12 @@ fn a_dataset_name_leads_to_its_declaration() {
 fn usages_and_renames_of_a_dataset_cover_its_declaration_and_every_with() {
     use crate::references::{Current, references_at};
     use crate::testing::Files;
+
     let code = "<?php\nit('a', function () {})->with('numbers');\nit('b', function () {})->with('num$0bers');\n";
     let clean = code.replacen("$0", "", 1);
     let fixture = dataset_fixture(&clean);
     let (text, root, offset) = split_cursor(code);
+
     let path = fixture
         .index
         .files()
@@ -212,7 +236,9 @@ fn usages_and_renames_of_a_dataset_cover_its_declaration_and_every_with() {
         .unwrap()
         .path
         .clone();
+
     let sources = Files(fixture.sources.clone());
+
     let found = references_at(
         &fixture.index,
         &sources,
@@ -224,11 +250,13 @@ fn usages_and_renames_of_a_dataset_cover_its_declaration_and_every_with() {
         offset,
     )
     .expect("references");
+
     let mut places: Vec<String> = found
         .files
         .iter()
         .flat_map(|file| {
             let source = &fixture.sources[&file.path];
+
             file.hits
                 .iter()
                 .map(|hit| {
@@ -241,7 +269,9 @@ fn usages_and_renames_of_a_dataset_cover_its_declaration_and_every_with() {
                 .collect::<Vec<_>>()
         })
         .collect();
+
     places.sort();
+
     assert_eq!(
         places,
         vec!["FooTest.php:numbers", "FooTest.php:numbers", "Sizes.php:numbers"]
@@ -259,6 +289,7 @@ fn usages_and_renames_of_a_dataset_cover_its_declaration_and_every_with() {
         "counts",
     )
     .expect("renamed");
+
     assert_eq!(done.files.iter().map(|file| file.edits.len()).sum::<usize>(), 3);
 }
 
@@ -268,16 +299,19 @@ fn dataset_names_complete_inside_with() {
     let clean = code.replacen("$0", "", 1);
     let fixture = dataset_fixture(&clean);
     let offset = code.find("$0").unwrap() as u32;
+
     let labels: Vec<String> = complete(&fixture.index, &clean, offset, CompletionOptions::default())
         .items
         .into_iter()
         .map(|item| item.label)
         .collect();
+
     assert_eq!(labels, vec!["event sizes", "numbers", "own"]);
     let declaring = "<?php\ndataset('$0', [1]);\n";
     let clean = declaring.replacen("$0", "", 1);
     let fixture = dataset_fixture(&clean);
     let offset = declaring.find("$0").unwrap() as u32;
+
     assert!(
         complete(&fixture.index, &clean, offset, CompletionOptions::default())
             .items
@@ -291,6 +325,7 @@ fn param_types(code: &str, names: &[&str]) -> Vec<String> {
     let (_, root, offset) = split_cursor(code);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
     let env = analyzer.env_at(offset);
+
     names
         .iter()
         .map(|name| {
@@ -304,10 +339,12 @@ fn param_types(code: &str, names: &[&str]) -> Vec<String> {
 fn an_inline_dataset_types_the_parameters_of_the_test() {
     let code =
         "<?php\nit('works', function ($count, $label, $flag) { $0 })->with([[1, 'a', true], [2, 'b', false]]);\n";
+
     assert_eq!(
         param_types(code, &["count", "label", "flag"]),
         vec!["int", "string", "bool"]
     );
+
     let keyed = "<?php\nit('works', function ($count, $label) { $0 })->with(['one' => [1, 'a'], 'two' => [2, 'b']]);\n";
     assert_eq!(param_types(keyed, &["count", "label"]), vec!["int", "string"]);
     let single = "<?php\nit('works', function ($number) { $0 })->with([1, 2, 3]);\n";
@@ -346,6 +383,7 @@ it('works', function () {
     $0
 });
 "#;
+
     assert_eq!(this_type(code, "$event"), "Event");
     assert_eq!(this_type(code, "$same->value"), "?Event");
     assert_eq!(this_type(code, "$other->value"), "Venue");
@@ -360,22 +398,29 @@ const CUSTOM: &str =
 fn custom_expectations_are_offered_called_and_found() {
     let code = "<?php\nit('works', function () {\n    expect(1)->toBeF$0;\n});\n";
     let clean = code.replacen("$0", "", 1);
+
     let fixture =
         Fixture::new(&[("pest.php", PEST), ("phpunit.php", PHPUNIT), ("tests/Pest.php", CUSTOM)]).with_current(&clean);
+
     let offset = code.find("$0").unwrap() as u32;
+
     let labels: Vec<String> = complete(&fixture.index, &clean, offset, CompletionOptions::default())
         .items
         .into_iter()
         .map(|item| item.label)
         .collect();
+
     assert_eq!(labels, vec!["toBeFoo"]);
 
     let call = "<?php\nit('works', function () {\n    $r = expect(1)->toBeFoo('x');\n    $0\n});\n";
     let clean = call.replacen("$0", "", 1);
+
     let fixture =
         Fixture::new(&[("pest.php", PEST), ("phpunit.php", PHPUNIT), ("tests/Pest.php", CUSTOM)]).with_current(&clean);
+
     let (_, root, offset) = split_cursor(call);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
+
     assert_eq!(
         analyzer.env_at(offset).get("r").map(|ty| ty.display(true)),
         Some("Expectation<?int>".to_string())
@@ -383,13 +428,16 @@ fn custom_expectations_are_offered_called_and_found() {
 
     let named = "<?php\nit('works', function () {\n    expect(1)->toBeF$0oo('x');\n});\n";
     let clean = named.replacen("$0", "", 1);
+
     let fixture =
         Fixture::new(&[("pest.php", PEST), ("phpunit.php", PHPUNIT), ("tests/Pest.php", CUSTOM)]).with_current(&clean);
+
     let (_, root, offset) = split_cursor(named);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
     let places = analyzer.definitions(offset);
     assert_eq!(places.len(), 1);
     let source = &fixture.sources[places[0].path.as_ref().unwrap()];
+
     assert_eq!(
         &source[places[0].span.start as usize..places[0].span.end as usize],
         "toBeFoo"

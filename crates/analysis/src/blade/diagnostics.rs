@@ -30,11 +30,14 @@ pub fn diagnostics(
     let template = Template::read(index, path, text, given);
     let mut out = Vec::new();
     let parsed = parse(&template.virt.text);
+
     for error in parsed.errors() {
         let range = template.virt.range_to_source(error.range).or_else(|| {
             let start = template.virt.to_source(u32::from(error.range.start()))?;
+
             Some(range_of(start, start))
         });
+
         if let Some(range) = range {
             out.push(diagnostic(
                 range,
@@ -44,19 +47,24 @@ pub fn diagnostics(
             ));
         }
     }
+
     if let Some(severity) = severity(settings, "unbalanced-directive") {
         for imbalance in &template.imbalances {
             let (message, at, end) = match imbalance {
                 Imbalance::Unclosed { name, at, end } => (format!("'@{name}' is never closed"), *at, *end),
                 Imbalance::Unopened { name, at, end } => (format!("'@{name}' has no block to belong to"), *at, *end),
             };
+
             out.push(diagnostic(range_of(at, end), message, severity, "unbalanced-directive"));
         }
     }
+
     if ready && index.frameworks().laravel {
         unknown_names(index, &template, settings, &mut out);
     }
+
     out.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
+
     out
 }
 
@@ -93,14 +101,18 @@ fn unknown_names(index: &Index, template: &Template, settings: &InspectionSettin
         let Some(code) = kind.inspection() else {
             return;
         };
+
         let Some(severity) = severity(settings, code) else {
             return;
         };
+
         if name.is_empty() || !is_missing(index, kind, name) {
             return;
         }
+
         out.push(diagnostic(range, message(kind, name), severity, code));
     };
+
     for name in &template.names {
         let guarded = template.nodes.iter().any(|node| match node {
             super::scan::Node::Directive(directive) => {
@@ -111,16 +123,20 @@ fn unknown_names(index: &Index, template: &Template, settings: &InspectionSettin
             }
             _ => false,
         });
+
         if !guarded {
             report(name.kind, &name.value, range_of(name.start, name.end));
         }
     }
+
     let root = template.root();
     let ctx = FileContext::new(index, &root);
+
     for key in keys_in(&ctx) {
         if key.guarded {
             continue;
         }
+
         if let Some(range) = template.virt.range_to_source(key.range) {
             report(key.kind, &key.value, range);
         }

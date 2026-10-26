@@ -36,25 +36,31 @@ impl Server {
         let uri = params.text_document.uri;
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
+
         let options = HintOptions {
             parameter_names: self.settings.hint_parameter_names.unwrap_or(true),
             closure_types: self.settings.hint_closure_types.unwrap_or(true),
             property_types: self.settings.hint_property_types.unwrap_or(true),
         };
+
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
         let mapper = document.mapper(encoding);
         let range = mapper.text_range(params.range);
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let hints = inlay_hints(&project.index, &root, Some(range), options);
+
         let mut out: Vec<InlayHint> = hints
             .into_iter()
             .map(|hint| {
                 let position = mapper.position(TextSize::from(hint.offset));
+
                 InlayHint {
                     position,
                     label: InlayHintLabel::String(hint.label),
@@ -75,7 +81,9 @@ impl Server {
                 }
             })
             .collect();
+
         out.extend(self.sql_inlay_hints(&uri, range));
+
         Some(out)
     }
 
@@ -88,10 +96,12 @@ impl Server {
         let root = document.parse().syntax();
         let mapper = document.mapper(encoding);
         let range = range.map(|range| mapper.text_range(range));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let tokens: Vec<crate::sql::Token> = semantic_tokens(&project.index, &root, range)
             .into_iter()
             .map(|token| crate::sql::Token {
@@ -101,24 +111,30 @@ impl Server {
                 modifiers: token.modifiers,
             })
             .collect();
+
         let sql = self.sql_tokens(uri, range);
         let tokens = crate::sql::merge_tokens(tokens, sql);
         let document = self.documents.get(uri)?;
         let mapper = document.mapper(encoding);
         let mut data = Vec::with_capacity(tokens.len());
         let (mut previous_line, mut previous_start) = (0, 0);
+
         for token in tokens {
             let start = mapper.position(TextSize::from(token.start));
             let end = mapper.position(TextSize::from(token.end));
+
             if end.line != start.line {
                 continue;
             }
+
             let delta_line = start.line - previous_line;
+
             let delta_start = if delta_line == 0 {
                 start.character - previous_start
             } else {
                 start.character
             };
+
             data.push(SemanticToken {
                 delta_line,
                 delta_start,
@@ -126,14 +142,17 @@ impl Server {
                 token_type: token.ty,
                 token_modifiers_bitset: token.modifiers,
             });
+
             previous_line = start.line;
             previous_start = start.character;
         }
+
         Some(data)
     }
 
     pub(crate) fn semantic_tokens_full(&mut self, params: SemanticTokensParams) -> Option<SemanticTokensResult> {
         let data = self.tokens_of(&params.text_document.uri, None)?;
+
         Some(SemanticTokensResult::Tokens(SemanticTokens { result_id: None, data }))
     }
 
@@ -142,6 +161,7 @@ impl Server {
         params: SemanticTokensRangeParams,
     ) -> Option<SemanticTokensRangeResult> {
         let data = self.tokens_of(&params.text_document.uri, Some(params.range))?;
+
         Some(SemanticTokensRangeResult::Tokens(SemanticTokens {
             result_id: None,
             data,
@@ -152,26 +172,32 @@ impl Server {
         let position = params.text_document_position_params;
         let uri = position.text_document.uri;
         let offset = self.offset_of(&uri, position.position)?;
+
         if let Some(help) = self.sql_signature_help(&uri, offset) {
             return Some(help);
         }
+
         let path = uri_to_path(&uri);
         self.sync_symbols(&uri);
         let encoding = self.encoding;
         let document = self.documents.get_mut(&uri)?;
         let root = document.parse().syntax();
         let offset = u32::from(document.mapper(encoding).offset(position.position));
+
         let project = match &path {
             Some(path) => self.workspace.project_for(path),
             None => &self.workspace.loose,
         };
+
         let found = signature_help(&project.index, &root, offset)?;
+
         let markdown = |text: String| {
             Documentation::MarkupContent(MarkupContent {
                 kind: MarkupKind::Markdown,
                 value: text,
             })
         };
+
         let signatures: Vec<SignatureInformation> = found
             .signatures
             .into_iter()
@@ -191,9 +217,11 @@ impl Server {
                 active_parameter: signature.active_parameter.map(|active| active as u32),
             })
             .collect();
+
         let active_parameter = signatures
             .get(found.active_signature)
             .and_then(|signature| signature.active_parameter);
+
         Some(SignatureHelp {
             signatures,
             active_signature: Some(found.active_signature as u32),

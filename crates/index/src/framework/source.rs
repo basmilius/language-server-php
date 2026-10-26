@@ -16,17 +16,20 @@ use crate::types::Name;
 /// The tree of a file as a person sees it, read when asked for.
 pub fn tree_of(index: &Index, path: &Path) -> Option<SyntaxNode> {
     let text = index.read_text(path)?;
+
     Some(parse(&text).syntax())
 }
 
 /// The method declaration whose name starts at an offset.
 pub fn method_at(root: &SyntaxNode, name_start: u32) -> Option<SyntaxNode> {
     let token = root.token_at_offset(php_syntax::TextSize::from(name_start));
+
     let token = match token {
         php_syntax::TokenAtOffset::Single(token) => token,
         php_syntax::TokenAtOffset::Between(_, right) => right,
         php_syntax::TokenAtOffset::None => return None,
     };
+
     token.parent_ancestors().find(|node| node.kind() == METHOD_DECLARATION)
 }
 
@@ -34,10 +37,12 @@ pub fn method_at(root: &SyntaxNode, name_start: u32) -> Option<SyntaxNode> {
 /// functions.
 pub fn returned_expression(function: &SyntaxNode) -> Option<SyntaxNode> {
     let body = function.children().find(|child| child.kind() == BLOCK)?;
+
     for node in body.descendants() {
         if node.kind() != RETURN_STATEMENT {
             continue;
         }
+
         let nested = node
             .ancestors()
             .skip(1)
@@ -48,10 +53,12 @@ pub fn returned_expression(function: &SyntaxNode) -> Option<SyntaxNode> {
                     CLOSURE_EXPR | ARROW_FUNCTION_EXPR | FUNCTION_DECLARATION
                 )
             });
+
         if !nested {
             return node.children().next();
         }
     }
+
     None
 }
 
@@ -65,13 +72,16 @@ pub fn literal_of(node: &SyntaxNode) -> Option<Literal> {
     if let Some((text, span)) = string_value(node) {
         return Some(Literal::Text(text, span));
     }
+
     let resolver = resolver_for(node);
+
     class_constant(node, &resolver).map(Literal::Class)
 }
 
 /// The names in effect where a node is written.
 pub fn resolver_for(node: &SyntaxNode) -> NameResolver {
     let root = node.ancestors().last().unwrap_or_else(|| node.clone());
+
     resolver_at(&root, u32::from(node.text_range().start()))
 }
 
@@ -81,24 +91,31 @@ pub fn array_items(array: &SyntaxNode) -> Option<Vec<(Option<SyntaxNode>, Syntax
     if array.kind() != ARRAY_EXPR {
         return None;
     }
+
     let mut out = Vec::new();
+
     for item in array.children().filter(|child| child.kind() == ARRAY_ITEM) {
         let has_spread = item.children_with_tokens().any(|element| element.kind() == ELLIPSIS);
+
         if has_spread {
             return None;
         }
+
         let parts: Vec<SyntaxNode> = item.children().collect();
+
         match parts.as_slice() {
             [key, value] => out.push((Some(key.clone()), value.clone())),
             [value] => out.push((None, value.clone())),
             _ => return None,
         }
     }
+
     Some(out)
 }
 
 pub fn span_of(node: &SyntaxNode) -> Span {
     let range = node.text_range();
+
     Span {
         start: u32::from(range.start()),
         end: u32::from(range.end()),
@@ -117,23 +134,29 @@ pub struct Link {
 pub fn variable_chain(expression: &SyntaxNode) -> Option<(String, Vec<Link>)> {
     let mut links = Vec::new();
     let mut current = expression.clone();
+
     loop {
         match current.kind() {
             CALL_EXPR => {
                 let callee = current.children().next()?;
+
                 if callee.kind() != PROPERTY_FETCH_EXPR {
                     return None;
                 }
+
                 let name = callee.children().find(|child| child.kind() == NAME)?;
+
                 links.push(Link {
                     name: name.text().to_string(),
                     args: crate::test_facts::argument_expressions(&current),
                     node: current.clone(),
                 });
+
                 current = callee.children().next()?;
             }
             VARIABLE_EXPR => {
                 links.reverse();
+
                 return Some((current.text().to_string().trim_start_matches('$').to_string(), links));
             }
             _ => return None,
@@ -146,13 +169,17 @@ pub fn static_call_parts(call: &SyntaxNode) -> Option<(String, String, SyntaxNod
     if call.kind() != CALL_EXPR {
         return None;
     }
+
     let callee = call.children().next()?;
+
     if callee.kind() != SCOPED_ACCESS_EXPR {
         return None;
     }
+
     let mut names = callee.children().filter(|child| child.kind() == NAME);
     let class = names.next()?;
     let method = names.next()?;
+
     Some((class.text().to_string(), method.text().to_string(), call.clone()))
 }
 
@@ -162,6 +189,7 @@ pub fn class_in_attribute(index: &Index, class: crate::index::Class<'_>, text: &
     let name = text.trim().strip_suffix("::class")?.trim();
     let tree = tree_of(index, &class.file.path)?;
     let resolver = resolver_at(&tree, class.decl.span.start);
+
     Some(resolver.resolve_class(name))
 }
 
@@ -175,5 +203,6 @@ pub fn method_in_attribute(
     let (name, rest) = text.trim().strip_suffix("(...)")?.split_once("::")?;
     let tree = tree_of(index, &class.file.path)?;
     let resolver = resolver_at(&tree, class.decl.span.start);
+
     Some((resolver.resolve_class(name.trim()), rest.trim().to_string()))
 }

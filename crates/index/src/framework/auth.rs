@@ -26,6 +26,7 @@ impl Section for UserModel {
     fn build(index: &Index) -> Self {
         let path = index.framework_root().join("config").join("auth.php");
         let class = index.read_text(&path).and_then(|text| read(&parse(&text).syntax()));
+
         UserModel { class }
     }
 
@@ -41,12 +42,15 @@ fn read(tree: &SyntaxNode) -> Option<Name> {
         .filter(|node| node.kind() == RETURN_STATEMENT)
         .filter_map(|node| node.children().next())
         .find(|node| node.kind() == ARRAY_EXPR)?;
+
     let providers = value_of(&config, "providers")?;
     let (_, first) = array_items(&providers)?.into_iter().next()?;
     let model = value_of(&first, "model")?;
+
     let constant = model
         .descendants()
         .find(|node| node.kind() == SCOPED_ACCESS_EXPR && node.text().to_string().ends_with("::class"))?;
+
     match literal_of(&constant)? {
         Literal::Class(class) => Some(class),
         Literal::Text(..) => None,
@@ -73,16 +77,21 @@ mod tests {
             "config/auth.php",
             "<?php\nuse App\\Models\\User;\nreturn ['guards' => [], 'providers' => ['users' => ['driver' => 'eloquent', 'model' => env('AUTH_MODEL', User::class)]]];",
         )]);
+
         assert_eq!(index.section::<UserModel>().class.as_deref(), Some("App\\Models\\User"));
+
         let plain = project(&[(
             "config/auth.php",
             "<?php return ['providers' => ['users' => ['model' => \\App\\Account::class]]];",
         )]);
+
         assert_eq!(plain.section::<UserModel>().class.as_deref(), Some("App\\Account"));
+
         let none = project(&[(
             "config/auth.php",
             "<?php return ['providers' => ['users' => ['driver' => 'database']]];",
         )]);
+
         assert_eq!(none.section::<UserModel>().class, None);
     }
 }

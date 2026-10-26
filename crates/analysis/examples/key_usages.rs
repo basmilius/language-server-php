@@ -36,18 +36,22 @@ impl Sources for Disk<'_> {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
     if args.len() < 2 {
         eprintln!("usage: key_usages <project> <stubs> [--samples <n>]");
         std::process::exit(2);
     }
+
     let samples: usize = args
         .iter()
         .position(|arg| arg == "--samples")
         .and_then(|at| args.get(at + 1))
         .and_then(|value| value.parse().ok())
         .unwrap_or(10);
+
     let threads = std::thread::available_parallelism().map_or(4, usize::from);
     let stubs = Mutex::new(Vec::new());
+
     indexer::run(
         indexer::discover_stubs(Path::new(&args[1])),
         None,
@@ -62,15 +66,18 @@ fn main() {
             }
         },
     );
+
     let stubs = stubs.into_inner().expect("lock");
     let mut project = Project::open(Path::new(&args[0]), PhpVersion::V8_4);
     let files = indexer::discover_project(&project.root, project.composer.as_ref(), &[]);
     let collected = Mutex::new(Vec::new());
+
     indexer::run(files, None, None, threads, &|event| {
         if let IndexEvent::Files(batch) = event {
             collected.lock().expect("lock").extend(batch);
         }
     });
+
     let extensions = project.extensions();
     project.apply(collected.into_inner().expect("lock"));
     project.index.set_stubs(&stubs, &extensions);
@@ -81,7 +88,9 @@ fn main() {
         .filter(|file| file.origin == Origin::Project)
         .map(|file| file.path.clone())
         .collect();
+
     let mut own = own;
+
     own.extend(
         index
             .section::<php_index::framework::symfony::templates::Templates>()
@@ -89,9 +98,11 @@ fn main() {
             .iter()
             .map(|template| template.path.clone()),
     );
+
     let started = Instant::now();
     let mut words = WordIndex::default();
     words.build(own.clone(), None);
+
     println!(
         "words of {} files in {:?}, {} hashes",
         words.len(),
@@ -101,17 +112,22 @@ fn main() {
 
     let mut keys: BTreeSet<(String, String)> = BTreeSet::new();
     let mut symbols: BTreeMap<(String, String), Symbol> = BTreeMap::new();
+
     for path in &own {
         if path.to_string_lossy().ends_with(".blade.php") || php_analysis::twig::is_template(path) {
             continue;
         }
+
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
+
         let root = parse(&text).syntax();
         let ctx = FileContext::new(index, &root);
+
         for key in keys_in(&ctx) {
             let id = (key.kind.label().to_string(), key.value.clone());
+
             if keys.insert(id.clone()) {
                 symbols.insert(
                     id,
@@ -124,11 +140,14 @@ fn main() {
             }
         }
     }
+
     let sources = Disk { words: &words };
+
     let texts: BTreeMap<PathBuf, String> = own
         .iter()
         .filter_map(|path| Some((path.clone(), std::fs::read_to_string(path).ok()?)))
         .collect();
+
     let mut per_kind: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut slowest = Duration::ZERO;
     let mut total = Duration::ZERO;
@@ -136,8 +155,10 @@ fn main() {
     let empty = String::new();
     let none = parse("").syntax();
     let nowhere = PathBuf::from("/nowhere.php");
+
     for ((kind, name), symbol) in &symbols {
         let began = Instant::now();
+
         let found = hits_of_symbols(
             index,
             &sources,
@@ -148,9 +169,11 @@ fn main() {
             },
             std::slice::from_ref(symbol),
         );
+
         let took = began.elapsed();
         total += took;
         slowest = slowest.max(took);
+
         let hits: BTreeSet<(PathBuf, usize)> = found
             .iter()
             .flat_map(|file| {
@@ -159,9 +182,11 @@ fn main() {
                     .map(|hit| (file.path.clone(), usize::from(hit.range.start())))
             })
             .collect();
+
         let entry = per_kind.entry(kind.clone()).or_default();
         entry.0 += 1;
         entry.1 += hits.len();
+
         // A form field is a plain word that every array of the project may hold as a key.
         if matches!(
             symbol,
@@ -172,13 +197,16 @@ fn main() {
         ) {
             continue;
         }
+
         for (path, text) in &texts {
             for quote in ['\'', '"'] {
                 let quoted = format!("{quote}{name}{quote}");
+
                 for (at, _) in text.match_indices(&quoted) {
                     if !hits.contains(&(path.clone(), at + 1)) {
                         let line_start = text[..at].rfind('\n').map_or(0, |found| found + 1);
                         let line_end = text[at..].find('\n').map_or(text.len(), |found| at + found);
+
                         missed.push(format!(
                             "{kind} {name}: {}: {}",
                             path.strip_prefix(&project.root).unwrap_or(path).display(),
@@ -189,12 +217,15 @@ fn main() {
             }
         }
     }
+
     for (kind, (count, hits)) in &per_kind {
         println!("{kind}: {count} names, {hits} usages");
     }
+
     println!("{} searches in {:?}, slowest {:?}", symbols.len(), total, slowest);
     println!("{} quoted strings that are not counted as usages", missed.len());
     let step = (missed.len() / samples.max(1)).max(1);
+
     for line in missed.iter().step_by(step).take(samples) {
         println!("  {line}");
     }

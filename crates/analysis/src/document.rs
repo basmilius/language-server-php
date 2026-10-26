@@ -24,6 +24,7 @@ impl Drop for DocumentGuard {
 /// Names the file the analyses made from now on are about.
 pub fn enter(path: Option<&Path>) -> DocumentGuard {
     let previous = CURRENT.with(|current| current.replace(path.map(Path::to_path_buf)));
+
     DocumentGuard { previous }
 }
 

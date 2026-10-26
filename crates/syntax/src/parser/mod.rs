@@ -23,23 +23,28 @@ pub type Parse = lsc_syntax::Parse<PhpLanguage>;
 /// Parses a text. Never fails: a broken file gives a tree with `ERROR` nodes and a list of errors.
 pub fn parse(text: &str) -> Parse {
     let lexed = lexer::lex(text);
+
     let mut parser = Parser {
         inner: lsc_syntax::Parser::new(text, lexed.tokens),
         void_cast_allowed: false,
     };
+
     for error in &lexed.errors {
         parser.error_at(
             TextRange::new(TextSize::from(error.start), TextSize::from(error.end)),
             error.message,
         );
     }
+
     stmt::source_file(&mut parser);
+
     parser.inner.finish()
 }
 
 /// The shared parser with what only PHP's grammar asks of it.
 pub(crate) struct Parser<'a> {
     inner: lsc_syntax::Parser<'a, PhpLanguage>,
+
     /// Set while the statement being parsed is allowed to start with a `(void)` cast.
     pub(crate) void_cast_allowed: bool,
 }

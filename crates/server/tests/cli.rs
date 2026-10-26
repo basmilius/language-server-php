@@ -8,7 +8,9 @@ fn prints_its_version() {
         .arg("--version")
         .output()
         .expect("the binary runs");
+
     assert!(output.status.success());
+
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         format!("php-language-server {}", env!("CARGO_PKG_VERSION"))

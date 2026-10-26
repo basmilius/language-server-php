@@ -33,16 +33,22 @@ pub enum BraceStyle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormatOptions {
     pub indent: Indent,
+
     /// The brace of a class, interface, trait or enum.
     pub class_brace: BraceStyle,
+
     /// The brace of a named function or a method. A closure's brace is always on its line.
     pub function_brace: BraceStyle,
+
     /// The blank lines between a method and its neighbors.
     pub blank_lines_between_members: usize,
+
     /// Pad `=` of assignments on consecutive lines to one column.
     pub align_assignments: bool,
+
     /// Pad `=>` of array items on consecutive lines to one column.
     pub align_array_arrows: bool,
+
     /// A line longer than this has its argument or parameter list broken up. Zero never wraps.
     pub line_length: usize,
 }

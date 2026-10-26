@@ -22,6 +22,7 @@ fn fixture() -> Fixture {
     let mut files = SYMFONY.to_vec();
     files.extend_from_slice(TWIG_LIBRARY);
     files.extend_from_slice(TWIG);
+
     Fixture::framework(&files)
 }
 
@@ -29,17 +30,20 @@ const PAGE: &str = "/project/templates/blog/index.html.twig";
 
 fn split(template: &str) -> (String, u32) {
     let (offset, text) = lsc_text::testing::cursor(template);
+
     (text, offset)
 }
 
 fn places(template: &str) -> Vec<String> {
     let (text, offset) = split(template);
     let fixture = fixture();
+
     definitions_at(&fixture.index, Some(Path::new(PAGE)), &text, &[], offset)
         .into_iter()
         .map(|place| {
             let path = place.path.expect("a file");
             let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+
             format!(
                 "{}: {}",
                 path.strip_prefix("/project").unwrap_or(&path).display(),
@@ -51,6 +55,7 @@ fn places(template: &str) -> Vec<String> {
 
 fn completions(template: &str) -> Vec<String> {
     let (text, offset) = split(template);
+
     let mut items: Vec<String> = complete_at(
         &fixture().index,
         Some(Path::new(PAGE)),
@@ -61,7 +66,9 @@ fn completions(template: &str) -> Vec<String> {
     )
     .map(|list| list.items.into_iter().map(|item| item.label).collect())
     .unwrap_or_default();
+
     items.sort();
+
     items
 }
 
@@ -71,19 +78,23 @@ fn templates_and_blocks_lead_to_their_files() {
         places("{% extends 'ba$0se.html.twig' %}"),
         ["templates/base.html.twig: "]
     );
+
     assert_eq!(
         places("{{ include('blog/_po$0st.html.twig', {post: p}) }}"),
         ["templates/blog/_post.html.twig: "]
     );
+
     assert_eq!(
         places("{% extends 'base.html.twig' %}{% block ti$0tle %}Home{% endblock %}"),
         ["templates/base.html.twig: title"]
     );
+
     assert_eq!(
         completions("{% extends 'base.html.twig' %}{% block $0 %}"),
         Vec::<String>::new(),
         "an empty name is not a name yet"
     );
+
     assert_eq!(completions("{% extends 'base.html.twig' %}{% block b$0 %}"), ["body"]);
     assert_eq!(completions("{% include 'blog/$0' %}"), ["blog/_post.html.twig"]);
 }
@@ -94,7 +105,9 @@ fn strings_of_functions_and_filters_name_what_their_php_takes() {
         places("<a href=\"{{ path('blog_in$0dex') }}\">"),
         ["src/Controller/BlogController.php: index"]
     );
+
     assert_eq!(completions("{{ path('blog$0') }}"), ["blog_index"]);
+
     assert_eq!(
         places("{{ 'post.ti$0tle'|trans }}"),
         ["translations/messages.en.yaml: title"]
@@ -106,10 +119,12 @@ fn functions_filters_and_tests_come_from_the_extensions() {
     assert_eq!(completions("{{ name|up$0 }}"), ["upper"]);
     assert_eq!(completions("{{ pa$0 }}"), ["path"]);
     assert_eq!(completions("{% if x is ev$0 %}"), ["even"]);
+
     assert_eq!(
         places("{{ name|len$0gth }}"),
         ["vendor/symfony/twig/CoreExtension.php: length"]
     );
+
     let (text, offset) = split("{{ items|len$0gth }}");
     let hover = hover_at(&fixture().index, Some(Path::new(PAGE)), &text, &[], offset).expect("a hover");
     assert!(hover.markdown.contains("Twig filter 'length'"), "{}", hover.markdown);
@@ -120,12 +135,15 @@ fn functions_filters_and_tests_come_from_the_extensions() {
 fn no_prefix_of_a_template_breaks_the_reading() {
     let template = "{% extends 'base.html.twig' %}{% block body %}{% for post in posts if post.ok %}{{ path('blog_index', {page: 1})|upper }}{% else %}{{ 'post.title'|trans }}{% endfor %}{% set x = [1, {a: b}] %}{% apply upper %}é{% endapply %}{% endblock %}{# c #}";
     let fixture = fixture();
+
     for end in (0..=template.len()).filter(|end| template.is_char_boundary(*end)) {
         let text = &template[..end];
+
         for offset in (0..=text.len()).filter(|offset| text.is_char_boundary(*offset)) {
             let path = Some(Path::new(PAGE));
             let _ = definitions_at(&fixture.index, path, text, &[], offset as u32);
             let _ = hover_at(&fixture.index, path, text, &[], offset as u32);
+
             let _ = complete_at(
                 &fixture.index,
                 path,
@@ -152,11 +170,13 @@ mod variables {
     fn fixture() -> Fixture {
         let mut files = SYMFONY.to_vec();
         files.extend_from_slice(TWIG_LIBRARY);
+
         files.extend_from_slice(&[
             ("src/Entity/Post.php", POST),
             ("src/Controller/PostController.php", CONTROLLER),
             ("templates/blog/post.html.twig", VIEW),
         ]);
+
         Fixture::framework(&files)
     }
 
@@ -169,15 +189,18 @@ mod variables {
     #[test]
     fn a_controller_gives_its_template_variables() {
         let fixture = fixture();
+
         let shown: Vec<String> = given(&fixture)
             .into_iter()
             .map(|(name, ty)| format!("{name}: {}", ty.display(true)))
             .collect();
+
         assert_eq!(shown, ["post: Post", "posts: list<Post>"]);
     }
 
     fn at(template: &str) -> (String, u32) {
         let (offset, text) = lsc_text::testing::cursor(template);
+
         (text, offset)
     }
 
@@ -186,21 +209,27 @@ mod variables {
         let fixture = fixture();
         let given = given(&fixture);
         let path = Some(Path::new(PATH));
+
         let hover = |template: &str| {
             let (text, offset) = at(template);
+
             hover_at(&fixture.index, path, &text, &given, offset)
                 .map(|hover| hover.markdown)
                 .unwrap_or_default()
         };
+
         assert!(
             hover("{{ post.ti$0tle }}").contains("getTitle"),
             "{}",
             hover("{{ post.ti$0tle }}")
         );
+
         assert!(hover("{% for item in posts %}{{ item.author.na$0me }}{% endfor %}").contains("getName"));
         assert!(hover("{% set first = post %}{{ fi$0rst }}").contains("Post"));
+
         let complete = |template: &str| -> Vec<String> {
             let (text, offset) = at(template);
+
             let mut items: Vec<String> = complete_at(
                 &fixture.index,
                 path,
@@ -211,10 +240,14 @@ mod variables {
             )
             .map(|list| list.items.into_iter().map(|item| item.label).collect())
             .unwrap_or_default();
+
             items.sort();
+
             items
         };
+
         assert_eq!(complete("{{ post.$0 }}"), ["author", "published", "slug", "title"]);
+
         assert_eq!(
             complete("{% for item in posts %}{{ loop.$0 }}{% endfor %}"),
             [
@@ -228,6 +261,7 @@ mod variables {
                 "revindex0"
             ]
         );
+
         assert!(complete("{{ po$0 }}").contains(&"post".to_string()));
         let (text, offset) = at("{{ post.ti$0tle }}");
         let places = definitions_at(&fixture.index, path, &text, &given, offset);
@@ -241,6 +275,7 @@ mod variables {
         let path = std::path::PathBuf::from("/project/src/Entity/Post.php");
         let root = php_syntax::parse(POST).syntax();
         let offset = POST.find("getTitle").expect("the getter") as u32 + 1;
+
         let found = references_at(
             &fixture.index,
             &Files(fixture.sources.clone()),
@@ -252,6 +287,7 @@ mod variables {
             offset,
         )
         .expect("usages");
+
         let in_view: Vec<&str> = found
             .files
             .iter()
@@ -259,6 +295,7 @@ mod variables {
             .flat_map(|file| file.hits.iter())
             .map(|hit| &VIEW[usize::from(hit.range.start())..usize::from(hit.range.end())])
             .collect();
+
         assert_eq!(in_view, ["title"]);
     }
 
@@ -266,6 +303,7 @@ mod variables {
     fn a_form_is_its_view_with_its_children() {
         let mut files = SYMFONY.to_vec();
         files.extend_from_slice(TWIG_LIBRARY);
+
         files.extend_from_slice(&[
             ("vendor/php/ArrayAccess.php", "<?php interface ArrayAccess { public function offsetGet(mixed $offset): mixed; }"),
             (
@@ -278,6 +316,7 @@ mod variables {
             ),
             ("templates/form.html.twig", "{{ form.title.vars }}"),
         ]);
+
         let fixture = Fixture::framework(&files);
         let path = Path::new("/project/templates/form.html.twig");
         let given = data::given(&fixture.index, &Files(fixture.sources.clone()), path);
@@ -292,6 +331,7 @@ mod variables {
 
 fn findings(template: &str) -> Vec<String> {
     let fixture = fixture();
+
     diagnostics(
         &fixture.index,
         Some(Path::new(PAGE)),
@@ -330,6 +370,7 @@ fn blocks_that_do_not_close_are_reported() {
             "unbalanced-directive `{% endif %}`"
         ]
     );
+
     assert_eq!(findings("{% else %}"), ["unbalanced-directive `{% else %}`"]);
     assert!(findings("{% block a 'x' %}{% set b = 1 %}{% set c %}d{% endset %}{% for e in f %}{% else %}{% endfor %}{% cache 'k' %}{% endcache %}").is_empty());
 }
@@ -348,6 +389,7 @@ fn names_the_project_and_its_extensions_lack_are_reported() {
             "unknown-twig-test `notatest`"
         ]
     );
+
     assert!(findings("{% from 'macros.html.twig' import input %}{{ input() }}{% macro own() %}{% endmacro %}{{ parent() }}{% include '@Bundle/x.html.twig' %}").len() == 1, "only the template is unknown");
 }
 
@@ -356,6 +398,7 @@ fn the_workflow_functions_name_transitions_and_places() {
     let mut files = SYMFONY.to_vec();
     files.extend_from_slice(TWIG_LIBRARY);
     files.extend_from_slice(TWIG);
+
     files.extend_from_slice(&[
         (
             "config/packages/workflow.yaml",
@@ -366,18 +409,23 @@ fn the_workflow_functions_name_transitions_and_places() {
             "<?php\nnamespace Symfony\\Bridge\\Twig\\Extension;\nuse Twig\\Extension\\AbstractExtension;\nuse Twig\\TwigFunction;\nfinal class WorkflowExtension extends AbstractExtension {\n    public function getFunctions(): array { return [new TwigFunction('workflow_can', $this->canTransition(...)), new TwigFunction('workflow_has_marked_place', $this->hasMarkedPlace(...))]; }\n    public function canTransition(object $subject, string $transitionName, ?string $name = null): bool {}\n    public function hasMarkedPlace(object $subject, string $placeName, ?string $name = null): bool {}\n}\n",
         ),
     ]);
+
     let fixture = Fixture::framework(&files);
+
     let at = |template: &str| -> Vec<String> {
         let (text, offset) = split(template);
+
         definitions_at(&fixture.index, Some(Path::new(PAGE)), &text, &[], offset)
             .into_iter()
             .map(|place| {
                 let path = place.path.expect("a file");
                 let source = fixture.sources.get(&path).cloned().unwrap_or_default();
+
                 source[place.span.start as usize..place.span.end as usize].to_string()
             })
             .collect()
     };
+
     assert_eq!(at("{% if workflow_can(post, 'pub$0lish') %}{% endif %}"), ["publish"]);
     assert_eq!(at("{{ workflow_has_marked_place(post, 'dr$0aft') }}"), ["draft"]);
 }

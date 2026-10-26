@@ -100,6 +100,7 @@ pub fn rule_sets(ctx: &FileContext<'_>) -> Vec<RuleSet> {
     if !ctx.index.frameworks().laravel || ctx.index.class(VALIDATOR).is_none() {
         return Vec::new();
     }
+
     ctx.root
         .descendants()
         .filter(|node| node.kind() == ARRAY_EXPR)
@@ -112,10 +113,13 @@ fn is_rules_array(ctx: &FileContext<'_>, array: &SyntaxNode) -> bool {
     if array.parent().is_some_and(|parent| parent.kind() == RETURN_STATEMENT) {
         return returned_by_rules(ctx, array);
     }
+
     if array.parent().is_some_and(|parent| parent.kind() == ARGUMENT) {
         let analyzer = ctx.analyzer(array);
+
         return super::keys::is_rules_argument(&analyzer, array);
     }
+
     false
 }
 
@@ -124,14 +128,18 @@ fn returned_by_rules(ctx: &FileContext<'_>, array: &SyntaxNode) -> bool {
     let Some(method) = array.ancestors().find(|node| node.kind() == METHOD_DECLARATION) else {
         return false;
     };
+
     let named_rules = method
         .children()
         .find(|child| child.kind() == NAME)
         .is_some_and(|name| name.text() == "rules");
+
     if !named_rules {
         return false;
     }
+
     let analyzer = ctx.analyzer(array);
+
     analyzer
         .class
         .as_ref()
@@ -141,21 +149,27 @@ fn returned_by_rules(ctx: &FileContext<'_>, array: &SyntaxNode) -> bool {
 fn read_set(array: &SyntaxNode) -> RuleSet {
     let mut set = RuleSet::default();
     let mut values = Vec::new();
+
     for item in array.children().filter(|node| node.kind() == ARRAY_ITEM) {
         let parts: Vec<SyntaxNode> = item.children().collect();
+
         let [key, value] = parts.as_slice() else {
             continue;
         };
+
         if let Some((name, span)) = php_index::test_facts::string_value(key) {
             set.fields.push((name, range_of(span.start, span.end)));
         }
+
         values.push(value.clone());
     }
+
     for value in values {
         match value.kind() {
             LITERAL => {
                 if let Some((text, span)) = php_index::test_facts::string_value(&value) {
                     let mut at = span.start;
+
                     for rule in text.split('|') {
                         parse_rule(rule, at, &mut set.parts);
                         at += rule.len() as u32 + 1;
@@ -176,59 +190,77 @@ fn read_set(array: &SyntaxNode) -> RuleSet {
             _ => {}
         }
     }
+
     set
 }
 
 /// One rule, `name:param,param`, written at `start`.
 fn parse_rule(rule: &str, start: u32, out: &mut Vec<Part>) {
     let leading = rule.len() - rule.trim_start().len();
+
     let (name, params) = match rule.split_once(':') {
         Some((name, params)) => (name, Some(params)),
         None => (rule, None),
     };
+
     let trimmed = name.trim();
     let name_start = start + leading as u32;
+
     out.push(Part::Rule {
         name: trimmed.to_string(),
         range: range_of(name_start, name_start + trimmed.len() as u32),
     });
+
     let Some(params) = params else {
         return;
     };
+
     let lower = trimmed.to_ascii_lowercase();
+
     if matches!(lower.as_str(), "regex" | "not_regex" | "date_format") {
         return;
     }
+
     let mut at = start + name.len() as u32 + 1;
+
     let pieces: Vec<(&str, u32)> = params
         .split(',')
         .map(|piece| {
             let here = at;
             at += piece.len() as u32 + 1;
+
             (piece, here)
         })
         .collect();
+
     let part_of = |(piece, here): (&str, u32)| -> (String, TextRange) {
         let leading = piece.len() - piece.trim_start().len();
         let text = piece.trim();
         let from = here + leading as u32;
+
         (text.to_string(), range_of(from, from + text.len() as u32))
     };
+
     if matches!(lower.as_str(), "exists" | "unique") {
         let Some(first) = pieces.first().copied() else {
             return;
         };
+
         let (table, range) = part_of(first);
+
         // `connection.table` and a model class name a table this does not follow.
         if table.contains(['.', '\\']) {
             return;
         }
+
         out.push(Part::Table {
             name: table.clone(),
             range,
         });
+
         if let Some(second) = pieces.get(1).copied() {
             let (column, range) = part_of(second);
+
             if !column.eq_ignore_ascii_case("null") {
                 out.push(Part::Column {
                     table,
@@ -237,8 +269,10 @@ fn parse_rule(rule: &str, start: u32, out: &mut Vec<Part>) {
                 });
             }
         }
+
         return;
     }
+
     let fields: Vec<(&str, u32)> = if FIELD_LISTS.contains(&lower.as_str()) {
         pieces
     } else if FIELD_FIRST.contains(&lower.as_str()) {
@@ -246,6 +280,7 @@ fn parse_rule(rule: &str, start: u32, out: &mut Vec<Part>) {
     } else {
         Vec::new()
     };
+
     for piece in fields {
         let (name, range) = part_of(piece);
         out.push(Part::Field { name, range });
@@ -257,19 +292,24 @@ pub fn part_at(ctx: &FileContext<'_>, offset: u32) -> Option<(Part, RuleSet)> {
     let literal = crate::ast::node_at(&ctx.root, offset)
         .ancestors()
         .find(|node| node.kind() == LITERAL)?;
+
     let array = literal
         .ancestors()
         .filter(|node| node.kind() == ARRAY_EXPR)
         .find(|array| is_rules_array(ctx, array))?;
+
     let set = read_set(&array);
+
     let part = set
         .parts
         .iter()
         .find(|part| {
             let range = part.range();
+
             u32::from(range.start()) <= offset && offset <= u32::from(range.end())
         })?
         .clone();
+
     Some((part, set))
 }
 
@@ -277,6 +317,7 @@ pub fn part_at(ctx: &FileContext<'_>, offset: u32) -> Option<(Part, RuleSet)> {
 pub fn rule_target(analyzer: &Analyzer<'_>, name: &str) -> Option<(Type, String)> {
     let validator = Type::class(VALIDATOR);
     let method = analyzer.index.find_method(&validator, &rule_method(name))?;
+
     Some((validator, method.member.name.clone()))
 }
 
@@ -288,16 +329,19 @@ pub fn rule_names(analyzer: &Analyzer<'_>) -> Vec<String> {
         .iter()
         .filter_map(|method| rule_name(&method.member.name))
         .collect();
+
     names.extend(analyzer.index.section::<CustomRules>().names.iter().cloned());
     names.extend(["int".to_string(), "bool".to_string()]);
     names.sort();
     names.dedup();
+
     names
 }
 
 /// Whether a rule is certainly not one the validator knows.
 pub fn is_unknown_rule(analyzer: &Analyzer<'_>, name: &str) -> bool {
     let custom = analyzer.index.section::<CustomRules>();
+
     !name.is_empty()
         && !custom.unknown
         && !custom.names.iter().any(|known| known == name)

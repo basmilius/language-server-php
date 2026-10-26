@@ -22,17 +22,21 @@ use crate::stubs;
 
 /// Files larger than this are generated or data, and parsing them tells the index nothing.
 const MAX_FILE_SIZE: u64 = 4 << 20;
+
 const BATCH: usize = 256;
 
 #[derive(Clone, Debug)]
 pub struct IndexedFile {
     pub path: PathBuf,
     pub origin: Origin,
+
     /// For a stub, the normalized name of its extension folder.
     pub extension: Option<String>,
+
     /// Where the declarations are: in memory when the file was just read, in the cache file when
     /// the cache had them.
     pub source: SymbolSource,
+
     pub summary: Arc<FileSummary>,
 }
 
@@ -48,9 +52,11 @@ pub struct Stats {
 pub enum IndexEvent {
     Discovered(usize),
     Files(Vec<IndexedFile>),
+
     /// The cache was written again: these files can be read from the new cache file, which lets
     /// the declarations kept in memory go and the old cache file be released.
     Persisted(Vec<(PathBuf, SymbolSource)>),
+
     Finished(Stats),
 }
 
@@ -73,21 +79,27 @@ const MAX_COMPOSER_DEPTH: usize = 4;
 /// is left out, since indexing a copy of a project and its `vendor` costs as much as the project.
 pub fn discover_composer_roots(folder: &Path) -> Vec<PathBuf> {
     let mut roots = Vec::new();
+
     if folder.join("composer.json").is_file() {
         return roots;
     }
+
     let mut walker = WalkDir::new(folder)
         .follow_links(false)
         .max_depth(MAX_COMPOSER_DEPTH)
         .into_iter();
+
     while let Some(entry) = walker.next() {
         let Ok(entry) = entry else {
             continue;
         };
+
         if entry.depth() == 0 || !entry.file_type().is_dir() {
             continue;
         }
+
         let name = entry.file_name().to_string_lossy();
+
         if skipped_dir(&name) || name.starts_with('~') {
             walker.skip_current_dir();
         } else if entry.path().join("composer.json").is_file() {
@@ -95,7 +107,9 @@ pub fn discover_composer_roots(folder: &Path) -> Vec<PathBuf> {
             walker.skip_current_dir();
         }
     }
+
     roots.sort();
+
     roots
 }
 
@@ -105,6 +119,7 @@ pub fn discover_composer_roots(folder: &Path) -> Vec<PathBuf> {
 pub fn discover_project(root: &Path, composer: Option<&Composer>, skip: &[PathBuf]) -> Vec<(PathBuf, Origin)> {
     let vendor_dir = composer.map(|composer| composer.vendor_dir.clone());
     let mut found: BTreeSet<PathBuf> = BTreeSet::new();
+
     let walker = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
@@ -112,47 +127,60 @@ pub fn discover_project(root: &Path, composer: Option<&Composer>, skip: &[PathBu
             if entry.depth() == 0 || !entry.file_type().is_dir() {
                 return true;
             }
+
             let name = entry.file_name().to_string_lossy();
             let path = entry.path();
+
             if vendor_dir.as_deref() == Some(path) || skipped_dir(&name) || skip.iter().any(|skipped| skipped == path) {
                 return false;
             }
+
             !(path.ends_with("storage/framework") || path.ends_with("bootstrap/cache") || path.ends_with("var/cache"))
         });
+
     for entry in walker.flatten() {
         if entry.file_type().is_file() && is_php(entry.path()) {
             found.insert(entry.into_path());
         }
     }
+
     let mut files: Vec<(PathBuf, Origin)> = found.into_iter().map(|path| (path, Origin::Project)).collect();
 
     if let Some(composer) = composer {
         let mut vendor: BTreeSet<PathBuf> = BTreeSet::new();
+
         for root in composer.vendor_roots() {
             if root.is_file() {
                 vendor.insert(root);
+
                 continue;
             }
+
             for entry in WalkDir::new(&root).follow_links(false).into_iter().flatten() {
                 if entry.file_type().is_file() && is_php(entry.path()) && !composer.excluded(entry.path()) {
                     vendor.insert(entry.into_path());
                 }
             }
         }
+
         files.extend(vendor.into_iter().map(|path| (path, Origin::Vendor)));
         let known: HashSet<PathBuf> = files.iter().map(|(path, _)| path.clone()).collect();
+
         let mut loaded: Vec<(PathBuf, Origin)> = composer_loaded(composer)
             .into_iter()
             .filter(|path| !known.contains(path) && !composer.excluded(path))
             .map(|path| {
                 let own = path.starts_with(root) && !path.starts_with(&composer.vendor_dir);
+
                 (path, if own { Origin::Project } else { Origin::Vendor })
             })
             .collect();
+
         loaded.sort();
         loaded.dedup();
         files.extend(loaded);
     }
+
     files
 }
 
@@ -167,43 +195,54 @@ fn composer_loaded(composer: &Composer) -> Vec<PathBuf> {
         .filter(|path| path.is_file())
         .cloned()
         .collect();
+
     for entry in &composer.autoload.classmap {
         if entry.is_file() {
             out.push(entry.clone());
+
             continue;
         }
+
         for found in WalkDir::new(entry).follow_links(false).into_iter().flatten() {
             if found.file_type().is_file() && is_php(found.path()) {
                 out.push(found.into_path());
             }
         }
     }
+
     out.extend(
         crate::composer::read_generated_classmap(&composer.vendor_dir)
             .into_values()
             .filter(|path| !is_php(path) && path.is_file()),
     );
+
     out
 }
 
 /// The PHP files of the extension folders of the stubs.
 pub fn discover_stubs(root: &Path) -> Vec<(PathBuf, Origin)> {
     let mut files = Vec::new();
+
     let Ok(entries) = std::fs::read_dir(root) else {
         return files;
     };
+
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+
         if !entry.path().is_dir() || !stubs::is_extension_folder(&name) {
             continue;
         }
+
         for file in WalkDir::new(entry.path()).into_iter().flatten() {
             if file.file_type().is_file() && is_php(file.path()) {
                 files.push((file.into_path(), Origin::Stub));
             }
         }
     }
+
     files.sort();
+
     files
 }
 
@@ -216,6 +255,7 @@ pub fn extract_text(text: &str, stub: bool) -> FileSymbols {
 pub fn index_file(path: &Path, origin: Origin) -> Option<FileSymbols> {
     let bytes = std::fs::read(path).ok()?;
     let text = String::from_utf8_lossy(&bytes);
+
     Some(extract_text(&text, origin == Origin::Stub))
 }
 
@@ -240,21 +280,25 @@ pub fn run(
     emit(IndexEvent::Discovered(total));
     let cache = cache_path.map(Cache::load).unwrap_or_default();
     let cached_before = cache.files.len();
+
     let counters = Counters {
         parsed: AtomicUsize::new(0),
         from_cache: AtomicUsize::new(0),
         done: AtomicUsize::new(0),
     };
+
     let entries: Mutex<Vec<Entry>> = Mutex::new(Vec::with_capacity(total));
 
     let work = || {
         files.par_chunks(BATCH).for_each(|chunk| {
             let mut batch = Vec::with_capacity(chunk.len());
             let mut fresh = Vec::with_capacity(chunk.len());
+
             for (path, origin) in chunk {
                 if let Some((source, summary, entry)) = process(path, *origin, &cache, &counters, cache_path.is_some())
                 {
                     let extension = stub_root.and_then(|root| stubs::extension_of(root, path));
+
                     batch.push(IndexedFile {
                         path: path.clone(),
                         origin: *origin,
@@ -262,18 +306,23 @@ pub fn run(
                         source,
                         summary,
                     });
+
                     if let Some(entry) = entry {
                         fresh.push(entry);
                     }
                 }
             }
+
             counters.done.fetch_add(chunk.len(), Ordering::Relaxed);
+
             if let Ok(mut all) = entries.lock() {
                 all.append(&mut fresh);
             }
+
             emit(IndexEvent::Files(batch));
         });
     };
+
     match rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
         .stack_size(64 << 20)
@@ -286,12 +335,14 @@ pub fn run(
     let entries = entries.into_inner().unwrap_or_default();
     let parsed = counters.parsed.load(Ordering::Relaxed);
     let from_cache = counters.from_cache.load(Ordering::Relaxed);
+
     let removed = cached_before.saturating_sub(
         entries
             .iter()
             .filter(|entry| cache.files.contains_key(&entry.path))
             .count(),
     );
+
     if let Some(path) = cache_path {
         if parsed > 0 || removed > 0 || cached_before == 0 {
             if let Ok(saved) = Cache::save(path, entries) {
@@ -309,10 +360,12 @@ pub fn run(
                         )
                     })
                     .collect();
+
                 emit(IndexEvent::Persisted(moved));
             }
         }
     }
+
     emit(IndexEvent::Finished(Stats {
         files: total,
         parsed,
@@ -326,6 +379,7 @@ type Processed = (SymbolSource, Arc<FileSummary>, Option<Entry>);
 
 fn from_cached(path: &Path, cached: &CachedFile, cache: &Cache, stamp: Stamp) -> Option<Processed> {
     let store = cache.store.as_ref()?;
+
     let entry = Entry {
         path: path.to_string_lossy().into_owned(),
         stamp,
@@ -337,6 +391,7 @@ fn from_cached(path: &Path, cached: &CachedFile, cache: &Cache, stamp: Stamp) ->
             length: cached.length,
         },
     };
+
     Some((cached.source(store), cached.summary.clone(), Some(entry)))
 }
 
@@ -345,30 +400,39 @@ fn from_cached(path: &Path, cached: &CachedFile, cache: &Cache, stamp: Stamp) ->
 /// not kept: the cache will have them, and until then they are read again when asked for.
 fn process(path: &Path, origin: Origin, cache: &Cache, counters: &Counters, defer: bool) -> Option<Processed> {
     let stamp = Stamp::of(path)?;
+
     if stamp.size > MAX_FILE_SIZE {
         return None;
     }
+
     let key = path.to_string_lossy();
     let cached = cache.files.get(key.as_ref());
+
     if let Some(cached) = cached.filter(|cached| cached.stamp == stamp) {
         if let Some(done) = from_cached(path, cached, cache, stamp) {
             counters.from_cache.fetch_add(1, Ordering::Relaxed);
+
             return Some(done);
         }
     }
+
     let bytes = std::fs::read(path).ok()?;
     let hash = content_hash(&bytes);
+
     if let Some(cached) = cached.filter(|cached| cached.hash == hash) {
         if let Some(done) = from_cached(path, cached, cache, stamp) {
             counters.from_cache.fetch_add(1, Ordering::Relaxed);
+
             return Some(done);
         }
     }
+
     let text = String::from_utf8_lossy(&bytes);
     let symbols = extract_text(&text, origin == Origin::Stub);
     counters.parsed.fetch_add(1, Ordering::Relaxed);
     let summary = Arc::new(FileSummary::of(&symbols));
     let entry = Entry::new(path, stamp, hash, summary.clone(), &symbols);
+
     let source = if defer {
         SymbolSource::Parse {
             path: path.to_path_buf(),
@@ -377,6 +441,7 @@ fn process(path: &Path, origin: Origin, cache: &Cache, counters: &Counters, defe
     } else {
         SymbolSource::Memory(Arc::new(symbols))
     };
+
     Some((source, summary, entry))
 }
 
@@ -387,6 +452,7 @@ mod tests {
 
     fn collect(files: Vec<(PathBuf, Origin)>, cache: Option<&Path>) -> (Vec<IndexedFile>, Stats) {
         let (indexed, stats, _) = collect_with_moves(files, cache);
+
         (indexed, stats)
     }
 
@@ -398,12 +464,14 @@ mod tests {
         let collected = Mutex::new(Vec::new());
         let moved = Mutex::new(Vec::new());
         let stats = Mutex::new(Stats::default());
+
         run(files, cache, None, 2, &|event| match event {
             IndexEvent::Files(mut batch) => collected.lock().expect("lock").append(&mut batch),
             IndexEvent::Finished(done) => *stats.lock().expect("lock") = done,
             IndexEvent::Persisted(mut batch) => moved.lock().expect("lock").append(&mut batch),
             IndexEvent::Discovered(_) => {}
         });
+
         (
             collected.into_inner().expect("lock"),
             stats.into_inner().expect("lock"),
@@ -415,6 +483,7 @@ mod tests {
     fn discovers_project_files_and_skips_generated_folders() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
+
         for path in [
             "src/A.php",
             "tests/ATest.php",
@@ -428,11 +497,14 @@ mod tests {
             fs::create_dir_all(file.parent().expect("a parent")).expect("created");
             fs::write(file, "<?php class X {}").expect("written");
         }
+
         let found = discover_project(root, None, &[]);
+
         let names: Vec<String> = found
             .iter()
             .map(|(path, _)| path.strip_prefix(root).expect("inside").to_string_lossy().into_owned())
             .collect();
+
         assert_eq!(names, vec!["src/A.php", "tests/ATest.php"]);
     }
 
@@ -440,22 +512,28 @@ mod tests {
     fn finds_the_files_composer_loads_that_a_walk_leaves_out() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
+
         for path in ["src/A.php", "lib/legacy.inc", ".tools/helpers.php"] {
             let file = root.join(path);
             fs::create_dir_all(file.parent().expect("a parent")).expect("created");
             fs::write(file, "<?php class X {}").expect("written");
         }
+
         fs::create_dir_all(root.join("vendor/composer")).expect("vendor");
+
         fs::write(
             root.join("vendor/composer/autoload_classmap.php"),
             "<?php\nreturn array(\n    'Legacy' => $baseDir . '/lib/legacy.inc',\n    'App\\\\A' => $baseDir . '/src/A.php',\n);\n",
         )
         .expect("the class map");
+
         let composer = Composer::from_json(
             root,
             &serde_json::json!({ "autoload": { "files": [".tools/helpers.php"] } }),
         );
+
         let found = discover_project(root, Some(&composer), &[]);
+
         let names: Vec<(String, Origin)> = found
             .iter()
             .map(|(path, origin)| {
@@ -465,6 +543,7 @@ mod tests {
                 )
             })
             .collect();
+
         assert_eq!(
             names,
             vec![
@@ -485,6 +564,7 @@ mod tests {
     fn finds_the_composer_roots_below_a_folder_without_one() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
+
         for path in [
             "backend/composer.json",
             "backend/packages/inner/composer.json",
@@ -497,13 +577,16 @@ mod tests {
         ] {
             touch(root, path);
         }
+
         let names: Vec<String> = discover_composer_roots(root)
             .iter()
             .map(|path| path.strip_prefix(root).expect("inside").to_string_lossy().into_owned())
             .collect();
+
         assert_eq!(names, vec!["backend", "shop/api"]);
 
         touch(root, "composer.json");
+
         assert!(
             discover_composer_roots(root).is_empty(),
             "a folder with a composer.json is one project"
@@ -514,11 +597,13 @@ mod tests {
     fn a_project_skips_the_composer_roots_that_are_projects_of_their_own() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let root = dir.path();
+
         for path in ["tools/Tool.php", "backend/src/B.php"] {
             let file = root.join(path);
             fs::create_dir_all(file.parent().expect("a parent")).expect("created");
             fs::write(file, "<?php class X {}").expect("written");
         }
+
         let found = discover_project(root, None, &[root.join("backend")]);
         assert_eq!(found.len(), 1);
         assert!(found[0].0.ends_with("tools/Tool.php"));
@@ -552,15 +637,19 @@ mod tests {
     fn indexes_in_parallel_and_reuses_the_cache() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let mut files = Vec::new();
+
         for number in 0..40 {
             let path = dir.path().join(format!("f{number}.php"));
+
             fs::write(
                 &path,
                 format!("<?php class C{number} {{ public function m(): int {{}} }}"),
             )
             .expect("written");
+
             files.push((path, Origin::Project));
         }
+
         let cache = dir.path().join("cache/p.bin");
         let (indexed, stats) = collect(files.clone(), Some(&cache));
         assert_eq!(indexed.len(), 40);
@@ -580,6 +669,7 @@ mod tests {
         fs::write(touched, "<?php class Changed {}").expect("written");
         let (indexed, stats) = collect(files, Some(&cache));
         assert_eq!(stats.parsed, 1);
+
         assert!(
             indexed
                 .iter()

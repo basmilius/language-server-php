@@ -13,11 +13,13 @@ pub enum Target {
     Class(Name),
     Function(Name),
     Constant(Name),
+
     /// A method on the classes a type stands for.
     Method {
         receiver: Type,
         name: String,
     },
+
     Property {
         receiver: Type,
         name: String,
@@ -26,23 +28,28 @@ pub enum Target {
         receiver: Type,
         name: String,
     },
+
     /// A local variable or parameter, with the type it has there.
     Variable {
         name: String,
         ty: Type,
     },
+
     /// A parameter named by an argument of a call.
     Parameter {
         callee: Callee,
         name: String,
     },
+
     /// A Pest dataset, by the name it is declared and used under.
     Dataset(String),
+
     /// A `@psalm-type` alias, by the class that declares it.
     TypeAlias {
         class: Name,
         name: String,
     },
+
     /// A string that names a config key, a route, a view and the like.
     Key {
         kind: php_index::framework::keys::KeyKind,
@@ -74,6 +81,7 @@ pub fn token_at(root: &SyntaxNode, offset: u32) -> Option<SyntaxToken> {
                 || token.parent().is_some_and(|parent| parent.kind() == NAME)
                 || matches!(token.kind(), IDENT))
     };
+
     match root.token_at_offset(php_syntax::TextSize::from(offset)) {
         TokenAtOffset::None => None,
         TokenAtOffset::Single(token) => usable(&token).then_some(token),
@@ -95,6 +103,7 @@ impl Analyzer<'_> {
         if let Some(found) = self.test_string_target(offset) {
             return vec![found];
         }
+
         if let Some(segment) = crate::frameworks::raxos::route_segment_at(self, offset) {
             return vec![Found {
                 target: Target::Parameter {
@@ -104,6 +113,7 @@ impl Analyzer<'_> {
                 range: segment.range,
             }];
         }
+
         if let Some(key) = crate::frameworks::keys::key_at(self, offset) {
             if let Some(segment) = crate::frameworks::relations::segment_at(self.index, &key, offset) {
                 if let Some(relation) = segment.relation {
@@ -115,8 +125,10 @@ impl Analyzer<'_> {
                         range: segment.range,
                     }];
                 }
+
                 return Vec::new();
             }
+
             return vec![Found {
                 target: Target::Key {
                     kind: key.kind,
@@ -126,12 +138,15 @@ impl Analyzer<'_> {
                 range: key.range,
             }];
         }
+
         if let Some(found) = self.rule_target_at(offset).or_else(|| self.dql_target_at(offset)) {
             return found;
         }
+
         if let Some(found) = self.doc_target_at(offset) {
             return vec![found];
         }
+
         if let Some(found) = crate::class_strings::at(self.index, &self.root, offset) {
             let target = match found.method {
                 Some((name, range)) if u32::from(range.start()) <= offset => Found {
@@ -146,12 +161,16 @@ impl Analyzer<'_> {
                     range: found.short_range,
                 },
             };
+
             return vec![target];
         }
+
         let Some(token) = token_at(&self.root, offset) else {
             return Vec::new();
         };
+
         let range = token.text_range();
+
         self.targets_of_token(&token)
             .into_iter()
             .map(|target| Found { target, range })
@@ -164,13 +183,17 @@ impl Analyzer<'_> {
         if !self.index.frameworks().laravel {
             return None;
         }
+
         let ctx = crate::context::FileContext::new(self.index, &self.root);
         let (part, _) = crate::frameworks::rules::part_at(&ctx, offset)?;
+
         use crate::frameworks::rules::Part;
         use php_index::framework::keys::KeyKind;
+
         let target = match &part {
             Part::Rule { name, .. } => {
                 let (receiver, name) = crate::frameworks::rules::rule_target(self, name)?;
+
                 Target::Method { receiver, name }
             }
             Part::Table { name, .. } => Target::Key {
@@ -185,6 +208,7 @@ impl Analyzer<'_> {
             },
             Part::Field { .. } => return None,
         };
+
         Some(vec![Found {
             target,
             range: part.range(),
@@ -195,6 +219,7 @@ impl Analyzer<'_> {
     /// or function after `@see`, or what `@property` and `@method` declare.
     fn doc_target_at(&self, offset: u32) -> Option<Found> {
         use crate::doc_refs::{DocItemKind, MemberKind, doc_items};
+
         let token = match self.root.token_at_offset(php_syntax::TextSize::from(offset)) {
             TokenAtOffset::Single(token) => token,
             TokenAtOffset::Between(left, right) => {
@@ -202,28 +227,35 @@ impl Analyzer<'_> {
             }
             TokenAtOffset::None => return None,
         };
+
         if token.kind() != DOC_COMMENT {
             return None;
         }
+
         let base = u32::from(token.text_range().start());
+
         let item = doc_items(token.text(), base)
             .into_iter()
             .find(|item| item.start <= offset && offset <= item.end)?;
+
         let own_class = || {
             self.class
                 .as_ref()
                 .filter(|class| !class.anonymous)
                 .map(|class| class.name.clone())
         };
+
         let class_type = |raw: &str| match raw.to_ascii_lowercase().as_str() {
             "self" | "static" | "this" => self.this_type(),
             _ => Type::class(self.resolver.resolve_class(raw)),
         };
+
         let target = match &item.kind {
             DocItemKind::Class(raw) => {
                 let alias = own_class()
                     .filter(|_| !raw.contains('\\'))
                     .and_then(|class| self.index.type_alias(&class, raw, 0));
+
                 match alias {
                     Some((declaring, alias)) => Target::TypeAlias {
                         class: declaring.decl.name.clone(),
@@ -238,6 +270,7 @@ impl Analyzer<'_> {
             DocItemKind::Member { class, name, kind, .. } => {
                 let receiver = class_type(class);
                 let name = name.clone();
+
                 match kind {
                     MemberKind::Method => Target::Method { receiver, name },
                     MemberKind::Property => Target::Property { receiver, name },
@@ -246,6 +279,7 @@ impl Analyzer<'_> {
             }
             DocItemKind::Function(name) => {
                 let candidates = self.resolver.function_candidates(name);
+
                 Target::Function(self.index.first_function(&candidates)?.decl.name.clone())
             }
             DocItemKind::PropertyDecl(name) => Target::Property {
@@ -258,14 +292,17 @@ impl Analyzer<'_> {
             },
             DocItemKind::Tag(_) | DocItemKind::Variable(_) | DocItemKind::Template(_) => return None,
         };
+
         let range = match &item.kind {
             // A qualified name is named by its last segment, as in code.
             DocItemKind::Class(raw) => {
                 let last = raw.rfind('\\').map_or(0, |at| at + 1) as u32;
+
                 crate::ast::range_of(item.start + last, item.end)
             }
             _ => crate::ast::range_of(item.start, item.end),
         };
+
         Some(Found { target, range })
     }
 
@@ -274,9 +311,12 @@ impl Analyzer<'_> {
         if !self.index.frameworks().symfony {
             return None;
         }
+
         let ctx = crate::context::FileContext::new(self.index, &self.root);
         let part = crate::frameworks::dql::part_at(&ctx, offset)?;
+
         use crate::frameworks::dql::Part;
+
         let target = match &part {
             Part::Field { entity, name, .. } if !name.is_empty() => Target::Property {
                 receiver: Type::class(entity.clone()),
@@ -285,6 +325,7 @@ impl Analyzer<'_> {
             Part::Field { .. } => return None,
             Part::Class { name, .. } => Target::Class(name.clone()),
         };
+
         Some(vec![Found {
             target,
             range: part.range(),
@@ -294,10 +335,12 @@ impl Analyzer<'_> {
     /// The method or function a string of a test names, with the range of the text in the quotes.
     fn test_string_target(&self, offset: u32) -> Option<Found> {
         let string = crate::phpunit::strings::string_at(self, offset)?;
+
         let target = match &string.target {
             crate::phpunit::strings::StringTarget::Method { class, .. } => {
                 let receiver = Type::class(class.clone());
                 self.index.find_method(&receiver, &string.value)?;
+
                 Target::Method {
                     receiver,
                     name: string.value.clone(),
@@ -305,11 +348,13 @@ impl Analyzer<'_> {
             }
             crate::phpunit::strings::StringTarget::Function => {
                 let candidates = self.resolver.function_candidates(&string.value);
+
                 Target::Function(self.index.first_function(&candidates)?.decl.name.clone())
             }
             crate::phpunit::strings::StringTarget::Dataset => Target::Dataset(string.value.clone()),
             crate::phpunit::strings::StringTarget::Group => return None,
         };
+
         Some(Found {
             target,
             range: string.range,
@@ -331,19 +376,24 @@ impl Analyzer<'_> {
         let Some(argument) = token.parent() else {
             return Vec::new();
         };
+
         let named = crate::ast::tokens(&argument)
             .find(|candidate| !candidate.kind().is_trivia())
             .is_some_and(|first| &first == token)
             && has_token(&argument, COLON);
+
         let Some(call) = argument.parent().and_then(|list| list.parent()) else {
             return Vec::new();
         };
+
         if !named || !matches!(call.kind(), CALL_EXPR | NEW_EXPR | ATTRIBUTE) {
             return Vec::new();
         }
+
         let env = self.env_around(&call);
         let name = token.text().to_string();
         let mut out: Vec<Target> = Vec::new();
+
         for callee in self.callees(&call, &env) {
             let callee = match callee.name.rsplit_once("::") {
                 Some((class, method)) => Callee::Method {
@@ -353,14 +403,17 @@ impl Analyzer<'_> {
                 None if callee.name == "closure" => continue,
                 None => Callee::Function(callee.name.clone()),
             };
+
             let target = Target::Parameter {
                 callee,
                 name: name.clone(),
             };
+
             if !out.contains(&target) {
                 out.push(target);
             }
         }
+
         out
     }
 
@@ -369,26 +422,34 @@ impl Analyzer<'_> {
     /// its body. `None` elsewhere.
     fn written_type(&self, variable: &SyntaxNode, name: &str) -> Option<Type> {
         let mut target = variable.clone();
+
         while let Some(parent) = target
             .parent()
             .filter(|parent| matches!(parent.kind(), ARRAY_ITEM | ARRAY_EXPR | LIST_EXPR))
         {
             target = parent;
         }
+
         let parent = target.parent()?;
+
         if parent.kind() == ASSIGN_EXPR && parent.children().next().as_ref() == Some(&target) {
             let mut env = (*self.env_around(&parent)).clone();
             self.apply_expr(&parent, &mut env);
+
             return env.get(name).cloned();
         }
+
         let foreach = variable
             .ancestors()
             .take_while(|node| !crate::ast::is_function_like(node.kind()))
             .find(|node| node.kind() == FOREACH_STATEMENT)?;
+
         let body = foreach.children().last()?;
+
         if body.text_range().contains_range(variable.text_range()) {
             return None;
         }
+
         self.env_at(start(&body) + 1).get(name).cloned()
     }
 
@@ -396,14 +457,18 @@ impl Analyzer<'_> {
         let Some(parent) = token.parent() else {
             return Vec::new();
         };
+
         let name = token.text().trim_start_matches('$').to_string();
+
         match parent.kind() {
             VARIABLE_EXPR => {
                 if let Some(grand) = parent.parent().filter(|grand| grand.kind() == STATIC_PROPERTY_EXPR) {
                     let qualifier = grand.children().next();
+
                     if qualifier.as_ref() != Some(&parent) {
                         if let Some(qualifier) = qualifier {
                             let env = self.env_around(&grand);
+
                             return vec![Target::Property {
                                 receiver: self.receiver_type(&self.qualifier_type(&qualifier, &env)),
                                 name,
@@ -411,6 +476,7 @@ impl Analyzer<'_> {
                         }
                     }
                 }
+
                 if name == "this" {
                     return self
                         .class
@@ -419,9 +485,11 @@ impl Analyzer<'_> {
                         .into_iter()
                         .collect();
                 }
+
                 let ty = self
                     .written_type(&parent, &name)
                     .unwrap_or_else(|| self.env_around(&parent).get(&name).cloned().unwrap_or(Type::Unknown));
+
                 vec![Target::Variable { name, ty }]
             }
             PROPERTY_ELEMENT => vec![Target::Property {
@@ -432,11 +500,13 @@ impl Analyzer<'_> {
                 let ty = child_of(&parent, BLOCK)
                     .and_then(|body| self.env_at(start(&body) + 1).get(&name).cloned())
                     .unwrap_or(Type::Unknown);
+
                 vec![Target::Variable { name, ty }]
             }
             PARAMETER | CLOSURE_USE_VARIABLE | STATIC_VARIABLE => {
                 let env = self.env_at(start(&parent) + 1);
                 let ty = env.get(&name).cloned().unwrap_or(Type::Unknown);
+
                 vec![Target::Variable { name, ty }]
             }
             _ => Vec::new(),
@@ -447,11 +517,14 @@ impl Analyzer<'_> {
         let Some(name_node) = token.parent().filter(|parent| parent.kind() == NAME) else {
             return Vec::new();
         };
+
         let Some(parent) = name_node.parent() else {
             return Vec::new();
         };
+
         let text = text_of(&name_node);
         let is_first_child = parent.children().next().as_ref() == Some(&name_node);
+
         match parent.kind() {
             CLASS_DECLARATION | INTERFACE_DECLARATION | TRAIT_DECLARATION | ENUM_DECLARATION => {
                 vec![Target::Class(self.resolver.qualify(&text))]
@@ -469,6 +542,7 @@ impl Analyzer<'_> {
                 let in_class = parent
                     .parent()
                     .is_some_and(|grand| grand.kind() == CLASS_CONST_DECLARATION);
+
                 if in_class {
                     vec![Target::ClassConst {
                         receiver: self.this_type(),
@@ -491,14 +565,18 @@ impl Analyzer<'_> {
                 if is_first_child {
                     return self.expression_name_targets(&text);
                 }
+
                 let Some(object) = parent.children().next() else {
                     return Vec::new();
                 };
+
                 let env = self.env_around(&parent);
                 let receiver = self.receiver_type(&self.type_of(&object, &env));
+
                 let is_call = parent.parent().is_some_and(|grand| {
                     grand.kind() == CALL_EXPR && grand.children().next().as_ref() == Some(&parent)
                 });
+
                 if is_call {
                     vec![Target::Method { receiver, name: text }]
                 } else {
@@ -509,14 +587,18 @@ impl Analyzer<'_> {
                 if is_first_child {
                     return self.class_targets(&text);
                 }
+
                 let Some(qualifier) = parent.children().next() else {
                     return Vec::new();
                 };
+
                 let env = self.env_around(&parent);
                 let receiver = self.receiver_type(&self.qualifier_type(&qualifier, &env));
+
                 let is_call = parent.parent().is_some_and(|grand| {
                     grand.kind() == CALL_EXPR && grand.children().next().as_ref() == Some(&parent)
                 });
+
                 if is_call {
                     vec![Target::Method { receiver, name: text }]
                 } else if text == "class" {
@@ -530,17 +612,20 @@ impl Analyzer<'_> {
                 if is_alias_name(&name_node) {
                     return Vec::new();
                 }
+
                 self.use_targets(&parent, &text)
             }
             USE_GROUP => Vec::new(),
             CALL_EXPR => {
                 if is_first_child {
                     let candidates = self.resolver.function_candidates(&text);
+
                     return match self.index.first_function(&candidates) {
                         Some(function) => vec![Target::Function(function.decl.name.clone())],
                         None => Vec::new(),
                     };
                 }
+
                 self.expression_name_targets(&text)
             }
             EXTENDS_CLAUSE | IMPLEMENTS_CLAUSE => self.class_targets(&text),
@@ -553,26 +638,32 @@ impl Analyzer<'_> {
     fn adaptation_targets(&self, name: &SyntaxNode, text: &str) -> Vec<Target> {
         let previous = significant_sibling(name, true);
         let next = significant_sibling(name, false);
+
         if next == Some(DOUBLE_COLON) {
             return self.class_targets(text);
         }
+
         if previous == Some(DOUBLE_COLON) {
             let qualifier = name
                 .prev_sibling()
                 .filter(|node| node.kind() == NAME)
                 .map(|node| text_of(&node));
+
             let receiver = match qualifier {
                 Some(qualifier) => self.class_type(&qualifier),
                 None => self.this_type(),
             };
+
             return vec![Target::Method {
                 receiver,
                 name: text.to_string(),
             }];
         }
+
         if follows_token(name, AS_KW) {
             return Vec::new();
         }
+
         match previous {
             Some(INSTEADOF_KW | COMMA) => self.class_targets(text),
             _ => vec![Target::Method {
@@ -599,7 +690,9 @@ impl Analyzer<'_> {
         if matches!(text.to_ascii_lowercase().as_str(), "true" | "false" | "null") {
             return Vec::new();
         }
+
         let candidates = self.resolver.constant_candidates(text);
+
         match self.index.first_constant(&candidates) {
             Some(constant) => vec![Target::Constant(constant.decl.name.clone())],
             None => Vec::new(),
@@ -608,6 +701,7 @@ impl Analyzer<'_> {
 
     fn use_targets(&self, clause: &SyntaxNode, text: &str) -> Vec<Target> {
         let statement = clause.ancestors().find(|node| node.kind() == USE_STATEMENT);
+
         let kind_token = |node: &SyntaxNode| {
             if has_token(node, FUNCTION_KW) {
                 Some(FUNCTION_KW)
@@ -617,13 +711,16 @@ impl Analyzer<'_> {
                 None
             }
         };
+
         let kind = kind_token(clause).or_else(|| statement.as_ref().and_then(kind_token));
         let mut full = text.trim_start_matches('\\').to_string();
+
         if let Some(group) = clause.parent().filter(|parent| parent.kind() == USE_GROUP) {
             if let Some(prefix) = child_of(&group, NAME) {
                 full = format!("{}\\{}", text_of(&prefix).trim_end_matches('\\'), full);
             }
         }
+
         match kind {
             Some(FUNCTION_KW) => vec![Target::Function(full)],
             Some(CONST_KW) => vec![Target::Constant(full)],
@@ -639,27 +736,33 @@ fn significant_sibling(node: &SyntaxNode, before: bool) -> Option<php_syntax::Sy
     } else {
         node.next_sibling_or_token()
     };
+
     while let Some(element) = current {
         if !element.kind().is_trivia() {
             return Some(element.kind());
         }
+
         current = if before {
             element.prev_sibling_or_token()
         } else {
             element.next_sibling_or_token()
         };
     }
+
     None
 }
 
 fn follows_token(node: &SyntaxNode, kind: php_syntax::SyntaxKind) -> bool {
     let mut current = node.prev_sibling_or_token();
+
     while let Some(element) = current {
         if element.kind() == kind {
             return true;
         }
+
         current = element.prev_sibling_or_token();
     }
+
     false
 }
 

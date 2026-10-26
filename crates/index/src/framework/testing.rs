@@ -16,20 +16,25 @@ pub const ROOT: &str = "/project";
 pub fn project(files: &[(&str, &str)]) -> Index {
     let mut index = Index::new(PhpVersion::V8_4);
     index.set_frameworks(std::path::Path::new(ROOT), Frameworks::all());
+
     for (relative, text) in files {
         add(&mut index, relative, text);
     }
+
     index
 }
 
 pub fn add(index: &mut Index, relative: &str, text: &str) {
     let path = PathBuf::from(ROOT).join(relative);
+
     let origin = if relative.starts_with("vendor/") {
         Origin::Vendor
     } else {
         Origin::Project
     };
+
     index.set_open_text(&path, Some(Arc::from(text)));
+
     if relative.ends_with(".php") {
         let symbols = extract(&parse(text).syntax(), ExtractOptions::default());
         index.set_file(path, origin, Arc::new(symbols));

@@ -7,6 +7,7 @@ fn var(fixture: &Fixture, code: &str, name: &str) -> String {
     let (_, root, offset) = split_cursor(&fixture_text);
     let analyzer = Analyzer::new(&fixture.index, &root, offset);
     let env = analyzer.env_at(offset);
+
     env.get(name)
         .map_or_else(|| "<unset>".to_string(), |ty| ty.display(true))
 }
@@ -77,6 +78,7 @@ enum Status: string { case Active = 'a'; case Gone = 'g'; }
 #[test]
 fn assignments_new_and_declared_returns() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f(User $u, ?Post $p = null, int ...$rest) {
@@ -91,6 +93,7 @@ function f(User $u, ?Post $p = null, int ...$rest) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "u"), "User");
     assert_eq!(var(&fixture, code, "p"), "?Post");
     assert_eq!(var(&fixture, code, "rest"), "list<int>");
@@ -107,6 +110,7 @@ function f(User $u, ?Post $p = null, int ...$rest) {
 #[test]
 fn templates_are_carried_from_receivers_and_arguments() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f(User $u, Admin $admin) {
@@ -120,6 +124,7 @@ function f(User $u, Admin $admin) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "recent"), "Collection<int, Post>");
     assert_eq!(var(&fixture, code, "first"), "?Post");
     assert_eq!(var(&fixture, code, "made"), "Post");
@@ -132,6 +137,7 @@ function f(User $u, Admin $admin) {
 #[test]
 fn foreach_destructuring_and_array_elements() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 /**
@@ -148,6 +154,7 @@ function f(array $users, array $byKey, User $u) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "user"), "User");
     assert_eq!(var(&fixture, code, "index"), "int");
     assert_eq!(var(&fixture, code, "key"), "string");
@@ -161,6 +168,7 @@ function f(array $users, array $byKey, User $u) {
 #[test]
 fn instanceof_narrows_inside_the_branch_only() {
     let fixture = models();
+
     let inside = r#"<?php
 namespace App;
 function f(User $u, $any) {
@@ -169,14 +177,18 @@ function f(User $u, $any) {
     }
 }
 "#;
+
     assert_eq!(var(&fixture, inside, "u"), "Admin");
+
     let anything = r#"<?php
 namespace App;
 function f($any) {
     if ($any instanceof Post) { $0 }
 }
 "#;
+
     assert_eq!(var(&fixture, anything, "any"), "Post");
+
     let after = r#"<?php
 namespace App;
 function f(User $u) {
@@ -184,7 +196,9 @@ function f(User $u) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, after, "u"), "User");
+
     let early_return = r#"<?php
 namespace App;
 function f($any) {
@@ -192,26 +206,32 @@ function f($any) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, early_return, "any"), "Post");
+
     let negated = r#"<?php
 namespace App;
 function f(User|Post $x) {
     if (!($x instanceof User)) { $0 }
 }
 "#;
+
     assert_eq!(var(&fixture, negated, "x"), "Post");
 }
 
 #[test]
 fn null_checks_narrow() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f(?User $a, ?User $b, ?User $c) {
     if ($a !== null) { $0 }
 }
 "#;
+
     assert_eq!(var(&fixture, code, "a"), "User");
+
     let guard = r#"<?php
 namespace App;
 function f(?User $a) {
@@ -219,14 +239,18 @@ function f(?User $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, guard, "a"), "User");
+
     let truthy = r#"<?php
 namespace App;
 function f(?User $a) {
     if ($a && $a->name) { $0 }
 }
 "#;
+
     assert_eq!(var(&fixture, truthy, "a"), "User");
+
     let is_null = r#"<?php
 namespace App;
 function f(?User $a) {
@@ -234,7 +258,9 @@ function f(?User $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, is_null, "a"), "User");
+
     let still = r#"<?php
 namespace App;
 function f(?User $a) {
@@ -242,12 +268,14 @@ function f(?User $a) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, still, "a"), "?User");
 }
 
 #[test]
 fn branches_merge_into_unions() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f(bool $flag) {
@@ -255,7 +283,9 @@ function f(bool $flag) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "x"), "User|Post");
+
     let maybe = r#"<?php
 namespace App;
 function f(bool $flag) {
@@ -264,7 +294,9 @@ function f(bool $flag) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, maybe, "x"), "string|int");
+
     let exits = r#"<?php
 namespace App;
 function f(bool $flag) {
@@ -273,27 +305,32 @@ function f(bool $flag) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, exits, "x"), "User");
 }
 
 #[test]
 fn closures_see_what_they_use_and_arrow_functions_see_everything() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f(User $u, Post $p) {
     $fn = function (Admin $a) use ($u) { $0 };
 }
 "#;
+
     assert_eq!(var(&fixture, code, "u"), "User");
     assert_eq!(var(&fixture, code, "a"), "Admin");
     assert_eq!(var(&fixture, code, "p"), "<unset>");
+
     let arrow = r#"<?php
 namespace App;
 function f(User $u, Post $p) {
     $fn = fn(Admin $a) => $0;
 }
 "#;
+
     assert_eq!(var(&fixture, arrow, "p"), "Post");
     assert_eq!(var(&fixture, arrow, "a"), "Admin");
 }
@@ -301,6 +338,7 @@ function f(User $u, Post $p) {
 #[test]
 fn docblock_var_overrides_and_enums_resolve() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f() {
@@ -315,6 +353,7 @@ function f() {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "thing"), "Post");
     assert_eq!(var(&fixture, code, "other"), "Admin");
     assert_eq!(var(&fixture, code, "status"), "Status");
@@ -337,6 +376,7 @@ class Repo extends User {
     }
 }
 "#;
+
     let fixture = models().with_current(code);
     assert_eq!(var(&fixture, code, "me"), "static");
     assert_eq!(var(&fixture, code, "self"), "Repo");
@@ -347,6 +387,7 @@ class Repo extends User {
 #[test]
 fn array_building_and_unknowns() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 function f() {
@@ -359,6 +400,7 @@ function f() {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "list"), "list<User|Post>");
     assert_eq!(var(&fixture, code, "map"), "array<string, Post>");
     assert_eq!(var(&fixture, code, "unknown"), "mixed");
@@ -367,6 +409,7 @@ function f() {
 #[test]
 fn nested_array_writes_build_the_element_type() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 /** @param list<Post> $posts */
@@ -380,6 +423,7 @@ function f(array $posts) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "byUser"), "array<int, list<Post>>");
     assert_eq!(var(&fixture, code, "grid"), "array<string, array<string, User>>");
 }
@@ -387,6 +431,7 @@ function f(array $posts) {
 #[test]
 fn nested_array_writes_survive_a_later_loop() {
     let fixture = models();
+
     let code = r#"<?php
 namespace App;
 /** @param list<Post> $posts @param list<string> $ids */
@@ -405,6 +450,7 @@ function f(array $posts, array $ids, User $user) {
     }
 }
 "#;
+
     assert_eq!(var(&fixture, code, "byUser"), "array<string, list<Post>>");
     assert_eq!(var(&fixture, code, "item"), "Post");
 }
@@ -423,6 +469,7 @@ fn a_template_of_an_omitted_argument_is_what_its_default_is() {
         "pick.php",
         "<?php\n/**\n * @template T\n * @template D\n * @param array<int, T> $items\n * @param D $default\n * @return T|D\n */\nfunction pick(array $items, $default = null) {}\n",
     )]);
+
     let code = "<?php\n$items = [1, 2];\n$a = pick($items);\n$b = pick($items, 'x');\n$0";
     assert_eq!(var(&fixture, code, "a"), "?int");
     assert_eq!(var(&fixture, code, "b"), "int|string");
@@ -440,21 +487,26 @@ fn type_aliases_are_read_where_they_are_declared_and_imported() {
             "<?php\nnamespace App;\n/**\n * @psalm-import-type Point from Shapes\n * @phpstan-import-type Line from Shapes as Segment\n */\nclass Canvas {\n    /** @return Point */\n    public function origin() {}\n    /** @param Segment $segment */\n    public function draw($segment) {\n        /** @var Point $end */\n        $end = $segment['to'];\n        $0\n    }\n}\n",
         ),
     ]);
+
     let canvas = fixture
         .sources
         .get(&std::path::PathBuf::from("/project/Canvas.php"))
         .cloned()
         .expect("canvas");
+
     assert_eq!(
         var(&fixture, &canvas, "segment"),
         "array{from: array{x: int, y: int}, to: array{x: int, y: int}}"
     );
+
     assert_eq!(var(&fixture, &canvas, "end"), "array{x: int, y: int}");
     let code = "<?php\nnamespace App;\nfunction f(Shapes $shapes, Canvas $canvas) {\n    $line = $shapes->line();\n    $origin = $canvas->origin();\n    $0\n}\n";
+
     assert_eq!(
         var(&fixture, code, "line"),
         "array{from: array{x: int, y: int}, to: array{x: int, y: int}}"
     );
+
     assert_eq!(var(&fixture, code, "origin"), "array{x: int, y: int}");
 }
 
@@ -464,6 +516,7 @@ fn a_partial_application_is_a_closure() {
         "f.php",
         "<?php\nfunction pad(string $text, int $width, string $with = ' '): string {}\n",
     )]);
+
     let code = "<?php\n$left = pad(?, 10);\n$rest = pad('a', ...);\n$named = pad(text: 'a', width: ?);\n$0";
     assert_eq!(var(&fixture, code, "left"), "Closure");
     assert_eq!(var(&fixture, code, "rest"), "Closure");
@@ -521,6 +574,7 @@ class AppTeam extends Model {
 }
 "#,
     )]);
+
     let code = r#"<?php
 namespace Raxos;
 function f(AppTeam $team) {
@@ -529,6 +583,7 @@ function f(AppTeam $team) {
     $0
 }
 "#;
+
     assert_eq!(var(&fixture, code, "list"), "ModelArrayList<int, Product>");
     assert_eq!(var(&fixture, code, "first"), "?Product");
 }
@@ -539,6 +594,7 @@ fn list_destructuring_takes_each_element_by_position() {
         "Range.php",
         "<?php\nnamespace App;\nclass Range {\n    /** @return array{0: \\DateTime, 1: int}|null */\n    public static function keyed(): ?array {}\n    /** @return array{\\DateTime, int} */\n    public static function listed(): array {}\n}\n",
     )]);
+
     let keyed = "<?php\nnamespace App;\nfunction f() {\n    $range = Range::keyed();\n    if ($range === null) {\n        return;\n    }\n    [$from, $count] = $range;\n    $0\n}\n";
     assert_eq!(var(&fixture, keyed, "from"), "DateTime");
     assert_eq!(var(&fixture, keyed, "count"), "int");
@@ -562,6 +618,7 @@ fn a_generator_with_one_argument_gives_its_values() {
             "<?php\nnamespace App;\nclass Order {}\nclass Query {\n    /** @return \\Generator<Order> */\n    public function cursor(): \\Generator {}\n    /** @return \\Generator<int, Order> */\n    public function keyed(): \\Generator {}\n}\n",
         ),
     ]);
+
     let single = "<?php\nnamespace App;\nfunction f(Query $query) {\n    foreach ($query->cursor() as $order) {\n        $0\n    }\n}\n";
     assert_eq!(var(&fixture, single, "order"), "Order");
     let keyed = "<?php\nnamespace App;\nfunction f(Query $query) {\n    foreach ($query->keyed() as $key => $order) {\n        $0\n    }\n}\n";
@@ -575,6 +632,7 @@ fn max_and_min_give_what_they_compare() {
         "Math.php",
         "<?php\nfunction max(mixed $value, mixed ...$values): mixed {}\nfunction min(mixed $value, mixed ...$values): mixed {}\n",
     )]);
+
     let code = "<?php\n/** @param list<float> $prices */\nfunction f(int $limit, array $prices, ?int $maybe) {\n    $bounded = max(1, min(100, $limit));\n    $highest = max($prices);\n    $mixed = max($limit, 1.5);\n    $unknown = max($limit, $nothing);\n    $0\n}\n";
     assert_eq!(var(&fixture, code, "bounded"), "int");
     assert_eq!(var(&fixture, code, "highest"), "float");
@@ -585,13 +643,17 @@ fn max_and_min_give_what_they_compare() {
 #[test]
 fn a_param_tag_that_repeats_the_native_type_keeps_the_inherited_one() {
     let bus = "<?php\nnamespace App;\ninterface MessageInterface {}\nclass Ping implements MessageInterface {}\n/** @template TMessage of MessageInterface */\ninterface HandlerInterface {\n    /** @param TMessage $message */\n    public function handle(MessageInterface $message): void;\n}\n";
+
     let message_in = |tag: &str| {
         let handler = format!(
             "<?php\nnamespace App;\n/** @implements HandlerInterface<Ping> */\nclass PingHandler implements HandlerInterface {{\n    /** {tag} */\n    public function handle(MessageInterface $message): void {{\n        $0\n    }}\n}}\n"
         );
+
         let fixture = Fixture::new(&[("Bus.php", bus), ("PingHandler.php", &handler.replace("$0", ""))]);
+
         var(&fixture, &handler, "message")
     };
+
     assert_eq!(message_in("@return void"), "Ping");
     assert_eq!(message_in("@param MessageInterface $message"), "Ping");
     assert_eq!(message_in("@param MessageInterface|null $message"), "?MessageInterface");
@@ -615,6 +677,7 @@ fn a_new_variable_passed_by_reference_takes_the_parameter_type() {
         "Pcre.php",
         "<?php\n/** @param string[] $matches */\nfunction preg_match(string $pattern, string $subject, ?array &$matches = null): int|false {}\nfunction sort(array &$array): bool {}\n",
     )]);
+
     let code = "<?php\n/** @param list<int> $numbers */\nfunction f(string $line, array $numbers) {\n    if (preg_match('/x/', $line, $matches)) {}\n    sort($numbers);\n    $0\n}\n";
     assert_eq!(var(&fixture, code, "matches"), "list<string>");
     assert_eq!(var(&fixture, code, "numbers"), "list<int>");

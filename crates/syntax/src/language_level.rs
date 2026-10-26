@@ -46,10 +46,12 @@ impl PhpVersion {
         let digits = text.trim().trim_start_matches(|c: char| !c.is_ascii_digit());
         let mut parts = digits.split('.');
         let major = parts.next()?.parse().ok()?;
+
         let minor = match parts.next() {
             Some(minor) => minor.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().ok()?,
             None => 0,
         };
+
         Some(PhpVersion { major, minor })
     }
 
@@ -73,20 +75,28 @@ impl fmt::Display for PhpVersion {
 pub struct Feature {
     /// A stable identifier, for tests and for a client that wants to switch a check off.
     pub id: &'static str,
+
     /// What the feature is called in a message, as a subject: "Property hooks".
     pub name: &'static str,
+
     /// Whether `name` is plural, which picks "are" over "is".
     pub plural: bool,
+
     /// The first version that has it; `None` when it is older than any level that matters.
     pub since: Option<PhpVersion>,
+
     /// The version that deprecated it.
     pub deprecated: Option<PhpVersion>,
+
     /// The version that removed it.
     pub removed: Option<PhpVersion>,
+
     /// The kinds of element `detect` wants to see.
     pub kinds: &'static [SyntaxKind],
+
     /// The range of the construct when the element is an instance of the feature.
     pub detect: fn(&SyntaxElement) -> Option<TextRange>,
+
     /// A snippet that uses the feature, which a test parses and checks the row against.
     pub example: &'static str,
 }
@@ -104,8 +114,10 @@ pub struct LevelDiagnostic {
     pub range: TextRange,
     pub message: String,
     pub severity: LevelSeverity,
+
     /// Set for a deprecation, which a client may draw struck through.
     pub deprecated: bool,
+
     pub feature: &'static str,
 }
 
@@ -114,27 +126,34 @@ pub struct LevelDiagnostic {
 pub fn check_language_level(root: &SyntaxNode, level: PhpVersion) -> Vec<LevelDiagnostic> {
     let index = dispatch_index();
     let mut found = Vec::new();
+
     for element in root.descendants_with_tokens() {
         let Some(candidates) = index.get(element.kind() as usize) else {
             continue;
         };
+
         for &row in candidates {
             let feature = &FEATURES[row];
+
             let Some(range) = (feature.detect)(&element) else {
                 continue;
             };
+
             if let Some(diagnostic) = judge(feature, range, level) {
                 found.push(diagnostic);
             }
         }
     }
+
     found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
+
     found
 }
 
 fn judge(feature: &'static Feature, range: TextRange, level: PhpVersion) -> Option<LevelDiagnostic> {
     let verb = |plural: &'static str, singular: &'static str| if feature.plural { plural } else { singular };
     let name = feature.name;
+
     let diagnostic = |message: String, severity: LevelSeverity, deprecated: bool| {
         Some(LevelDiagnostic {
             range,
@@ -144,6 +163,7 @@ fn judge(feature: &'static Feature, range: TextRange, level: PhpVersion) -> Opti
             feature: feature.id,
         })
     };
+
     if let Some(since) = feature.since.filter(|since| level < *since) {
         return diagnostic(
             format!("{name} {} only available since PHP {since}", verb("are", "is")),
@@ -151,6 +171,7 @@ fn judge(feature: &'static Feature, range: TextRange, level: PhpVersion) -> Opti
             false,
         );
     }
+
     if let Some(removed) = feature.removed.filter(|removed| level >= *removed) {
         return diagnostic(
             format!("{name} {} removed in PHP {removed}", verb("were", "was")),
@@ -158,7 +179,9 @@ fn judge(feature: &'static Feature, range: TextRange, level: PhpVersion) -> Opti
             false,
         );
     }
+
     let since = feature.deprecated.filter(|since| level >= *since)?;
+
     diagnostic(
         format!("{name} {} deprecated since PHP {since}", verb("are", "is")),
         LevelSeverity::Warning,
@@ -168,13 +191,16 @@ fn judge(feature: &'static Feature, range: TextRange, level: PhpVersion) -> Opti
 
 fn dispatch_index() -> &'static Vec<Vec<usize>> {
     static INDEX: OnceLock<Vec<Vec<usize>>> = OnceLock::new();
+
     INDEX.get_or_init(|| {
         let mut index = vec![Vec::new(); SyntaxKind::ALL.len()];
+
         for (row, feature) in FEATURES.iter().enumerate() {
             for kind in feature.kinds {
                 index[*kind as usize].push(row);
             }
         }
+
         index
     })
 }
@@ -217,9 +243,11 @@ fn parent_kind(node: &SyntaxNode) -> Option<SyntaxKind> {
 
 fn modifier_list_with(element: &SyntaxElement, token: SyntaxKind, parents: &[SyntaxKind]) -> Option<TextRange> {
     let list = node_of(element)?;
+
     if !parents.contains(&parent_kind(list)?) {
         return None;
     }
+
     token_child(list, token).map(|found| found.text_range())
 }
 
@@ -236,6 +264,7 @@ fn in_constant_expression(node: &SyntaxNode) -> bool {
             _ => {}
         }
     }
+
     false
 }
 
@@ -290,6 +319,7 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let argument = node_of(element)?;
             token_child(argument, COLON)?;
+
             first_token(argument).map(|token| token.text_range())
         },
         example: "foo(name: 1);",
@@ -304,6 +334,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[MODIFIER_LIST],
         detect: |element| {
             let list = node_of(element)?;
+
             (parent_kind(list)? == PARAMETER).then(|| list.text_range())
         },
         example: "class A { public function __construct(private int $x) {} }",
@@ -340,6 +371,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[NAMED_TYPE],
         detect: |element| {
             let node = node_of(element)?;
+
             (is_return_type_atom(node) && node.first_token()?.kind() == STATIC_KW).then(|| node.text_range())
         },
         example: "class A { function f(): static {} }",
@@ -354,6 +386,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[THROW_EXPR],
         detect: |element| {
             let node = node_of(element)?;
+
             (parent_kind(node)? != EXPR_STATEMENT).then(|| node.text_range())
         },
         example: "$a = $b ?? throw new E;",
@@ -368,9 +401,11 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CATCH_CLAUSE],
         detect: |element| {
             let clause = node_of(element)?;
+
             if token_child(clause, VARIABLE).is_some() {
                 return None;
             }
+
             node_child(clause, NAMED_TYPE)
                 .or_else(|| node_child(clause, UNION_TYPE))
                 .map(|found| found.text_range())
@@ -387,13 +422,16 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[PARAMETER_LIST, CLOSURE_USE],
         detect: |element| {
             let list = node_of(element)?;
+
             let significant: Vec<_> = list
                 .children_with_tokens()
                 .filter(|child| !child.kind().is_trivia())
                 .collect();
+
             let [.., comma, close] = significant.as_slice() else {
                 return None;
             };
+
             (comma.kind() == COMMA && close.kind() == RPAREN).then(|| comma.text_range())
         },
         example: "function f($a, ) {}",
@@ -408,6 +446,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CAST],
         detect: |element| {
             let token = token_of(element)?;
+
             (cast_word(token) == "real").then(|| token.text_range())
         },
         example: "$a = (real) $b;",
@@ -422,6 +461,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CAST],
         detect: |element| {
             let token = token_of(element)?;
+
             (cast_word(token) == "unset").then(|| token.text_range())
         },
         example: "$a = (unset) $b;",
@@ -469,6 +509,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[NEW_EXPR],
         detect: |element| {
             let node = node_of(element)?;
+
             for ancestor in node.ancestors().skip(1) {
                 match ancestor.kind() {
                     PARAMETER | STATIC_VARIABLE | ATTRIBUTE => return Some(node.text_range()),
@@ -479,6 +520,7 @@ pub static FEATURES: &[Feature] = &[
                     _ => {}
                 }
             }
+
             None
         },
         example: "function f($a = new Foo) {}",
@@ -504,6 +546,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[NAMED_TYPE],
         detect: |element| {
             let node = node_of(element)?;
+
             (is_return_type_atom(node) && type_text_is(node, "never")).then(|| node.text_range())
         },
         example: "function f(): never { exit; }",
@@ -518,6 +561,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[INT_LITERAL],
         detect: |element| {
             let token = token_of(element)?;
+
             token
                 .text()
                 .get(..2)
@@ -569,11 +613,14 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[NAMED_TYPE],
         detect: |element| {
             let node = node_of(element)?;
+
             let alone = matches!(
                 parent_kind(node)?,
                 PARAMETER | RETURN_TYPE | PROPERTY_DECLARATION | CLASS_CONST_DECLARATION
             );
+
             let word = ["null", "false", "true"].iter().any(|word| type_text_is(node, word));
+
             (alone && word).then(|| node.text_range())
         },
         example: "function f(): null {}",
@@ -589,6 +636,7 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let node = node_of(element)?;
             let body = node.parent()?;
+
             (body.parent()?.kind() == TRAIT_DECLARATION)
                 .then(|| first_token(node).map_or(node.text_range(), |token| token.text_range()))
         },
@@ -615,12 +663,14 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CLASS_CONST_DECLARATION],
         detect: |element| {
             let node = node_of(element)?;
+
             let ty = node.children().find(|child| {
                 matches!(
                     child.kind(),
                     NAMED_TYPE | NULLABLE_TYPE | UNION_TYPE | INTERSECTION_TYPE | PAREN_TYPE
                 )
             })?;
+
             Some(ty.text_range())
         },
         example: "class A { const int X = 1; }",
@@ -636,6 +686,7 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let node = node_of(element)?;
             token_child(node, LBRACE)?;
+
             (parent_kind(node)? != CALL_EXPR).then(|| node.text_range())
         },
         example: "$a = Foo::{$name};",
@@ -675,6 +726,7 @@ pub static FEATURES: &[Feature] = &[
             let open = token_child(list, LPAREN)?;
             let close = token_child(list, RPAREN)?;
             let keyword = open.prev_token().filter(|token| !token.kind().is_trivia())?;
+
             Some(TextRange::new(keyword.text_range().start(), close.text_range().end()))
         },
         example: "class A { public private(set) int $x = 0; }",
@@ -696,6 +748,7 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let node = node_of(element)?;
             let first = node.first_child()?;
+
             (first.kind() == NEW_EXPR).then(|| first.text_range())
         },
         example: "$a = new Foo()->bar();",
@@ -710,15 +763,20 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[PARAMETER],
         detect: |element| {
             let parameter = node_of(element)?;
+
             let ty = parameter
                 .children()
                 .find(|child| matches!(child.kind(), NAMED_TYPE | UNION_TYPE | INTERSECTION_TYPE))?;
+
             let default = parameter.children().find(|child| child.kind() == NAME)?;
+
             if !type_text_is(&default, "null") {
                 return None;
             }
+
             let text = ty.text().to_string().to_ascii_lowercase();
             let nullable = text == "mixed" || text == "null" || text.split('|').any(|part| part.trim() == "null");
+
             (!nullable).then(|| ty.text_range())
         },
         example: "function f(int $a = null) {}",
@@ -744,6 +802,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CLONE_EXPR],
         detect: |element| {
             let node = node_of(element)?;
+
             node_child(node, ARGUMENT_LIST).map(|list| list.text_range())
         },
         example: "$a = clone($b, ['x' => 1]);",
@@ -758,6 +817,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CAST],
         detect: |element| {
             let token = token_of(element)?;
+
             (cast_word(token) == "void").then(|| token.text_range())
         },
         example: "(void) foo();",
@@ -783,6 +843,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[ATTRIBUTE_LIST],
         detect: |element| {
             let node = node_of(element)?;
+
             (parent_kind(node)? == CONST_STATEMENT).then(|| node.text_range())
         },
         example: "#[Attr] const X = 1;",
@@ -797,6 +858,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CLOSURE_EXPR, ARROW_FUNCTION_EXPR],
         detect: |element| {
             let node = node_of(element)?;
+
             in_constant_expression(node)
                 .then(|| first_token(node).map_or(node.text_range(), |token| token.text_range()))
         },
@@ -813,6 +875,7 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let node = node_of(element)?;
             let ellipsis = token_child(node, ELLIPSIS)?;
+
             in_constant_expression(node).then(|| ellipsis.text_range())
         },
         example: "const F = strlen(...);",
@@ -829,6 +892,7 @@ pub static FEATURES: &[Feature] = &[
             let list = node_of(element)?;
             token_child(list, STATIC_KW)?;
             let open = token_child(list, LPAREN)?;
+
             open.prev_token()
                 .filter(|token| !token.kind().is_trivia())
                 .map(|token| token.text_range())
@@ -856,6 +920,7 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[CAST],
         detect: |element| {
             let token = token_of(element)?;
+
             matches!(cast_word(token).as_str(), "integer" | "boolean" | "double" | "binary").then(|| token.text_range())
         },
         example: "$a = (integer) $b;",
@@ -883,6 +948,7 @@ pub static FEATURES: &[Feature] = &[
             let argument = node_of(element)?;
             let question = token_child(argument, QUESTION);
             let lone_ellipsis = token_child(argument, ELLIPSIS).filter(|_| argument.children().next().is_none());
+
             question.or(lone_ellipsis).map(|token| token.text_range())
         },
         example: "$f = str_replace('a', ?, ...);",
@@ -898,17 +964,22 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let property = node_of(element)?;
             let assign = token_child(property, ASSIGN)?;
+
             let declaration = property
                 .parent()
                 .filter(|parent| parent.kind() == PROPERTY_DECLARATION)?;
+
             let own =
                 node_child(&declaration, MODIFIER_LIST).is_some_and(|list| token_child(&list, READONLY_KW).is_some());
+
             let class = declaration
                 .ancestors()
                 .find(|ancestor| matches!(ancestor.kind(), CLASS_DECLARATION | ANONYMOUS_CLASS));
+
             let of_class = class
                 .and_then(|class| node_child(&class, MODIFIER_LIST))
                 .is_some_and(|list| token_child(&list, READONLY_KW).is_some());
+
             (own || of_class).then(|| TextRange::new(assign.text_range().start(), property.text_range().end()))
         },
         example: "class A { public readonly int $x = 1; }",
@@ -923,11 +994,14 @@ pub static FEATURES: &[Feature] = &[
         kinds: &[ASSIGN_EXPR],
         detect: |element| {
             let assign = node_of(element)?;
+
             let target = assign
                 .children()
                 .next()
                 .filter(|node| node.kind() == PROPERTY_FETCH_EXPR)?;
+
             let object = target.children().next()?;
+
             matches!(object.kind(), NAME | SCOPED_ACCESS_EXPR).then(|| target.text_range())
         },
         example: "FOO->bar = 1;",
@@ -943,11 +1017,14 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let attribute = node_of(element)?;
             let owner = attribute.parent()?.parent()?;
+
             if !matches!(owner.kind(), CLASS_CONST_DECLARATION | ENUM_CASE) {
                 return None;
             }
+
             let name = node_child(attribute, NAME)?;
             let written = name.text().to_string();
+
             written
                 .trim_start_matches('\\')
                 .eq_ignore_ascii_case("Override")
@@ -966,6 +1043,7 @@ pub static FEATURES: &[Feature] = &[
         detect: |element| {
             let method = node_of(element)?;
             let name = node_child(method, NAME)?;
+
             let in_enum = method
                 .ancestors()
                 .skip(1)
@@ -980,6 +1058,7 @@ pub static FEATURES: &[Feature] = &[
                     )
                 })
                 .is_some_and(|owner| owner.kind() == ENUM_DECLARATION);
+
             (in_enum && name.text().to_string().eq_ignore_ascii_case("__debugInfo")).then(|| name.text_range())
         },
         example: "enum E { public function __debugInfo(): array { return []; } }",

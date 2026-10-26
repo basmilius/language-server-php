@@ -11,8 +11,10 @@ use crate::completion::match_score;
 pub struct WorkspaceSymbol {
     pub name: String,
     pub kind: SymbolKind,
+
     /// The namespace or class the symbol is in.
     pub container: Option<String>,
+
     pub path: PathBuf,
     pub origin: Origin,
     pub span: Span,
@@ -31,31 +33,39 @@ fn origin_rank(origin: Origin) -> u8 {
 /// project at `root` come last. Members are only listed for the project's own classes.
 pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) -> Vec<WorkspaceSymbol> {
     let mut found: Vec<((u8, u8, usize, bool), WorkspaceSymbol)> = Vec::new();
+
     let mut consider = |name: &str, rank: u8, symbol: WorkspaceSymbol| {
         if let Some(score) = match_score(name, query) {
             let from_test = php_index::test_paths::is_test_file(&symbol.path, root);
             found.push(((score.max(1), rank, name.len(), from_test), symbol));
         }
     };
+
     for name in index.class_names() {
         // Only the project's own classes have members listed, and only the others whose name fits
         // are worth reading.
         let own = name.file.origin == Origin::Project && !query.is_empty();
+
         if !own && match_score(crate::short(&name.summary.name), query).is_none() {
             continue;
         }
+
         let Some(class) = name.load() else {
             continue;
         };
+
         let short = crate::short(&class.decl.name);
         let rank = origin_rank(class.file.origin);
+
         let kind = match class.decl.kind {
             ClassKind::Class => SymbolKind::Class,
             ClassKind::Interface => SymbolKind::Interface,
             ClassKind::Trait => SymbolKind::Trait,
             ClassKind::Enum => SymbolKind::Enum,
         };
+
         let container = php_index::types::namespace_of(&class.decl.name);
+
         consider(
             short,
             rank,
@@ -69,9 +79,11 @@ pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) 
                 deprecated: class.decl.doc.as_ref().is_some_and(|doc| doc.deprecated.is_some()),
             },
         );
+
         if class.file.origin != Origin::Project || query.is_empty() {
             continue;
         }
+
         for method in &class.decl.methods {
             consider(
                 &method.name,
@@ -87,6 +99,7 @@ pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) 
                 },
             );
         }
+
         for property in &class.decl.properties {
             consider(
                 &property.name,
@@ -102,6 +115,7 @@ pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) 
                 },
             );
         }
+
         for constant in &class.decl.constants {
             consider(
                 &constant.name,
@@ -122,15 +136,19 @@ pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) 
             );
         }
     }
+
     for name in index.function_names() {
         if match_score(crate::short(&name.summary.name), query).is_none() {
             continue;
         }
+
         let Some(function) = name.load_function() else {
             continue;
         };
+
         let short = crate::short(&function.decl.name);
         let container = php_index::types::namespace_of(&function.decl.name);
+
         consider(
             short,
             origin_rank(function.file.origin) + 1,
@@ -145,15 +163,19 @@ pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) 
             },
         );
     }
+
     for name in index.constant_names() {
         if match_score(crate::short(&name.summary.name), query).is_none() {
             continue;
         }
+
         let Some(constant) = name.load_constant() else {
             continue;
         };
+
         let short = crate::short(&constant.decl.name);
         let container = php_index::types::namespace_of(&constant.decl.name);
+
         consider(
             short,
             origin_rank(constant.file.origin) + 1,
@@ -168,8 +190,10 @@ pub fn workspace_symbols(index: &Index, root: &Path, query: &str, limit: usize) 
             },
         );
     }
+
     found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name)));
     found.truncate(limit);
+
     found.into_iter().map(|(_, symbol)| symbol).collect()
 }
 
@@ -188,6 +212,7 @@ mod tests {
             )],
             &[("s.php", "<?php\nclass UserStub {}\n")],
         );
+
         let symbols = workspace_symbols(&fixture.index, Path::new("/project"), "user", 10);
         let names: Vec<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
         assert_eq!(names, vec!["User", "UserController", "user_helper", "UserStub"]);
@@ -195,10 +220,12 @@ mod tests {
         let members = workspace_symbols(&fixture.index, Path::new("/project"), "index", 10);
         assert_eq!(members[0].kind, SymbolKind::Method);
         assert_eq!(members[0].container.as_deref(), Some("App\\UserController"));
+
         assert_eq!(
             workspace_symbols(&fixture.index, Path::new("/project"), "uc", 10)[0].name,
             "UserController"
         );
+
         assert_eq!(
             workspace_symbols(&fixture.index, Path::new("/project"), "user", 2).len(),
             2
@@ -225,16 +252,19 @@ mod tests {
                 "<?php\nnamespace B;\nclass Dup {}\n".to_string(),
             ),
         ];
+
         for number in 0..30 {
             files.push((
                 format!("src/U{number}ser.php"),
                 format!("<?php\nclass UxServxceTxst{number} {{}}\n"),
             ));
         }
+
         let borrowed: Vec<(&str, &str)> = files
             .iter()
             .map(|(path, text)| (path.as_str(), text.as_str()))
             .collect();
+
         let fixture = Fixture::new(&borrowed);
         let root = Path::new("/project");
         let exact = workspace_symbols(&fixture.index, root, "UserServiceTest", 3);

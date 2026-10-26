@@ -29,10 +29,12 @@ pub struct FileWords(Box<[u32]>);
 
 fn hash_word(word: &[u8]) -> u32 {
     let mut hash: u32 = 0x811c_9dc5;
+
     for byte in word {
         hash ^= u32::from(byte.to_ascii_lowercase());
         hash = hash.wrapping_mul(0x0100_0193);
     }
+
     hash
 }
 
@@ -51,30 +53,39 @@ fn scan(text: &str, mut found: impl FnMut(u32)) {
     let bytes = text.as_bytes();
     let mut index = 0;
     let mut starts: Vec<usize> = Vec::new();
+
     while index < bytes.len() {
         let byte = bytes[index];
+
         if !is_word_byte(byte) && !is_separator(byte) {
             index += 1;
+
             continue;
         }
+
         starts.clear();
+
         while index < bytes.len() && (is_word_byte(bytes[index]) || is_separator(bytes[index])) {
             if is_word_byte(bytes[index]) {
                 let word_start = index;
+
                 while index < bytes.len() && is_word_byte(bytes[index]) {
                     index += 1;
                 }
+
                 found(hash_word(&bytes[word_start..index]));
                 starts.push(word_start);
             } else {
                 index += 1;
             }
         }
+
         if starts.len() > 1 {
             let end = bytes[..index]
                 .iter()
                 .rposition(|byte| !is_separator(*byte))
                 .map_or(index, |at| at + 1);
+
             for start in &starts[..starts.len() - 1] {
                 found(hash_word(&bytes[*start..end]));
             }
@@ -88,26 +99,36 @@ fn needed(text: &str) -> Vec<u32> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut index = 0;
+
     while index < bytes.len() {
         let byte = bytes[index];
+
         if !is_word_byte(byte) && !is_separator(byte) {
             index += 1;
+
             continue;
         }
+
         let start = index;
+
         while index < bytes.len() && (is_word_byte(bytes[index]) || is_separator(bytes[index])) {
             index += 1;
         }
+
         let run = &bytes[start..index];
+
         let Some(first) = run.iter().position(|byte| !is_separator(*byte)) else {
             continue;
         };
+
         let last = run
             .iter()
             .rposition(|byte| !is_separator(*byte))
             .map_or(run.len(), |at| at + 1);
+
         out.push(hash_word(&run[first..last]));
     }
+
     out
 }
 
@@ -117,6 +138,7 @@ impl FileWords {
         scan(text, |hash| hashes.push(hash));
         hashes.sort_unstable();
         hashes.dedup();
+
         FileWords(hashes.into_boxed_slice())
     }
 
@@ -124,12 +146,14 @@ impl FileWords {
     /// back!`. A hash can collide, so a yes only means look.
     pub fn may_contain(&self, text: &str) -> bool {
         let needed = needed(text);
+
         !needed.is_empty() && needed.iter().all(|hash| self.0.binary_search(hash).is_ok())
     }
 }
 
 struct Entry {
     words: FileWords,
+
     /// The version on disk the words were read from; `None` for the text of an open document,
     /// which is not kept between runs.
     stamp: Option<Stamp>,
@@ -160,23 +184,29 @@ impl WordIndex {
     pub fn build(&mut self, paths: Vec<PathBuf>, kept: Option<&Path>) -> BuildCounts {
         let mut stored = kept.map(load).unwrap_or_default();
         let known = stored.len();
+
         let read: Vec<(PathBuf, Option<Entry>)> = paths
             .into_par_iter()
             .map(|path| {
                 let stamp = Stamp::of(&path);
                 let reused = stamp.is_some() && stored.get(&path).is_some_and(|entry| entry.stamp == stamp);
+
                 if reused {
                     return (path, None);
                 }
+
                 let entry = fs::read(&path).ok().map(|bytes| Entry {
                     words: FileWords::new(&String::from_utf8_lossy(&bytes)),
                     stamp,
                 });
+
                 (path, entry)
             })
             .collect();
+
         let mut counts = BuildCounts::default();
         let mut files = HashMap::with_capacity(read.len());
+
         for (path, entry) in read {
             match entry {
                 Some(entry) => {
@@ -191,13 +221,16 @@ impl WordIndex {
                 }
             }
         }
+
         self.files = files;
         self.built = true;
+
         if let Some(kept) = kept {
             if counts.read > 0 || known != counts.kept {
                 let _ = self.save(kept);
             }
         }
+
         counts
     }
 
@@ -207,27 +240,34 @@ impl WordIndex {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+
         let temporary = path.with_extension("tmp");
+
         {
             let mut out = io::BufWriter::new(fs::File::create(&temporary)?);
             out.write_all(&MAGIC.to_le_bytes())?;
             out.write_all(&SCHEMA.to_le_bytes())?;
+
             for (file, entry) in &self.files {
                 let Some(stamp) = entry.stamp else {
                     continue;
                 };
+
                 let name = file.to_string_lossy();
                 out.write_all(&(name.len() as u32).to_le_bytes())?;
                 out.write_all(name.as_bytes())?;
                 out.write_all(&stamp.size.to_le_bytes())?;
                 out.write_all(&stamp.mtime_ns.to_le_bytes())?;
                 out.write_all(&(entry.words.0.len() as u32).to_le_bytes())?;
+
                 for hash in &entry.words.0 {
                     out.write_all(&hash.to_le_bytes())?;
                 }
             }
+
             out.flush()?;
         }
+
         fs::rename(&temporary, path)
     }
 
@@ -248,7 +288,9 @@ impl WordIndex {
         if !self.built {
             return;
         }
+
         let stamp = Stamp::of(path);
+
         match fs::read(path) {
             Ok(bytes) => {
                 self.files.insert(
@@ -270,9 +312,11 @@ impl WordIndex {
     /// The files that may contain a word or a string, given in lowercase.
     pub fn candidates(&self, word: &str) -> Vec<PathBuf> {
         let needed = needed(word);
+
         if needed.is_empty() {
             return Vec::new();
         }
+
         self.files
             .iter()
             .filter(|(_, entry)| needed.iter().all(|hash| entry.words.0.binary_search(hash).is_ok()))
@@ -299,28 +343,36 @@ fn load(path: &Path) -> HashMap<PathBuf, Entry> {
     let Ok(bytes) = fs::read(path) else {
         return HashMap::new();
     };
+
     parse_words_file(&bytes).unwrap_or_default()
 }
 
 fn parse_words_file(bytes: &[u8]) -> Option<HashMap<PathBuf, Entry>> {
     let mut reader = Reader { bytes, at: 0 };
+
     if reader.u32()? != MAGIC || reader.u64()? != SCHEMA {
         return None;
     }
+
     let mut out = HashMap::new();
+
     while reader.at < bytes.len() {
         let length = reader.u32()? as usize;
         let name = std::str::from_utf8(reader.take(length)?).ok()?;
+
         let stamp = Stamp {
             size: reader.u64()?,
             mtime_ns: reader.u64()?,
         };
+
         let count = reader.u32()? as usize;
         let raw = reader.take(count.checked_mul(4)?)?;
+
         let hashes: Box<[u32]> = raw
             .chunks_exact(4)
             .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect();
+
         out.insert(
             PathBuf::from(name),
             Entry {
@@ -329,6 +381,7 @@ fn parse_words_file(bytes: &[u8]) -> Option<HashMap<PathBuf, Entry>> {
             },
         );
     }
+
     Some(out)
 }
 
@@ -342,6 +395,7 @@ impl<'a> Reader<'a> {
         let end = self.at.checked_add(length)?;
         let slice = self.bytes.get(self.at..end)?;
         self.at = end;
+
         Some(slice)
     }
 
@@ -401,17 +455,21 @@ mod tests {
         let paths = vec![first.clone(), second.clone()];
 
         let mut index = WordIndex::default();
+
         assert_eq!(
             index.build(paths.clone(), Some(&kept)),
             BuildCounts { kept: 0, read: 2 }
         );
+
         assert_eq!(index.candidates("home.page"), vec![first.clone()]);
 
         let mut again = WordIndex::default();
+
         assert_eq!(
             again.build(paths.clone(), Some(&kept)),
             BuildCounts { kept: 2, read: 0 }
         );
+
         assert_eq!(again.candidates("app.name"), vec![second.clone()]);
 
         fs::write(&second, "<?php config('app.timezone'); // longer").expect("written");

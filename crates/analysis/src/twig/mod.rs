@@ -62,9 +62,11 @@ pub enum TagBody {
     Templates {
         template: Expr,
         with: Option<Expr>,
+
         /// `only`: the template gets nothing of the context.
         only: bool,
     },
+
     Block {
         name: (String, u32, u32),
         short: Option<Expr>,
@@ -82,11 +84,13 @@ pub enum TagBody {
         name: (String, u32, u32),
         params: Vec<((String, u32, u32), Option<Expr>)>,
     },
+
     /// `import 'forms.html.twig' as forms` and `from ... import a as b`: the names the macros get.
     Import {
         template: Expr,
         names: Vec<(String, u32, u32)>,
     },
+
     /// Anything else: the expressions in it, in order.
     Other(Vec<Expr>),
 }
@@ -112,11 +116,14 @@ pub struct Template {
     pub items: Vec<Item>,
     pub names: Vec<NameRef>,
     pub calls: Vec<CallRef>,
+
     /// The names written alone, a variable or a function being typed, and the places an expression
     /// is missing.
     pub bare: Vec<(u32, u32)>,
+
     /// The name of the template itself, when it is one of the project's.
     pub name: Option<String>,
+
     /// The delimiters that are not closed and the tokens no tag or expression takes.
     pub errors: Vec<SyntaxError>,
 }
@@ -129,6 +136,7 @@ impl Template {
         let tokens = lex(text);
         let mut errors = Vec::new();
         let items = items(text, &tokens, &mut errors);
+
         let name = path.and_then(|path| {
             index
                 .section::<Templates>()
@@ -137,7 +145,9 @@ impl Template {
                 .find(|template| template.path == path)
                 .map(|template| template.name.clone())
         });
+
         let extensions = index.section::<TwigExtensions>();
+
         let mut template = Template {
             items,
             names: Vec::new(),
@@ -146,7 +156,9 @@ impl Template {
             name,
             errors,
         };
+
         template.collect(index, &extensions);
+
         template
     }
 
@@ -157,6 +169,7 @@ impl Template {
         let mut bare = Vec::new();
         let scope = self.name.clone();
         let block_scope = scope.clone();
+
         let mut visit = |expr: &Expr| match expr {
             Expr::Call { name, start, end, args } => {
                 calls.push(CallRef {
@@ -165,6 +178,7 @@ impl Template {
                     start: *start,
                     end: *end,
                 });
+
                 if name == "block" {
                     if let Some(Expr::Str { value, start, end }) = args.first().map(|arg| &arg.value) {
                         names.push(NameRef {
@@ -176,6 +190,7 @@ impl Template {
                         });
                     }
                 }
+
                 if let Some(callable) = extensions.find(TwigKind::Function, name) {
                     let args: Vec<&Arg> = args.iter().collect();
                     names.extend(callable_names(index, callable, None, &args));
@@ -194,6 +209,7 @@ impl Template {
                     start: *start,
                     end: *end,
                 });
+
                 if let Some(callable) = extensions.find(TwigKind::Filter, name) {
                     let args: Vec<&Arg> = args.iter().collect();
                     names.extend(callable_names(index, callable, Some(subject), &args));
@@ -209,6 +225,7 @@ impl Template {
             Expr::Missing(at) => bare.push((*at, *at)),
             _ => {}
         };
+
         for item in &self.items {
             match item {
                 Item::Output { expr, .. } => expr.walk(&mut visit),
@@ -219,11 +236,14 @@ impl Template {
                                 expr.walk(&mut visit);
                             }
                         }
+
                         continue;
                     }
+
                     for expr in tag_exprs(&tag.body) {
                         expr.walk(&mut visit);
                     }
+
                     match &tag.body {
                         TagBody::Templates { template, .. } | TagBody::Import { template, .. } => {
                             template_names(template, &mut tag_names)
@@ -240,6 +260,7 @@ impl Template {
                 }
             }
         }
+
         names.extend(tag_names);
         names.sort_by_key(|name| name.start);
         self.names = names;
@@ -306,6 +327,7 @@ fn callable_names(index: &Index, callable: &TwigCallable, subject: Option<&Expr>
     let (Some(class), Some(method)) = (&callable.class, &callable.target) else {
         return Vec::new();
     };
+
     let params: Vec<String> = index
         .class(class)
         .and_then(|found| {
@@ -315,41 +337,53 @@ fn callable_names(index: &Index, callable: &TwigCallable, subject: Option<&Expr>
                 .map(|method| method.callable.params.iter().map(|param| param.name.clone()).collect())
         })
         .unwrap_or_default();
+
     let mut values: Vec<(usize, &Expr)> = Vec::new();
     let first = callable.skipped + usize::from(subject.is_some());
+
     if let Some(subject) = subject {
         values.push((callable.skipped, subject));
     }
+
     for (position, arg) in args.iter().enumerate() {
         let at = match &arg.name {
             Some((name, ..)) => params.iter().position(|param| param == name),
             None => Some(first + position),
         };
+
         if let Some(at) = at {
             values.push((at, &arg.value));
         }
     }
+
     let mut out = Vec::new();
+
     for marker in markers_for(index, Some(class), Some(class), method) {
         let Marker::Key { kind, position, name } = marker else {
             continue;
         };
+
         let Some(kind) = KeyKind::parse(&kind) else {
             continue;
         };
+
         let wanted = match &name {
             Some(name) => params.iter().position(|param| param == name),
             None => Some(position),
         };
+
         let Some(wanted) = wanted else {
             continue;
         };
+
         for (at, value) in &values {
             if *at != wanted {
                 continue;
             }
+
             let mut strings = Vec::new();
             template_names(value, &mut strings);
+
             out.extend(strings.into_iter().map(|string| NameRef {
                 kind,
                 scope: None,
@@ -357,6 +391,7 @@ fn callable_names(index: &Index, callable: &TwigCallable, subject: Option<&Expr>
             }));
         }
     }
+
     out
 }
 
@@ -367,8 +402,10 @@ pub type SyntaxError = (u32, u32, String);
 fn items(source: &str, tokens: &[Token], errors: &mut Vec<SyntaxError>) -> Vec<Item> {
     let mut out = Vec::new();
     let mut at = 0;
+
     while at < tokens.len() {
         let token = tokens[at];
+
         match token.kind {
             Kind::VarStart | Kind::BlockStart => {
                 let end_kind = if token.kind == Kind::VarStart {
@@ -376,6 +413,7 @@ fn items(source: &str, tokens: &[Token], errors: &mut Vec<SyntaxError>) -> Vec<I
                 } else {
                     Kind::BlockEnd
                 };
+
                 let close = tokens[at + 1..]
                     .iter()
                     .position(|candidate| {
@@ -383,23 +421,29 @@ fn items(source: &str, tokens: &[Token], errors: &mut Vec<SyntaxError>) -> Vec<I
                             || matches!(candidate.kind, Kind::VarStart | Kind::BlockStart | Kind::Text)
                     })
                     .map_or(tokens.len(), |found| at + 1 + found);
+
                 let inner = &tokens[at + 1..close];
                 let closed = tokens.get(close).is_some_and(|candidate| candidate.kind == end_kind);
+
                 let end = if closed {
                     tokens[close].end
                 } else {
                     inner.last().map_or(token.end, |last| last.end)
                 };
+
                 if !closed {
                     let opener = if token.kind == Kind::VarStart { "{{" } else { "{%" };
                     errors.push((token.start, token.end, format!("'{opener}' is not closed")));
                 }
+
                 if token.kind == Kind::VarStart {
                     let mut parser = Parser::new(source, inner, end);
                     let expr = parser.expression();
+
                     if let Some(rest) = parser.peek().filter(|_| closed) {
                         errors.push((rest.start, rest.end, format!("Unexpected '{}'", rest.text(source))));
                     }
+
                     out.push(Item::Output {
                         expr,
                         start: token.start,
@@ -409,15 +453,18 @@ fn items(source: &str, tokens: &[Token], errors: &mut Vec<SyntaxError>) -> Vec<I
                     if let Some(rest) = rest.filter(|_| closed) {
                         errors.push((rest.start, rest.end, format!("Unexpected '{}'", rest.text(source))));
                     }
+
                     out.push(Item::Tag(tag));
                 } else if closed {
                     errors.push((token.start, token.end, "A tag name is expected".to_string()));
                 }
+
                 at = if closed { close + 1 } else { close };
             }
             _ => at += 1,
         }
     }
+
     out
 }
 
@@ -426,10 +473,12 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<(Tag, Opt
     let first = tokens.first().filter(|token| token.kind == Kind::Name)?;
     let name = first.text(source).to_string();
     let mut parser = Parser::new(source, &tokens[1..], end);
+
     let body = match name.as_str() {
         name if TEMPLATE_TAGS.contains(&name) => {
             let template = parser.expression();
             let (mut with, mut only) = (None, false);
+
             loop {
                 if parser.eat("ignore") {
                     parser.eat("missing");
@@ -441,27 +490,35 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<(Tag, Opt
                     break;
                 }
             }
+
             TagBody::Templates { template, with, only }
         }
         "block" => {
             let block = parser.name().unwrap_or((String::new(), first.end, first.end));
             let short = (!parser.at_end()).then(|| parser.expression());
+
             TagBody::Block { name: block, short }
         }
         "for" => {
             let mut targets = Vec::new();
+
             while let Some(target) = parser.name() {
                 if target.0 == "in" {
                     break;
                 }
+
                 targets.push(target);
+
                 if !parser.eat(",") {
                     parser.eat("in");
+
                     break;
                 }
             }
+
             let iterable = parser.expression();
             let condition = parser.eat("if").then(|| parser.expression());
+
             TagBody::For {
                 targets,
                 iterable,
@@ -470,36 +527,46 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<(Tag, Opt
         }
         "set" => {
             let mut targets = Vec::new();
+
             while let Some(target) = parser.name() {
                 targets.push(target);
+
                 if !parser.eat(",") {
                     break;
                 }
             }
+
             let mut values = Vec::new();
+
             if parser.eat("=") {
                 loop {
                     values.push(parser.expression());
+
                     if !parser.eat(",") {
                         break;
                     }
                 }
             }
+
             TagBody::Set { targets, values }
         }
         "macro" => {
             let macro_name = parser.name().unwrap_or((String::new(), first.end, first.end));
             let mut params = Vec::new();
+
             if parser.eat("(") {
                 while let Some(param) = parser.name() {
                     let default = parser.eat("=").then(|| parser.expression());
                     params.push((param, default));
+
                     if !parser.eat(",") {
                         break;
                     }
                 }
+
                 parser.eat(")");
             }
+
             TagBody::Macro {
                 name: macro_name,
                 params,
@@ -509,43 +576,54 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<(Tag, Opt
             let template = parser.expression();
             parser.eat("as");
             let names = parser.name().into_iter().collect();
+
             TagBody::Import { template, names }
         }
         "from" => {
             let template = parser.expression();
             parser.eat("import");
             let mut names = Vec::new();
+
             while let Some(imported) = parser.name() {
                 let alias = if parser.eat("as") { parser.name() } else { None };
                 names.push(alias.unwrap_or(imported));
+
                 if !parser.eat(",") {
                     break;
                 }
             }
+
             TagBody::Import { template, names }
         }
         "apply" => TagBody::Other(vec![parser.filter_chain(Expr::Missing(first.end))]),
         "if" | "elseif" => TagBody::Other(vec![parser.expression()]),
         _ => {
             let mut exprs = Vec::new();
+
             while !parser.at_end() {
                 let before = parser.peek().map(|token| token.start);
                 let expr = parser.expression();
+
                 if !matches!(expr, Expr::Missing(_)) {
                     exprs.push(expr);
                 }
+
                 if parser.peek().map(|token| token.start) == before {
                     parser.advance();
                 }
             }
+
             TagBody::Other(exprs)
         }
     };
+
     let shaped = matches!(
         body,
         TagBody::For { .. } | TagBody::Set { .. } | TagBody::Block { .. } | TagBody::Macro { .. }
     ) || matches!(name.as_str(), "if" | "elseif");
+
     let rest = if shaped { parser.peek().copied() } else { None };
+
     Some((
         Tag {
             name,
@@ -563,11 +641,14 @@ fn tag(source: &str, tokens: &[Token], start: u32, end: u32) -> Option<(Tag, Opt
 /// extension declares it.
 fn describe_call(index: &Index, call: &CallRef) -> Vec<crate::nav::Description> {
     let extensions = index.section::<TwigExtensions>();
+
     let Some(callable) = extensions.find(call.kind, &call.name) else {
         return Vec::new();
     };
+
     let root = php_syntax::parse("<?php ").syntax();
     let analyzer = Analyzer::new(index, &root, 0);
+
     let target = match (&callable.class, &callable.target) {
         (Some(class), Some(method)) => Some(Target::Method {
             receiver: Type::class(class.clone()),
@@ -576,18 +657,22 @@ fn describe_call(index: &Index, call: &CallRef) -> Vec<crate::nav::Description> 
         (None, Some(function)) => Some(Target::Function(function.clone())),
         _ => None,
     };
+
     let described: Vec<crate::nav::Description> = target
         .map(|target| analyzer.describe(&target))
         .unwrap_or_default()
         .into_iter()
         .map(|mut description| {
             description.title = format!("{} '{}' ({})", kind_label(call.kind), call.name, description.title);
+
             description
         })
         .collect();
+
     if !described.is_empty() {
         return described;
     }
+
     vec![crate::nav::Description {
         title: format!("{} '{}'", kind_label(call.kind), call.name),
         signature: call.name.clone(),
@@ -616,6 +701,7 @@ pub fn definitions_at(
     offset: u32,
 ) -> Vec<Place> {
     let template = Template::read(index, path, text);
+
     if let Some(name) = template.name_at(offset) {
         return definitions(index, name.kind, &name.value, name.scope.as_deref())
             .into_iter()
@@ -625,12 +711,14 @@ pub fn definitions_at(
             })
             .collect();
     }
+
     if let Some(call) = template.call_at(offset) {
         return describe_call(index, call)
             .into_iter()
             .filter_map(|description| description.place)
             .collect();
     }
+
     match spot_at(index, &template, given, offset) {
         Some(Spot::Attribute {
             object,
@@ -653,24 +741,29 @@ pub fn hover_at(
     offset: u32,
 ) -> Option<HoverResult> {
     let template = Template::read(index, path, text);
+
     if let Some(name) = template.name_at(offset) {
         let sections: Vec<String> =
             crate::frameworks::keys::describe(index, name.kind, &name.value, name.scope.as_deref())
                 .iter()
                 .map(hover_markdown)
                 .collect();
+
         return Some(HoverResult {
             markdown: sections.join("\n\n---\n\n"),
             range: range_of(name.start, name.end),
         });
     }
+
     if let Some(call) = template.call_at(offset) {
         let sections: Vec<String> = describe_call(index, call).iter().map(hover_markdown).collect();
+
         return (!sections.is_empty()).then(|| HoverResult {
             markdown: sections.join("\n\n---\n\n"),
             range: range_of(call.start, call.end),
         });
     }
+
     match spot_at(index, &template, given, offset)? {
         Spot::Variable { name, start, end, ty } => (!matches!(ty, Type::Unknown)).then(|| HoverResult {
             markdown: format!("```php\n{} ${name}\n```", ty.display(true)),
@@ -690,12 +783,14 @@ pub fn hover_at(
                 .iter()
                 .map(hover_markdown)
                 .collect();
+
             if !sections.is_empty() {
                 return Some(HoverResult {
                     markdown: sections.join("\n\n---\n\n"),
                     range: range_of(start, end),
                 });
             }
+
             (!matches!(ty, Type::Unknown)).then(|| HoverResult {
                 markdown: format!("```php\n{} {name}\n```", ty.display(true)),
                 range: range_of(start, end),
@@ -725,6 +820,7 @@ enum Spot {
 fn spot_at(index: &Index, template: &Template, given: &[(String, Type)], offset: u32) -> Option<Spot> {
     let typer = types::Typer::new(index);
     let mut spot = None;
+
     types::walk(&typer, template, given, Some(offset), &mut |expr, env| {
         expr.walk(&mut |inner| match inner {
             Expr::Name { name, start, end } if *start <= offset && offset <= *end => {
@@ -744,6 +840,7 @@ fn spot_at(index: &Index, template: &Template, given: &[(String, Type)], offset:
             } if *start <= offset && offset <= *end => {
                 let object = typer.type_of(object, env);
                 let (ty, member) = typer.attribute(&object, name, args.is_some());
+
                 spot = Some(Spot::Attribute {
                     object,
                     member,
@@ -756,6 +853,7 @@ fn spot_at(index: &Index, template: &Template, given: &[(String, Type)], offset:
             _ => {}
         });
     });
+
     spot
 }
 
@@ -763,14 +861,18 @@ fn spot_at(index: &Index, template: &Template, given: &[(String, Type)], offset:
 fn env_at(index: &Index, template: &Template, given: &[(String, Type)], offset: u32) -> crate::infer::Env {
     let typer = types::Typer::new(index);
     let mut found = None;
+
     types::walk(&typer, template, given, Some(offset), &mut |_, env| {
         found = Some(env.clone())
     });
+
     found.unwrap_or_else(|| {
         let mut env = crate::infer::Env::default();
+
         for (name, ty) in types::globals(index).into_iter().chain(given.iter().cloned()) {
             env.set(name, ty);
         }
+
         env
     })
 }
@@ -778,6 +880,7 @@ fn env_at(index: &Index, template: &Template, given: &[(String, Type)], offset: 
 fn describe_member(index: &Index, object: &Type, member: &types::Member) -> Vec<crate::nav::Description> {
     let root = php_syntax::parse("<?php ").syntax();
     let analyzer = Analyzer::new(index, &root, 0);
+
     let target = match member {
         types::Member::Property { class, name } => Target::Property {
             receiver: object
@@ -798,6 +901,7 @@ fn describe_member(index: &Index, object: &Type, member: &types::Member) -> Vec<
             name: name.clone(),
         },
     };
+
     analyzer.describe(&target)
 }
 
@@ -811,8 +915,10 @@ pub fn complete_at(
     options: CompletionOptions,
 ) -> Option<CompletionList> {
     let template = Template::read(index, path, text);
+
     if let Some(name) = template.name_at(offset) {
         let typed = text.get(name.start as usize..offset as usize)?;
+
         return Some(key_items(
             index,
             name.kind,
@@ -822,18 +928,23 @@ pub fn complete_at(
             options,
         ));
     }
+
     if let Some(call) = template.call_at(offset) {
         let typed = text.get(call.start as usize..offset as usize)?;
+
         return Some(callable_items(index, call.kind, typed, (call.start, call.end), options));
     }
+
     if let Some(Spot::Attribute { object, start, end, .. }) = spot_at(index, &template, given, offset) {
         let typed = text.get(start as usize..offset as usize)?;
         let typer = types::Typer::new(index);
+
         let items = typer
             .attributes_of(&object)
             .into_iter()
             .filter_map(|(name, detail)| {
                 let score = match_score(&name, typed)?;
+
                 Some((
                     score,
                     CompletionItem {
@@ -856,21 +967,26 @@ pub fn complete_at(
                 ))
             })
             .collect();
+
         return Some(finish(items, options));
     }
+
     let (start, end) = template
         .bare
         .iter()
         .copied()
         .find(|(start, end)| *start <= offset && offset <= *end)?;
+
     let typed = text.get(start as usize..offset as usize)?;
     let mut list = callable_items(index, TwigKind::Function, typed, (start, end), options);
     let env = env_at(index, &template, given, offset);
+
     let mut variables: Vec<(u8, CompletionItem)> = env
         .vars
         .iter()
         .filter_map(|(name, ty)| {
             let score = match_score(name, typed)?;
+
             Some((
                 score,
                 CompletionItem {
@@ -893,8 +1009,10 @@ pub fn complete_at(
             ))
         })
         .collect();
+
     variables.extend(list.items.drain(..).map(|item| (1, item)));
     list = finish(variables, options);
+
     Some(list)
 }
 
@@ -904,7 +1022,9 @@ fn finish(mut items: Vec<(u8, CompletionItem)>, options: CompletionOptions) -> C
             .cmp(&right.0)
             .then_with(|| left.1.sort_text.cmp(&right.1.sort_text))
     });
+
     let incomplete = items.len() > options.limit;
+
     CompletionList {
         items: items.into_iter().take(options.limit).map(|(_, item)| item).collect(),
         incomplete,
@@ -921,16 +1041,19 @@ fn callable_items(
 ) -> CompletionList {
     let extensions = index.section::<TwigExtensions>();
     let mut seen = std::collections::HashSet::new();
+
     let mut items: Vec<(u8, CompletionItem)> = extensions
         .of_kind(kind)
         .filter(|entry| seen.insert(entry.name.clone()))
         .filter_map(|entry| {
             let score = match_score(&entry.name, typed)?;
+
             let detail = match (&entry.class, &entry.target) {
                 (Some(class), Some(method)) => Some(format!("{}::{method}", crate::short(class))),
                 (None, Some(function)) => Some(function.clone()),
                 _ => None,
             };
+
             Some((
                 score,
                 CompletionItem {
@@ -957,8 +1080,10 @@ fn callable_items(
             ))
         })
         .collect();
+
     items.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.label.cmp(&right.1.label)));
     let incomplete = items.len() > options.limit;
+
     CompletionList {
         items: items.into_iter().take(options.limit).map(|(_, item)| item).collect(),
         incomplete,
@@ -969,6 +1094,7 @@ fn callable_items(
 pub fn symbols_at(index: &Index, path: Option<&Path>, text: &str, offset: u32) -> Option<(TextRange, Vec<Symbol>)> {
     let template = Template::read(index, path, text);
     let name = template.name_at(offset)?;
+
     Some((
         range_of(name.start, name.end),
         vec![Symbol::Key {
@@ -984,10 +1110,13 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
     if matches!(query.symbol, Symbol::Method { .. } | Symbol::Property { .. }) {
         return member_hits(index, path, text, given, query);
     }
+
     if !matches!(query.symbol, Symbol::Key { .. }) {
         return Vec::new();
     }
+
     let template = Template::read(index, path, text);
+
     template
         .names
         .iter()
@@ -997,6 +1126,7 @@ pub fn hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String, Ty
                 name: name.value.clone(),
                 scope: name.scope.clone(),
             };
+
             query.matches(&symbol).then(|| Hit {
                 range: range_of(name.start, name.end),
                 kind: if name.kind == KeyKind::Block && is_block_tag(&template, name.start) {
@@ -1019,6 +1149,7 @@ fn member_hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String,
     let template = Template::read(index, path, text);
     let typer = types::Typer::new(index);
     let mut out = Vec::new();
+
     types::walk(&typer, &template, given, None, &mut |expr, env| {
         expr.walk(&mut |inner| {
             let Expr::Attribute {
@@ -1031,14 +1162,18 @@ fn member_hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String,
             else {
                 return;
             };
+
             let object = typer.type_of(object, env);
+
             let (_, Some(member)) = typer.attribute(&object, name, args.is_some()) else {
                 return;
             };
+
             let symbol = match member {
                 types::Member::Property { class, name } => Symbol::Property { class, name },
                 types::Member::Method { class, name } => Symbol::Method { class, name },
             };
+
             if query.matches(&symbol) {
                 out.push(Hit {
                     range: range_of(*start, *end),
@@ -1051,6 +1186,7 @@ fn member_hits(index: &Index, path: Option<&Path>, text: &str, given: &[(String,
             }
         });
     });
+
     out
 }
 
@@ -1067,6 +1203,7 @@ pub fn hash_keys(expr: &Expr) -> Vec<(String, &Expr)> {
     let Expr::Hash(pairs) = expr else {
         return Vec::new();
     };
+
     pairs
         .iter()
         .filter_map(|(key, value)| match key {

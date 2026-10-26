@@ -31,6 +31,7 @@ pub(super) fn run(cx: &Cx) {
 fn classes_of(analyzer: &Analyzer<'_>, cx: &Cx, ty: &Type) -> Option<(Type, Vec<String>)> {
     let receiver = analyzer.receiver_type(ty);
     let classes = cx.known_classes(&receiver)?;
+
     Some((receiver, classes))
 }
 
@@ -40,9 +41,11 @@ pub(super) fn unreliable_receiver(cx: &Cx, node: &SyntaxNode, object: &SyntaxNod
     if reassigned_in_loop(object) || is_narrowed_by_instanceof(object) {
         return true;
     }
+
     let is_this = root_variable(object).is_some_and(|variable| text_of(&variable) == "$this");
     // Pest's test case takes what `beforeEach` sets and what its own `__call` forwards.
     let in_pest = text_of(object) == "$this" && cx.file.analyzer(node).pest.is_some();
+
     is_this && (in_anonymous_class(node) || in_rebindable_closure(cx, node)) || in_pest
 }
 
@@ -55,12 +58,15 @@ fn in_rebindable_closure(cx: &Cx, node: &SyntaxNode) -> bool {
     else {
         return false;
     };
+
     let scope = closure
         .ancestors()
         .skip(1)
         .find(|ancestor| ast::is_function_like(ancestor.kind()) || ancestor.kind() == SOURCE_FILE)
         .unwrap_or_else(|| cx.root.clone());
+
     let text = scope.text().to_string();
+
     ["bindTo(", "->call(", "Closure::bind(", "Closure::fromCallable("]
         .iter()
         .any(|binder| text.contains(binder))
@@ -81,17 +87,22 @@ fn instance_access(cx: &Cx, node: &SyntaxNode) {
     let (Some(object), Some(name)) = (node.children().next(), member_name(node)) else {
         return;
     };
+
     if unreliable_receiver(cx, node, &object) {
         return;
     }
+
     let is_this = root_variable(&object).is_some_and(|variable| text_of(&variable) == "$this");
     let analyzer = cx.file.analyzer(node);
     let env = analyzer.env_around(node);
     let ty = analyzer.type_of(&object, &env);
+
     let Some((receiver, classes)) = classes_of(&analyzer, cx, &ty) else {
         return;
     };
+
     let written = text_of(&name);
+
     if is_callee(node) {
         check_method(cx, node, &name, &written, &receiver, &classes, false, is_this);
     } else {
@@ -115,6 +126,7 @@ fn check_method(
         .iter()
         .filter_map(|member| cx.index.find_method(member, written))
         .collect();
+
     if found.is_empty() {
         if !cx.on("undefined-method")
             || classes
@@ -125,11 +137,15 @@ fn check_method(
         {
             return;
         }
+
         let class = &classes[0];
+
         if let Some(message) = enum_message(cx, class, written) {
             cx.report("enum-misuse", name.text_range(), message, Fix::None);
+
             return;
         }
+
         let fix = Fix::CreateMember {
             class: class.clone(),
             name: written.to_string(),
@@ -137,18 +153,23 @@ fn check_method(
             is_method: true,
             at: ast::start(access),
         };
+
         cx.report(
             "undefined-method",
             name.text_range(),
             format!("Method '{written}' is not declared in {}", classes.join("|")),
             fix,
         );
+
         return;
     }
+
     let first = &found[0];
+
     if cx.on("deprecated") && !inside_deprecated(access) {
         if let Some(reason) = deprecation(cx.index, first.member.doc.as_deref(), &first.member.attributes) {
             let label = format!("{}::{}", first.class.decl.name, first.member.name);
+
             cx.report(
                 "deprecated",
                 name.text_range(),
@@ -157,11 +178,13 @@ fn check_method(
             );
         }
     }
+
     // A method the class does not declare itself (a scope of a model, a `@method`) is reached
     // through `__call` on an object, which is no static call.
     let declared = found
         .iter()
         .all(|found| found.class.decl.method(&found.member.name).is_some());
+
     if found.iter().all(|found| found.member.is_static)
         && declared
         && !statically
@@ -169,6 +192,7 @@ fn check_method(
         && cx.on("instance-call-of-static-method")
     {
         let label = format!("{}::{}", first.class.decl.name, first.member.name);
+
         cx.report(
             "instance-call-of-static-method",
             name.text_range(),
@@ -180,13 +204,17 @@ fn check_method(
 
 fn enum_message(cx: &Cx, class: &str, member: &str) -> Option<String> {
     let found = cx.index.class(class)?;
+
     if found.decl.kind != ClassKind::Enum || found.decl.backing.is_some() {
         return None;
     }
+
     let lower = member.to_ascii_lowercase();
+
     if lower == "from" || lower == "tryfrom" {
         return Some(format!("Enum '{class}' is not backed, so it has no {member}()"));
     }
+
     None
 }
 
@@ -204,15 +232,21 @@ fn check_property(
         .iter()
         .filter_map(|member| cx.index.find_property(member, written))
         .collect();
+
     let writing = is_write_target(access);
+
     if found.is_empty() {
         report_undefined_property(cx, access, name, written, classes, writing, is_this);
+
         return;
     }
+
     let first = &found[0];
+
     if cx.on("deprecated") && !inside_deprecated(access) {
         if let Some(reason) = deprecation(cx.index, first.member.doc.as_deref(), &first.member.attributes) {
             let label = format!("{}::${}", first.class.decl.name, first.member.name);
+
             cx.report(
                 "deprecated",
                 name.text_range(),
@@ -221,8 +255,10 @@ fn check_property(
             );
         }
     }
+
     if writing && cx.on("readonly-reassigned") && first.member.is_readonly {
         let declared = first.member.effective_type(cx.index.level);
+
         check_readonly_write(
             cx,
             access,
@@ -250,6 +286,7 @@ fn report_undefined_property(
     {
         return;
     }
+
     for class in classes {
         // The standard library's stubs do not list what the engine adds, and what is dynamic is theirs.
         if !cx.is_user_class(class)
@@ -261,7 +298,9 @@ fn report_undefined_property(
             return;
         }
     }
+
     let class = &classes[0];
+
     if let Some(found) = cx.index.class(class) {
         if found.decl.kind == ClassKind::Enum && written == "value" {
             cx.report(
@@ -270,13 +309,16 @@ fn report_undefined_property(
                 format!("Enum '{class}' is not backed, so its cases have no value"),
                 Fix::None,
             );
+
             return;
         }
     }
+
     if writing {
         if cx.index.level < php_syntax::PhpVersion::V8_2 {
             return;
         }
+
         cx.report(
             "undefined-property",
             name.text_range(),
@@ -292,9 +334,12 @@ fn report_undefined_property(
                 at: ast::start(access),
             },
         );
+
         return;
     }
+
     let _ = is_this;
+
     cx.report(
         "undefined-property",
         name.text_range(),
@@ -320,6 +365,7 @@ fn is_interface(cx: &Cx, class: &str) -> bool {
 pub(super) fn a_subtype_declares(cx: &Cx, class: &str, member: &str, method: bool) -> bool {
     cx.index.all_subtypes(class).iter().any(|subtype| {
         let ty = Type::class(subtype.decl.name.clone());
+
         if method {
             cx.index.find_method(&ty, member).is_some()
         } else {
@@ -341,13 +387,17 @@ fn is_narrowed_by_instanceof(object: &SyntaxNode) -> bool {
     let Some(variable) = root_variable(object) else {
         return false;
     };
+
     let name = text_of(&variable);
+
     let scope = object
         .ancestors()
         .find(|ancestor| ast::is_function_like(ancestor.kind()) || ancestor.kind() == SOURCE_FILE);
+
     let Some(scope) = scope else {
         return false;
     };
+
     scope.descendants().any(|node| {
         node.kind() == BINARY_EXPR
             && ast::tokens(&node).any(|token| token.kind() == INSTANCEOF_KW)
@@ -358,8 +408,10 @@ fn is_narrowed_by_instanceof(object: &SyntaxNode) -> bool {
 /// A class that takes properties it does not declare.
 fn is_dynamic_class(cx: &Cx, class: &str) -> bool {
     let ty = Type::class(class);
+
     cx.index.ancestors(&ty).iter().any(|ancestor| {
         let decl = ancestor.class.decl;
+
         decl.name.eq_ignore_ascii_case("stdClass")
             || decl.name.eq_ignore_ascii_case("ArrayObject")
             || decl.name.eq_ignore_ascii_case("ArrayIterator")
@@ -374,20 +426,26 @@ fn scoped_access(cx: &Cx, node: &SyntaxNode) {
     let (Some(qualifier), Some(name)) = (node.children().next(), member_name(node)) else {
         return;
     };
+
     let written = text_of(&name);
+
     if written == "class" {
         return;
     }
+
     if qualifier.kind() != NAME && unreliable_receiver(cx, node, &qualifier) || names_anonymous_class(&qualifier, node)
     {
         return;
     }
+
     let analyzer = cx.file.analyzer(node);
     let env = analyzer.env_around(node);
     let ty = analyzer.qualifier_type(&qualifier, &env);
+
     let Some((receiver, classes)) = classes_of(&analyzer, cx, &ty) else {
         return;
     };
+
     if is_callee(node) {
         scoped_call(
             cx, node, &qualifier, &name, &written, &receiver, &classes, &analyzer, &env,
@@ -410,30 +468,39 @@ fn scoped_call(
     _env: &Env,
 ) {
     check_method(cx, node, name, written, receiver, classes, true, false);
+
     if !cx.on("static-call-of-instance-method") || qualifier.kind() != NAME {
         return;
     }
+
     let qualifier_text = text_of(qualifier);
+
     if is_relative_class(&qualifier_text.to_ascii_lowercase()) {
         return;
     }
+
     let found: Vec<_> = receiver
         .members()
         .iter()
         .filter_map(|member| cx.index.find_method(member, written))
         .collect();
+
     let Some(first) = found.first() else {
         return;
     };
+
     if found.iter().any(|found| found.member.is_static)
         || first.member.is_abstract && first.class.decl.kind != ClassKind::Interface
     {
         return;
     }
+
     if cx.has_magic(&classes[0], &["__callStatic"]) {
         return;
     }
+
     let target = &first.class.decl.name;
+
     let within_related_instance = has_this(node)
         && analyzer
             .class
@@ -447,9 +514,11 @@ fn scoped_call(
                         .as_ref()
                         .is_some_and(|parent| cx.index.is_subclass_of(parent, target))
             });
+
     if within_related_instance {
         return;
     }
+
     cx.report(
         "static-call-of-instance-method",
         name.text_range(),
@@ -472,6 +541,7 @@ fn has_this(node: &SyntaxNode) -> bool {
                 {
                     return false;
                 }
+
                 if ancestor.kind() == METHOD_DECLARATION {
                     return true;
                 }
@@ -480,6 +550,7 @@ fn has_this(node: &SyntaxNode) -> bool {
             _ => {}
         }
     }
+
     false
 }
 
@@ -496,6 +567,7 @@ fn check_class_constant(
         .iter()
         .filter_map(|member| cx.index.find_constant(member, written))
         .collect();
+
     if found.is_empty() {
         if !cx.on("undefined-class-constant")
             || guarded_by_check(node, &["defined(", "constant("], written)
@@ -505,18 +577,23 @@ fn check_class_constant(
         {
             return;
         }
+
         cx.report(
             "undefined-class-constant",
             name.text_range(),
             format!("Class constant '{written}' is not declared in {}", classes.join("|")),
             Fix::None,
         );
+
         return;
     }
+
     let first = &found[0];
+
     if cx.on("deprecated") && !inside_deprecated(node) {
         if let Some(reason) = deprecation(cx.index, first.member.doc.as_deref(), &first.member.attributes) {
             let label = format!("{}::{}", first.class.decl.name, first.member.name);
+
             cx.report(
                 "deprecated",
                 name.text_range(),
@@ -531,9 +608,11 @@ fn static_property(cx: &Cx, node: &SyntaxNode) {
     let Some(qualifier) = node.children().next() else {
         return;
     };
+
     if is_callee(node) {
         return;
     }
+
     let Some(variable) = node
         .children()
         .filter(|child| child.kind() == VARIABLE_EXPR)
@@ -542,42 +621,53 @@ fn static_property(cx: &Cx, node: &SyntaxNode) {
     else {
         return;
     };
+
     if reassigned_in_loop(&qualifier) || names_anonymous_class(&qualifier, node) {
         return;
     }
+
     let written = text_of(&variable).trim_start_matches('$').to_string();
     let analyzer = cx.file.analyzer(node);
     let env = analyzer.env_around(node);
     let ty = analyzer.qualifier_type(&qualifier, &env);
+
     let Some((receiver, classes)) = classes_of(&analyzer, cx, &ty) else {
         return;
     };
+
     let found: Vec<_> = receiver
         .members()
         .iter()
         .filter_map(|member| cx.index.find_property(member, &written))
         .collect();
+
     if found.is_empty() {
         if !cx.on("undefined-property") || guarded_by_check(node, &["property_exists("], &written) {
             return;
         }
+
         if classes.iter().any(|class| {
             !cx.is_user_class(class) || is_interface(cx, class) || a_subtype_declares(cx, class, &written, false)
         }) {
             return;
         }
+
         cx.report(
             "undefined-property",
             variable.text_range(),
             format!("Static property '${written}' is not declared in {}", classes.join("|")),
             Fix::None,
         );
+
         return;
     }
+
     let first = &found[0];
+
     if cx.on("deprecated") && !inside_deprecated(node) {
         if let Some(reason) = deprecation(cx.index, first.member.doc.as_deref(), &first.member.attributes) {
             let label = format!("{}::${}", first.class.decl.name, first.member.name);
+
             cx.report(
                 "deprecated",
                 variable.text_range(),
@@ -592,17 +682,22 @@ fn new_of_enum(cx: &Cx, node: &SyntaxNode) {
     if !cx.on("enum-misuse") {
         return;
     }
+
     let Some(name) = node.children().find(|child| child.kind() == NAME) else {
         return;
     };
+
     let written = text_of(&name);
     let analyzer = cx.file.analyzer(&name);
+
     let Type::Class { name: class, .. } = analyzer.class_type(&written) else {
         return;
     };
+
     let Some(found) = cx.index.class(&class) else {
         return;
     };
+
     if found.decl.kind == ClassKind::Enum {
         cx.report(
             "enum-misuse",
@@ -630,18 +725,23 @@ fn check_readonly_write(
         // An object that takes element writes, such as `ArrayAccess`, changes itself.
         return;
     }
+
     let in_clone = access
         .ancestors()
         .filter(|ancestor| ancestor.kind() == METHOD_DECLARATION)
         .any(|method| ast::child_of(&method, NAME).is_some_and(|name| text_of(&name).eq_ignore_ascii_case("__clone")));
+
     if in_clone {
         return;
     }
+
     let analyzer = cx.file.analyzer(access);
     let plain = is_plain_assignment(access);
+
     let within_class = analyzer.class.as_ref().is_some_and(|class| {
         cx.index.is_subclass_of(&class.name, declaring) || class.name.eq_ignore_ascii_case(declaring)
     });
+
     let message = if !plain {
         format!("Cannot modify readonly property {declaring}::${property}")
     } else if !within_class {
@@ -651,6 +751,7 @@ fn check_readonly_write(
     } else {
         return;
     };
+
     cx.report("readonly-reassigned", name.text_range(), message, Fix::None);
 }
 
@@ -677,6 +778,7 @@ fn in_constructor(node: &SyntaxNode) -> bool {
 /// `$a->b = value`, as opposed to `$a->b .= value`, `$a->b++`, `$a->b[] = value` or `unset($a->b)`.
 fn is_plain_assignment(access: &SyntaxNode) -> bool {
     let mut current = access.clone();
+
     while let Some(parent) = current.parent() {
         match parent.kind() {
             ARRAY_ITEM | ARRAY_EXPR | LIST_EXPR => current = parent,
@@ -687,5 +789,6 @@ fn is_plain_assignment(access: &SyntaxNode) -> bool {
             _ => return false,
         }
     }
+
     false
 }

@@ -26,6 +26,7 @@ pub struct GroupPlace {
 #[derive(Default)]
 pub struct SerializerGroups {
     pub places: Vec<GroupPlace>,
+
     /// Groups may also be mapped in YAML or XML, which is not read.
     pub mapped_elsewhere: bool,
 }
@@ -35,6 +36,7 @@ impl SerializerGroups {
         let mut names: Vec<&str> = self.places.iter().map(|place| place.name.as_str()).collect();
         names.sort();
         names.dedup();
+
         names
     }
 
@@ -51,9 +53,11 @@ impl Section for SerializerGroups {
     fn build(index: &Index) -> Self {
         let mut found = SerializerGroups::default();
         let root = index.framework_root();
+
         found.mapped_elsewhere = ["config/serializer", "config/api_platform"]
             .iter()
             .any(|dir| !index.files_below(&root.join(dir)).is_empty());
+
         let paths: Vec<PathBuf> = index
             .files()
             .filter(|file| file.origin == Origin::Project)
@@ -72,18 +76,23 @@ impl Section for SerializerGroups {
             })
             .map(|file| file.path.clone())
             .collect();
+
         for path in paths {
             let Some(tree) = tree_of(index, &path) else {
                 continue;
             };
+
             for attribute in tree.descendants().filter(|node| node.kind() == ATTRIBUTE) {
                 let Some(name) = attribute.children().find(|child| child.kind() == NAME) else {
                     continue;
                 };
+
                 let resolver = crate::framework::source::resolver_for(&attribute);
+
                 if !is_groups(&resolver.resolve_class(&name.text().to_string())) {
                     continue;
                 }
+
                 for literal in attribute.descendants().filter(|node| node.kind() == LITERAL) {
                     if let Some((group, span)) = string_value(&literal) {
                         found.places.push(GroupPlace {
@@ -95,6 +104,7 @@ impl Section for SerializerGroups {
                 }
             }
         }
+
         found
     }
 

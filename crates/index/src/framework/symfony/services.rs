@@ -22,9 +22,12 @@ const KERNEL_TRAIT: &str = "Symfony\\Component\\DependencyInjection\\Kernel\\Ker
 pub struct ServiceDecl {
     pub id: String,
     pub class: Option<Name>,
+
     /// The id this one is another name for.
     pub alias_of: Option<String>,
+
     pub path: PathBuf,
+
     /// The id as written.
     pub span: Span,
 }
@@ -66,6 +69,7 @@ impl Services {
     /// under its own name.
     pub fn class_of(&self, index: &Index, id: &str) -> Option<Name> {
         let mut current = id.trim_start_matches('\\').to_string();
+
         for _ in 0..8 {
             match self.find(&current) {
                 Some(decl) => match (&decl.alias_of, &decl.class) {
@@ -76,6 +80,7 @@ impl Services {
                 None => return self.covers(index, &current).then_some(current),
             }
         }
+
         None
     }
 
@@ -84,6 +89,7 @@ impl Services {
         let Some(found) = index.class(class) else {
             return false;
         };
+
         self.resources.iter().any(|resource| {
             class.starts_with(&resource.namespace)
                 && found.file.path.starts_with(&resource.dir)
@@ -98,11 +104,13 @@ impl Services {
 impl Section for Services {
     fn build(index: &Index) -> Self {
         let mut services = Services::default();
+
         for path in config_files(index, &["yaml", "yml"]) {
             if let Some((_, root)) = yaml_of(index, &path) {
                 services.read_yaml(&path, &root);
             }
         }
+
         for path in config_files(index, &["php"]) {
             if let Some(text) = index.read_text(&path) {
                 if text.contains("services()") || text.contains("parameters()") || text.contains("setParameter") {
@@ -110,7 +118,9 @@ impl Section for Services {
                 }
             }
         }
+
         services.read_kernel_parameters(index);
+
         services
     }
 
@@ -124,6 +134,7 @@ impl Services {
         if self.by_id.contains_key(&decl.id) {
             return;
         }
+
         self.by_id.insert(decl.id.clone(), self.services.len());
         self.services.push(decl);
     }
@@ -136,11 +147,13 @@ impl Services {
 
     fn read_yaml(&mut self, path: &Path, root: &Node) {
         let mut documents = vec![root];
+
         for (name, _, value) in root.entries() {
             if name.starts_with("when@") {
                 documents.push(value);
             }
         }
+
         for document in documents {
             if let Some(parameters) = document.get("parameters") {
                 for (name, span, value) in parameters.entries() {
@@ -152,6 +165,7 @@ impl Services {
                     });
                 }
             }
+
             if let Some(services) = document.get("services") {
                 for (id, span, value) in services.entries() {
                     self.read_service(path, id, span, value);
@@ -164,7 +178,9 @@ impl Services {
         if matches!(id, "_defaults" | "_instanceof") {
             return;
         }
+
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+
         if let Some(resource) = value
             .get("resource")
             .and_then(Node::as_str)
@@ -175,6 +191,7 @@ impl Services {
                 Some(single) => single.as_str().map(str::to_string).into_iter().collect(),
                 None => Vec::new(),
             };
+
             self.resources.push(Resource {
                 namespace: id.to_string(),
                 dir: normalize(&dir.join(strip_glob(resource))),
@@ -183,8 +200,10 @@ impl Services {
                     .map(|pattern| normalize(&dir.join(strip_glob(pattern))))
                     .collect(),
             });
+
             return;
         }
+
         let alias_of = match value {
             Node::Scalar { value, .. } => value.strip_prefix('@').map(str::to_string),
             other => other
@@ -192,12 +211,14 @@ impl Services {
                 .and_then(Node::as_str)
                 .map(|alias| alias.trim_start_matches('@').to_string()),
         };
+
         let class = value
             .get("class")
             .and_then(Node::as_str)
             .map(|class| class.trim_start_matches('\\').to_string())
             .or_else(|| id.contains('\\').then(|| id.trim_start_matches('\\').to_string()))
             .filter(|_| alias_of.is_none());
+
         self.push_service(ServiceDecl {
             id: id.trim_start_matches('\\').to_string(),
             class,
@@ -210,6 +231,7 @@ impl Services {
     /// `$services->set('id', Foo::class)`, `->alias('id', Foo::class)` and `->load('App\\', '../src')`.
     fn read_php(&mut self, path: &Path, tree: &SyntaxNode) {
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+
         for call in tree.descendants().filter(|node| node.kind() == CALL_EXPR) {
             let Some(callee) = call
                 .children()
@@ -218,23 +240,29 @@ impl Services {
             else {
                 continue;
             };
+
             let Some(method) = callee.children().find(|child| child.kind() == NAME) else {
                 continue;
             };
+
             let receiver = callee
                 .children()
                 .next()
                 .map(|node| node.text().to_string())
                 .unwrap_or_default();
+
             let args = argument_expressions(&call);
+
             let text = |position: usize| match args.get(position).and_then(literal_of) {
                 Some(Literal::Text(text, span)) => Some((text, span)),
                 _ => None,
             };
+
             let class = |position: usize| match args.get(position).and_then(literal_of) {
                 Some(Literal::Class(class)) => Some(class),
                 _ => None,
             };
+
             match method.text().to_string().as_str() {
                 "set" | "setParameter" if receiver.contains("parameters") || method.text() == "setParameter" => {
                     if let Some((name, span)) = text(0) {
@@ -254,7 +282,9 @@ impl Services {
                         let concrete = class(1)
                             .or_else(|| class(0))
                             .or_else(|| text(1).map(|(text, _)| text).filter(|text| text.contains('\\')));
+
                         let _ = resolver_for;
+
                         self.push_service(ServiceDecl {
                             id: id.0,
                             class: concrete,
@@ -266,6 +296,7 @@ impl Services {
                 }
                 "alias" | "setAlias" => {
                     let target = class(1).or_else(|| text(1).map(|(text, _)| text));
+
                     if let (Some((id, span)), Some(target)) =
                         (class(0).map(|c| (c, Span::default())).or_else(|| text(0)), target)
                     {
@@ -297,17 +328,22 @@ impl Services {
         let Some(class) = index.class(KERNEL_TRAIT) else {
             return;
         };
+
         let Some(method) = class.decl.method("getKernelParameters") else {
             return;
         };
+
         let Some(tree) = crate::framework::source::tree_of(index, &class.file.path) else {
             return;
         };
+
         let Some(declaration) = crate::framework::source::method_at(&tree, method.name_span.start) else {
             return;
         };
+
         for item in declaration.descendants().filter(|node| node.kind() == ARRAY_ITEM) {
             let parts: Vec<SyntaxNode> = item.children().collect();
+
             if let [key, _] = parts.as_slice() {
                 if let Some(Literal::Text(name, span)) = literal_of(key) {
                     self.push_parameter(ParameterDecl {
@@ -326,6 +362,7 @@ impl Services {
 fn strip_glob(path: &str) -> String {
     let cut = path.find(['*', '{', '?', '[']).unwrap_or(path.len());
     let kept = &path[..cut];
+
     kept.rsplit_once('/')
         .filter(|_| cut < path.len())
         .map_or(kept, |(head, _)| head)
@@ -335,6 +372,7 @@ fn strip_glob(path: &str) -> String {
 /// Resolves `..` and `.`.
 fn normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
+
     for component in path.components() {
         match component {
             std::path::Component::ParentDir => {
@@ -344,6 +382,7 @@ fn normalize(path: &Path) -> PathBuf {
             other => out.push(other.as_os_str()),
         }
     }
+
     out
 }
 
@@ -369,42 +408,53 @@ mod tests {
                 "<?php return function ($container) { $services = $container->services(); $services->set('app.php', \\App\\Service\\Other::class); $services->alias('app.php2', \\App\\Service\\Other::class); $container->parameters()->set('app.limit', 10); };",
             ),
         ]);
+
         let found = index.section::<Services>();
+
         (index, found)
     }
 
     #[test]
     fn reads_the_ids_aliases_and_parameters() {
         let (index, services) = services();
+
         assert_eq!(
             services.class_of(&index, "app.mailer").as_deref(),
             Some("App\\Service\\Mailer")
         );
+
         assert_eq!(
             services.class_of(&index, "app.alias").as_deref(),
             Some("App\\Service\\Mailer")
         );
+
         assert_eq!(
             services.class_of(&index, "App\\Contract\\Notifier").as_deref(),
             Some("App\\Service\\Plain")
         );
+
         assert_eq!(
             services.class_of(&index, "App\\Service\\Plain").as_deref(),
             Some("App\\Service\\Plain")
         );
+
         assert_eq!(services.class_of(&index, "app.dev").as_deref(), Some("App\\Dev"));
+
         assert_eq!(
             services.class_of(&index, "app.php").as_deref(),
             Some("App\\Service\\Other")
         );
+
         assert_eq!(
             services.class_of(&index, "app.php2").as_deref(),
             Some("App\\Service\\Other")
         );
+
         assert_eq!(services.class_of(&index, "nope"), None);
         assert!(services.parameter("app.admin").is_some());
         assert!(services.parameter("app.limit").is_some());
         let decl = services.find("app.mailer").expect("a service");
+
         assert_eq!(
             &SERVICES[decl.span.start as usize..decl.span.end as usize],
             "app.mailer"
@@ -414,10 +464,12 @@ mod tests {
     #[test]
     fn a_resource_covers_the_classes_it_does_not_exclude() {
         let (index, services) = services();
+
         assert_eq!(
             services.class_of(&index, "App\\Service\\Other").as_deref(),
             Some("App\\Service\\Other")
         );
+
         assert_eq!(services.class_of(&index, "App\\Entity\\User"), None, "excluded");
     }
 }

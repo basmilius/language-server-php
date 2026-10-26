@@ -14,15 +14,18 @@ use crate::model::Span;
 use crate::test_facts::argument_expressions;
 
 const SERVICE_PROVIDER: &str = "Illuminate\\Support\\ServiceProvider";
+
 const VERBS: [&str; 10] = [
     "get", "post", "put", "patch", "delete", "options", "any", "match", "view", "fallback",
 ];
+
 const REDIRECTS: [&str; 2] = ["redirect", "permanentredirect"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouteName {
     pub name: String,
     pub path: PathBuf,
+
     /// The name inside its quotes, or the call that makes the name up.
     pub span: Span,
 }
@@ -31,6 +34,7 @@ pub struct RouteName {
 pub struct Routes {
     pub names: Vec<RouteName>,
     by_name: HashMap<String, usize>,
+
     /// Something registers routes the reading could not follow: a name that is computed, a loop, a
     /// file that is included by a path that is not written out.
     pub incomplete: bool,
@@ -52,36 +56,46 @@ impl Section for Routes {
     fn build(index: &Index) -> Self {
         let mut routes = Routes::default();
         let root = index.framework_root();
+
         let mut files: Vec<PathBuf> = index
             .files_below(&root.join("routes"))
             .into_iter()
             .filter(|path| path.extension().is_some_and(|ext| ext == "php"))
             .collect();
+
         let bootstrap = root.join("bootstrap").join("app.php");
+
         if index.file_exists(&bootstrap) {
             files.push(bootstrap);
         }
+
         for provider in index.all_subtypes(SERVICE_PROVIDER) {
             if provider.file.origin == Origin::Project && !files.contains(&provider.file.path) {
                 files.push(provider.file.path.clone());
             }
         }
+
         let mut included: HashSet<PathBuf> = HashSet::new();
+
         let mut reader = Reader {
             index,
             routes: &mut routes,
             included: &mut included,
         };
+
         let referenced = referenced_files(index, &files);
         let (deferred, top): (Vec<&PathBuf>, Vec<&PathBuf>) = files.iter().partition(|path| referenced.contains(*path));
+
         for path in top {
             reader.read_file(path, "");
         }
+
         for path in deferred {
             if !reader.included.contains(path) {
                 reader.read_file(path, "");
             }
         }
+
         routes
     }
 
@@ -95,10 +109,12 @@ impl Section for Routes {
 /// The route files another one includes, which are read where they are included.
 fn referenced_files(index: &Index, files: &[PathBuf]) -> HashSet<PathBuf> {
     let mut referenced = HashSet::new();
+
     for path in files {
         let Some(text) = index.read_text(path) else {
             continue;
         };
+
         for statement in text
             .split(';')
             .filter(|statement| statement.contains("require") || statement.contains("include"))
@@ -106,7 +122,9 @@ fn referenced_files(index: &Index, files: &[PathBuf]) -> HashSet<PathBuf> {
             let Some(file) = quoted_php_file(statement) else {
                 continue;
             };
+
             let name = file.rsplit('/').next().unwrap_or(&file);
+
             referenced.extend(
                 files
                     .iter()
@@ -117,6 +135,7 @@ fn referenced_files(index: &Index, files: &[PathBuf]) -> HashSet<PathBuf> {
             );
         }
     }
+
     referenced
 }
 
@@ -131,10 +150,12 @@ impl Reader<'_> {
         let Some(text) = self.index.read_text(path) else {
             return;
         };
+
         if !text.contains("Route") && !text.contains("router") && !text.contains("require") && !text.contains("include")
         {
             return;
         }
+
         let tree = parse(&text).syntax();
         self.read_block(&tree, path, prefix);
     }
@@ -193,30 +214,39 @@ impl Reader<'_> {
     /// `require __DIR__.'/auth.php';` reads that file with the prefix of the group it is in.
     fn read_include(&mut self, node: &SyntaxNode, path: &Path, prefix: &str) {
         let text = node.text().to_string();
+
         let Some(file) = quoted_php_file(&text) else {
             self.routes.incomplete = true;
+
             return;
         };
+
         let file = file.trim_start_matches('/');
+
         let candidates = [
             path.parent().map(|parent| parent.join(file)),
             Some(self.index.framework_root().join(file)),
         ];
+
         for candidate in candidates.into_iter().flatten() {
             if self.index.file_exists(&candidate) {
                 self.included.insert(candidate.clone());
                 self.read_file(&candidate, prefix);
+
                 return;
             }
         }
+
         self.routes.incomplete = true;
     }
 
     fn read_links(&mut self, links: &[Link], path: &Path, prefix: &str) {
         let name_of = |link: &Link| link.name.to_ascii_lowercase();
         let group = links.iter().position(|link| name_of(link) == "group");
+
         if let Some(position) = group {
             let mut group_prefix = prefix.to_string();
+
             for link in &links[..position] {
                 if name_of(link) == "name" {
                     match link.args.first().and_then(literal_of) {
@@ -225,17 +255,21 @@ impl Reader<'_> {
                     }
                 }
             }
+
             if links[0].name.eq_ignore_ascii_case("group") {
                 if let Some(array) = links[0].args.first().filter(|arg| arg.kind() == ARRAY_EXPR) {
                     group_prefix.push_str(&as_of(array));
                 }
             }
+
             let group_link = &links[position];
+
             let body = if links[0].name.eq_ignore_ascii_case("group") {
                 links[0].args.get(1)
             } else {
                 group_link.args.first()
             };
+
             match body {
                 Some(closure) if matches!(closure.kind(), CLOSURE_EXPR | ARROW_FUNCTION_EXPR) => {
                     if let Some(block) = closure.children().find(|child| child.kind() == BLOCK) {
@@ -244,10 +278,12 @@ impl Reader<'_> {
                 }
                 Some(other) => {
                     let text = other.text().to_string();
+
                     match quoted_php_file(&text) {
                         Some(file) => {
                             let file = file.trim_start_matches('/');
                             let target = self.index.framework_root().join(file);
+
                             if self.index.file_exists(&target) {
                                 self.included.insert(target.clone());
                                 self.read_file(&target, &group_prefix);
@@ -260,10 +296,13 @@ impl Reader<'_> {
                 }
                 None => {}
             }
+
             return;
         }
+
         let Some(terminal) = links.iter().position(|link| {
             let name = name_of(link);
+
             VERBS.contains(&name.as_str())
                 || REDIRECTS.contains(&name.as_str())
                 || matches!(
@@ -273,6 +312,7 @@ impl Reader<'_> {
         }) else {
             return;
         };
+
         let mut name_prefix = prefix.to_string();
         let mut names: Vec<(String, Span)> = Vec::new();
         let mut incomplete = false;
@@ -280,6 +320,7 @@ impl Reader<'_> {
         let mut except: Vec<String> = Vec::new();
         let mut custom: HashMap<String, String> = HashMap::new();
         let mut renamed: Option<String> = None;
+
         for (position, link) in links.iter().enumerate() {
             match name_of(link).as_str() {
                 "name" if position < terminal => match link.args.first().and_then(literal_of) {
@@ -312,24 +353,31 @@ impl Reader<'_> {
                 _ => {}
             }
         }
+
         if incomplete {
             self.routes.incomplete = true;
         }
+
         let terminal_link = &links[terminal];
         let kind = name_of(terminal_link);
+
         match kind.as_str() {
             "resource" | "apiresource" | "singleton" | "apisingleton" => {
                 let Some(Literal::Text(base, span)) = terminal_link.args.first().and_then(literal_of) else {
                     self.routes.incomplete = true;
+
                     return;
                 };
+
                 let base = renamed.unwrap_or_else(|| base.rsplit('/').next().unwrap_or(&base).to_string());
+
                 let actions: &[&str] = match kind.as_str() {
                     "resource" => &["index", "create", "store", "show", "edit", "update", "destroy"],
                     "apiresource" => &["index", "store", "show", "update", "destroy"],
                     "singleton" => &["show", "edit", "update"],
                     _ => &["show", "update"],
                 };
+
                 for action in actions {
                     if only
                         .as_ref()
@@ -338,29 +386,37 @@ impl Reader<'_> {
                     {
                         continue;
                     }
+
                     let name = custom
                         .get(*action)
                         .cloned()
                         .unwrap_or_else(|| format!("{base}.{action}"));
+
                     self.push(format!("{name_prefix}{name}"), path, span);
                 }
             }
             "resources" | "apiresources" => {
                 let Some(array) = terminal_link.args.first().filter(|arg| arg.kind() == ARRAY_EXPR) else {
                     self.routes.incomplete = true;
+
                     return;
                 };
+
                 let actions: &[&str] = if kind == "resources" {
                     &["index", "create", "store", "show", "edit", "update", "destroy"]
                 } else {
                     &["index", "store", "show", "update", "destroy"]
                 };
+
                 for (key, _) in array_items(array).unwrap_or_default() {
                     let Some(Literal::Text(base, span)) = key.as_ref().and_then(literal_of) else {
                         self.routes.incomplete = true;
+
                         continue;
                     };
+
                     let base = base.rsplit('/').next().unwrap_or(&base).to_string();
+
                     for action in actions {
                         self.push(format!("{name_prefix}{base}.{action}"), path, span);
                     }
@@ -370,6 +426,7 @@ impl Reader<'_> {
                 if names.is_empty() {
                     return;
                 }
+
                 let joined: String = names.iter().map(|(text, _)| text.as_str()).collect();
                 let span = names.last().map(|(_, span)| *span).unwrap_or_default();
                 self.push(format!("{name_prefix}{joined}"), path, span);
@@ -381,7 +438,9 @@ impl Reader<'_> {
         if self.routes.by_name.contains_key(&name) {
             return;
         }
+
         self.routes.by_name.insert(name.clone(), self.routes.names.len());
+
         self.routes.names.push(RouteName {
             name,
             path: path.to_path_buf(),
@@ -394,16 +453,20 @@ impl Reader<'_> {
 /// path of a PHP file written out.
 fn quoted_php_file(text: &str) -> Option<String> {
     let mut rest = text;
+
     while let Some(start) = rest.find(['\'', '"']) {
         let quote = rest.as_bytes()[start] as char;
         let after = &rest[start + 1..];
         let end = after.find(quote)?;
         let candidate = &after[..end];
+
         if candidate.ends_with(".php") {
             return Some(candidate.to_string());
         }
+
         rest = &after[end + 1..];
     }
+
     None
 }
 
@@ -418,6 +481,7 @@ fn as_of(array: &SyntaxNode) -> String {
             }
         }
     }
+
     String::new()
 }
 
@@ -425,6 +489,7 @@ fn string_items(node: Option<&SyntaxNode>) -> Vec<String> {
     let Some(node) = node else {
         return Vec::new();
     };
+
     match node.kind() {
         ARRAY_EXPR => array_items(node)
             .unwrap_or_default()
@@ -445,47 +510,60 @@ fn string_items(node: Option<&SyntaxNode>) -> Vec<String> {
 fn route_chain(expression: &SyntaxNode) -> Option<Vec<Link>> {
     let mut links = Vec::new();
     let mut current = expression.clone();
+
     loop {
         if current.kind() != CALL_EXPR {
             return None;
         }
+
         let callee = current.children().next()?;
         let args = argument_expressions(&current);
+
         match callee.kind() {
             PROPERTY_FETCH_EXPR => {
                 let name = callee.children().find(|child| child.kind() == NAME)?;
+
                 links.push(Link {
                     name: name.text().to_string(),
                     args,
                     node: current.clone(),
                 });
+
                 let receiver = callee.children().next()?;
+
                 if receiver.kind() == VARIABLE_EXPR {
                     if receiver.text() != "$router" && receiver.text() != "$route" {
                         return None;
                     }
+
                     break;
                 }
+
                 current = receiver;
             }
             SCOPED_ACCESS_EXPR => {
                 let mut names = callee.children().filter(|child| child.kind() == NAME);
                 let class = names.next()?;
                 let method = names.next()?;
+
                 if class.text().to_string().rsplit('\\').next() != Some("Route") {
                     return None;
                 }
+
                 links.push(Link {
                     name: method.text().to_string(),
                     args,
                     node: current.clone(),
                 });
+
                 break;
             }
             _ => return None,
         }
     }
+
     links.reverse();
+
     Some(links)
 }
 
@@ -499,17 +577,21 @@ pub struct VendorRoutes {
 impl Section for VendorRoutes {
     fn build(index: &Index) -> Self {
         let mut found = VendorRoutes::default();
+
         for provider in index.all_subtypes(SERVICE_PROVIDER) {
             if provider.file.origin != Origin::Vendor || provider.decl.name.starts_with("Illuminate\\") {
                 continue;
             }
+
             if let Some(text) = index.read_text(&provider.file.path) {
                 if text.contains("loadRoutesFrom") || text.contains("Route::") || text.contains("->routes(") {
                     found.registers = true;
+
                     break;
                 }
             }
         }
+
         found
     }
 
@@ -526,12 +608,14 @@ mod tests {
     fn names(files: &[(&str, &str)]) -> (crate::index::Index, std::sync::Arc<Routes>) {
         let index = project(files);
         let routes = index.section::<Routes>();
+
         (index, routes)
     }
 
     fn list(routes: &Routes) -> Vec<&str> {
         let mut out: Vec<&str> = routes.names.iter().map(|route| route.name.as_str()).collect();
         out.sort();
+
         out
     }
 
@@ -556,6 +640,7 @@ Route::group(['as' => 'legacy.'], function () {
 });
 "#,
         )]);
+
         assert_eq!(
             list(&routes),
             [
@@ -566,6 +651,7 @@ Route::group(['as' => 'legacy.'], function () {
                 "legacy.old"
             ]
         );
+
         assert!(!routes.incomplete);
     }
 
@@ -580,6 +666,7 @@ Route::resource('admin/teams', TeamController::class)->names('squads')->only('in
 Route::resource('tags', TagController::class)->names(['index' => 'tags.all'])->only(['index', 'show']);
 "#,
         )]);
+
         assert_eq!(
             list(&routes),
             [
@@ -608,6 +695,7 @@ Route::resource('tags', TagController::class)->names(['index' => 'tags.all'])->o
                 "<?php Route::get('/login', fn () => 1)->name('login');",
             ),
         ]);
+
         assert_eq!(list(&routes), ["app.login"]);
     }
 
@@ -617,6 +705,7 @@ Route::resource('tags', TagController::class)->names(['index' => 'tags.all'])->o
             "routes/web.php",
             "<?php foreach ($x as $y) { Route::get('/'.$y, fn () => 1)->name($y); } Route::get('/a', fn () => 1)->name('a');",
         )]);
+
         assert!(routes.incomplete);
         assert!(!routes.is_missing(&index, "nope"));
         let (index, routes) = names(&[("routes/web.php", "<?php Route::get('/a', fn () => 1)->name('a');")]);
@@ -637,6 +726,7 @@ Route::resource('tags', TagController::class)->names(['index' => 'tags.all'])->o
                 "<?php namespace Acme; class Provider extends \\Illuminate\\Support\\ServiceProvider { public function boot() { $this->loadRoutesFrom(__DIR__.'/routes.php'); } }",
             ),
         ]);
+
         assert!(!routes.is_missing(&index, "nope"));
     }
 }

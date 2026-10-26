@@ -31,9 +31,11 @@ impl NameResolver {
 
     pub fn add_use(&mut self, kind: UseKind, name: &str, alias: Option<&str>) {
         let name = name.trim_start_matches('\\').to_string();
+
         let alias = alias
             .map(str::to_string)
             .unwrap_or_else(|| name.rsplit('\\').next().unwrap_or(&name).to_string());
+
         match kind {
             UseKind::Class => {
                 self.classes.insert(alias.to_ascii_lowercase(), name);
@@ -61,19 +63,23 @@ impl NameResolver {
         if let Some(rest) = raw.strip_prefix('\\') {
             return rest.to_string();
         }
+
         if let Some(rest) = strip_namespace_keyword(raw) {
             return self.qualify(rest);
         }
+
         let (first, rest) = match raw.split_once('\\') {
             Some((first, rest)) => (first, Some(rest)),
             None => (raw, None),
         };
+
         if let Some(target) = self.classes.get(&first.to_ascii_lowercase()) {
             return match rest {
                 Some(rest) => format!("{target}\\{rest}"),
                 None => target.clone(),
             };
         }
+
         self.qualify(raw)
     }
 
@@ -90,29 +96,38 @@ impl NameResolver {
         if let Some(rest) = raw.strip_prefix('\\') {
             return vec![rest.to_string()];
         }
+
         if let Some(rest) = strip_namespace_keyword(raw) {
             return vec![self.qualify(rest)];
         }
+
         if let Some((first, rest)) = raw.split_once('\\') {
             let key = first.to_ascii_lowercase();
+
             return match self.classes.get(&key) {
                 Some(target) => vec![format!("{target}\\{rest}")],
                 None => vec![self.qualify(raw)],
             };
         }
+
         let key = if fold {
             raw.to_ascii_lowercase()
         } else {
             raw.to_string()
         };
+
         if let Some(target) = imports.get(&key) {
             return vec![target.clone()];
         }
+
         let mut out = Vec::new();
+
         if !self.namespace.is_empty() {
             out.push(self.qualify(raw));
         }
+
         out.push(raw.to_string());
+
         out
     }
 
@@ -131,12 +146,14 @@ impl NameResolver {
             UseKind::Function => &self.functions,
             UseKind::Constant => &self.constants,
         };
+
         map.iter().map(|(alias, target)| (alias.as_str(), target.as_str()))
     }
 }
 
 fn strip_namespace_keyword(raw: &str) -> Option<&str> {
     let (head, rest) = raw.split_once('\\')?;
+
     head.eq_ignore_ascii_case("namespace").then_some(rest)
 }
 
@@ -150,6 +167,7 @@ mod tests {
         resolver.add_use(UseKind::Class, "Foo\\Bar", Some("Baz"));
         resolver.add_use(UseKind::Function, "Foo\\helper", None);
         resolver.add_use(UseKind::Constant, "Foo\\LIMIT", None);
+
         resolver
     }
 
@@ -169,10 +187,12 @@ mod tests {
     fn functions_and_constants_fall_back_to_the_global_namespace() {
         let resolver = resolver();
         assert_eq!(resolver.function_candidates("helper"), vec!["Foo\\helper"]);
+
         assert_eq!(
             resolver.function_candidates("strlen"),
             vec!["App\\Http\\strlen", "strlen"]
         );
+
         assert_eq!(resolver.function_candidates("\\strlen"), vec!["strlen"]);
         assert_eq!(resolver.constant_candidates("LIMIT"), vec!["Foo\\LIMIT"]);
         assert_eq!(resolver.constant_candidates("limit"), vec!["App\\Http\\limit", "limit"]);
