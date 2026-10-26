@@ -160,7 +160,6 @@ mod tests {
         assert!(views.find("mail/welcome").is_some());
         assert!(views.component("alert").is_some());
         assert!(views.component("card").is_some());
-
         assert_eq!(
             views
                 .component("forms.text-input")
@@ -168,7 +167,6 @@ mod tests {
                 .as_deref(),
             Some("App\\View\\Components\\Forms\\TextInput")
         );
-
         assert!(views.is_missing("nope"));
         assert!(!views.is_missing("welcome"));
         assert!(!views.is_missing("pkg::nope"), "a package view is not ours to judge");

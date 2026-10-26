@@ -1481,25 +1481,20 @@ class User extends Model
         let index = fixture();
         assert_eq!(property(&index, "id").as_deref(), Some("int"));
         assert_eq!(property(&index, "name").as_deref(), Some("string"));
-
         assert_eq!(
             property(&index, "email_verified_at").as_deref(),
             Some("?Illuminate\\Support\\Carbon")
         );
-
         assert_eq!(property(&index, "is_admin").as_deref(), Some("bool"));
         assert_eq!(property(&index, "settings").as_deref(), Some("?array"));
-
         assert_eq!(
             property(&index, "created_at").as_deref(),
             Some("?Illuminate\\Support\\Carbon")
         );
-
         assert_eq!(
             property(&index, "deleted_at").as_deref(),
             Some("?Illuminate\\Support\\Carbon")
         );
-
         assert_eq!(property(&index, "team_id").as_deref(), Some("int"));
         assert_eq!(property(&index, "balance").as_deref(), Some("?App\\Money"));
         assert!(property(&index, "nope").is_none());
@@ -1511,24 +1506,19 @@ class User extends Model
         assert_eq!(property(&index, "full_name").as_deref(), Some("string"));
         assert_eq!(property(&index, "nick_name").as_deref(), Some("string"));
         assert!(index.find_property(&user(), "display_name").is_some());
-
         assert_eq!(
             property(&index, "posts").as_deref(),
             Some("Illuminate\\Database\\Eloquent\\Collection<int, App\\Models\\Post>")
         );
-
         assert_eq!(property(&index, "team").as_deref(), Some("?App\\Models\\Team"));
-
         assert_eq!(
             property(&index, "latestPost").as_deref(),
             Some("Illuminate\\Database\\Eloquent\\Collection<int, App\\Models\\Post>")
         );
-
         assert_eq!(
             property(&index, "recentPosts").as_deref(),
             Some("Illuminate\\Database\\Eloquent\\Collection<int, App\\Models\\Post>")
         );
-
         assert!(property(&index, "rename").is_none());
     }
 
@@ -1539,7 +1529,6 @@ class User extends Model
         assert!(where_.member.is_static && where_.mixin);
         let first = index.find_method(&user(), "first").expect("forwarded");
         assert_eq!(first.subst.get("TModel"), Some(&Type::class("App\\Models\\User")));
-
         assert!(
             index.find_method(&user(), "orderBy").is_some(),
             "through the builder's mixin"
@@ -1565,19 +1554,15 @@ class User extends Model
             1,
             "the builder argument is dropped"
         );
-
         assert_eq!(active.class.decl.name, "App\\Models\\User");
-
         assert!(
             index.find_method(&builder, "verified").is_some(),
             "an attribute marks a scope"
         );
-
         assert!(index.find_method(&user(), "active").is_some(), "static call of a scope");
         assert!(index.find_method(&builder, "whereEmail").is_some());
         assert!(index.find_method(&builder, "whereIsAdmin").is_some());
         assert!(index.find_method(&builder, "whereNothing").is_none());
-
         assert!(
             index
                 .methods(&builder)
@@ -1636,12 +1621,10 @@ class User extends Model
             ret("App\\Models\\Post").as_deref(),
             Some("Database\\Factories\\PostFactory")
         );
-
         assert_eq!(
             ret("App\\Models\\Odd").as_deref(),
             Some("Database\\Factories\\OddFactory")
         );
-
         assert_eq!(
             ret("App\\Models\\Documented").as_deref(),
             Some("Database\\Factories\\PostFactory")

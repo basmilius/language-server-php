@@ -48,14 +48,11 @@ final class Plain { public function testIt(): void {} }
             ("FooTest::documented", "documented", ""),
         ]
     );
-
     assert_eq!(found[0].4, "/^Tests\\\\Unit\\\\FooTest::/");
-
     assert_eq!(
         found[1].4,
         "/^Tests\\\\Unit\\\\FooTest::testPlain( with data set .*)?$/"
     );
-
     assert_eq!(found[1].1, RunnableScope::Method);
 }
 
@@ -106,7 +103,6 @@ it($dynamic, function () {});
             ),
         ]
     );
-
     assert_eq!(found[0].1, RunnableScope::Test);
     assert_eq!(found[2].1, RunnableScope::Describe);
     assert_eq!(found[6].1, RunnableScope::Arch);
@@ -119,7 +115,6 @@ fn descriptions_become_method_names_the_way_pest_writes_them() {
         evaluable("it can use_underscores & more"),
         "__pest_evaluable_it_can_use__underscores___more"
     );
-
     assert_eq!(evaluable("`d` → it x"), "__pest_evaluable__d__→_it_x");
 }
 
@@ -157,7 +152,6 @@ fn console_commands_are_runnable_in_laravel_and_symfony_projects() {
         assert_eq!(found.len(), 1, "{flavor}: {found:?}");
         assert_eq!(found[0].filter, expected);
         assert_eq!(found[0].scope, RunnableScope::Command);
-
         assert_eq!(
             found[0].kind,
             if flavor == "laravel" {

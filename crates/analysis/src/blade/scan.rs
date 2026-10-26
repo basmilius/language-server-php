@@ -481,17 +481,14 @@ mod tests {
             kinds("@if ($a) {{ $b }} @else {!! $c !!} @endif @@if mail@example.com @{{ $d }} {{-- @if --}}"),
             ["@if($a)", "echo ` $b `", "@else", "echo ` $c `", "@endif"]
         );
-
         assert_eq!(
             kinds("@php $a = 1; @endphp @php($b = 2) @verbatim {{ $c }} @if @endverbatim <?php echo $d; ?>"),
             ["block ` $a = 1; `", "@php($b = 2)", "php ` echo $d; `"]
         );
-
         assert_eq!(
             kinds("@foreach ($xs as $x)\n@endforeach"),
             ["@foreach($xs as $x)", "@endforeach"]
         );
-
         assert_eq!(kinds("@section('a', ')')"), ["@section('a', ')')"]);
         assert_eq!(kinds("@livewire::styles"), ["@livewire::styles"]);
     }
@@ -509,7 +506,6 @@ mod tests {
                 "@class(['a'])"
             ]
         );
-
         assert_eq!(
             kinds("<x-slot:title>Hi</x-slot><x-forms.input name=x></x-forms.input>"),
             [

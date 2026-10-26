@@ -220,12 +220,10 @@ mod tests {
         let members = workspace_symbols(&fixture.index, Path::new("/project"), "index", 10);
         assert_eq!(members[0].kind, SymbolKind::Method);
         assert_eq!(members[0].container.as_deref(), Some("App\\UserController"));
-
         assert_eq!(
             workspace_symbols(&fixture.index, Path::new("/project"), "uc", 10)[0].name,
             "UserController"
         );
-
         assert_eq!(
             workspace_symbols(&fixture.index, Path::new("/project"), "user", 2).len(),
             2

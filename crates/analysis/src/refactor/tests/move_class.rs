@@ -39,12 +39,10 @@ fn moves_the_class_and_follows_it_in_its_own_file_and_in_others() {
         result.moves,
         [("src/Models/User.php".to_string(), "src/Domain/User.php".to_string())]
     );
-
     assert_eq!(
         result.files["src/Models/User.php"],
         "<?php\nnamespace App\\Domain;\n\nuse App\\Contracts\\Named;\nuse App\\Models\\Team;\n\nclass User implements Named\n{\n    public function other(): Team\n    {\n        return new Team();\n    }\n}\n"
     );
-
     assert!(
         result.files["src/Services/f.php"].contains("use App\\Domain\\User;\nuse App\\Models\\Team;"),
         "{}",
@@ -53,12 +51,10 @@ fn moves_the_class_and_follows_it_in_its_own_file_and_in_others() {
 
     let admin = &result.files["src/Models/Admin.php"];
     assert!(admin.contains("use App\\Domain\\User;"), "{admin}");
-
     assert!(
         admin.contains("\\App\\Domain\\User::class === static::class ? new User() : null"),
         "{admin}"
     );
-
     assert!(admin.contains("extends User"), "{admin}");
 }
 
@@ -74,7 +70,6 @@ fn offers_the_namespaces_of_the_project() {
         titles.contains(&"Move class to namespace App\\Contracts".to_string()),
         "{titles:?}"
     );
-
     assert!(
         !titles
             .iter()
@@ -109,7 +104,6 @@ fn a_file_that_does_not_match_its_namespace_can_follow_either() {
         titles.contains(&"Change the class to 'App\\Models\\User', as its file says".to_string()),
         "{titles:?}"
     );
-
     assert!(
         titles.contains(&"Move the file to src/Wrong/User.php".to_string()),
         "{titles:?}"
@@ -216,13 +210,11 @@ fn moving_a_folder_moves_every_class_in_it_together() {
         "{}",
         result.files["src/Old/A.php"]
     );
-
     assert!(
         result.files["src/Old/B.php"].starts_with("<?php\nnamespace App\\New\\Deep;\n"),
         "{}",
         result.files["src/Old/B.php"]
     );
-
     assert!(
         result.files["src/Other/f.php"].contains("use App\\New\\Deep\\A;\nuse App\\New\\Deep\\B;"),
         "{}",
@@ -270,7 +262,6 @@ fn a_group_import_gives_the_class_up_to_a_statement_of_its_own() {
         service.contains("use App\\Models\\{Team};") || service.contains("use App\\Models\\Team;"),
         "{service}"
     );
-
     assert!(service.contains("use App\\Domain\\User;"), "{service}");
 }
 

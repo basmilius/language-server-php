@@ -157,7 +157,6 @@ fn completes_static_members_constants_and_cases() {
         names.contains(&"find") && names.contains(&"boot") && names.contains(&"ROLE") && names.contains(&"$count"),
         "{names:?}"
     );
-
     assert!(!names.contains(&"posts"), "instance methods are not offered after ::");
     assert!(names.contains(&"class"));
     let enum_list = run(project(), "<?php\nuse App\\Models\\Role;\nRole::$0\n");
@@ -182,7 +181,6 @@ fn parent_and_self_offer_instance_methods_too() {
         names.contains(&"posts") && names.contains(&"guarded") && names.contains(&"find"),
         "{names:?}"
     );
-
     assert!(!names.contains(&"internal"));
 }
 
@@ -321,7 +319,6 @@ fn completes_variables_in_scope() {
     );
 
     assert!(labels(&all).contains(&"$count") && labels(&all).contains(&"$local"));
-
     assert_eq!(
         item(&all, "$local").edit.start as usize,
         "<?php\nfunction f(int $count) {\n    $local = 'x';\n    ".len()
@@ -452,7 +449,6 @@ fn completes_the_signature_of_a_method_to_override() {
     let describe = item(&list, "describe");
     assert_eq!(describe.kind, ItemKind::Method);
     assert_eq!(describe.description.as_deref(), Some("Base"));
-
     assert_eq!(
         applied(code, describe),
         "<?php\nnamespace App;\n\nuse Lib\\Base;\n\nclass Page extends Base\n{\n    public function describe(int $depth = 1): string\n    {\n        return parent::describe($depth);\n    }\n}\n"
@@ -467,12 +463,10 @@ fn offers_what_can_be_overridden_and_nothing_else() {
     assert!(names.contains(&"describe") && names.contains(&"make") && names.contains(&"__construct"));
     assert!(names.contains(&"render") && names.contains(&"handle"), "{names:?}");
     assert!(!names.contains(&"hook"), "already declared");
-
     assert!(
         !names.contains(&"secret") && !names.contains(&"sealed"),
         "private and final stay"
     );
-
     assert_eq!(names[0], "handle", "what must be implemented comes first: {names:?}");
     assert_eq!(names[1], "render");
 }
@@ -539,12 +533,10 @@ fn a_string_that_starts_a_qualified_name_completes_classes() {
             "App\\Http\\Home App\\Http\\Home"
         ]
     );
-
     assert_eq!(
         labels("<?php\n$a = \"\\\\App\\\\Mo$0\";\n"),
         ["App\\Models\\User App\\\\Models\\\\User"]
     );
-
     assert!(
         labels("<?php\n$a = 'App$0';\n")
             .iter()
@@ -595,12 +587,10 @@ fn a_comparison_with_an_enum_offers_its_cases_first() {
     let pending = item(&list, "ScanStatus::Pending");
     assert_eq!(pending.kind, ItemKind::EnumMember);
     assert_eq!(pending.detail.as_deref(), Some("= 'pending'"));
-
     assert_eq!(
         applied(code, pending),
         "<?php\nnamespace App\\Http;\nuse App\\Data\\ScanStatus;\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    if ($t->status === ScanStatus::Pending) {}\n}\n"
     );
-
     assert!(
         !names.contains(&"Ticket"),
         "a comparison is not an instanceof: {names:?}"
@@ -638,29 +628,24 @@ fn assignments_arguments_returns_and_match_expect_their_type() {
         first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->previous = $0\n}\n"),
         pending
     );
-
     assert_eq!(
         first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark($0);\n}\n"),
         pending
     );
-
     assert_eq!(
         first("<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark(notify: true, status: $0);\n}\n"),
         pending
     );
-
     assert_eq!(
         first("<?php\nuse App\\Data\\ScanStatus;\nfunction f(): ScanStatus {\n    return $0\n}\n"),
         pending
     );
-
     assert_eq!(
         first(
             "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    return match ($t->status) {\n        $0\n    };\n}\n"
         ),
         pending
     );
-
     assert_eq!(
         first(
             "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    switch ($t->status) {\n        case $0\n    }\n}\n"
@@ -674,7 +659,6 @@ fn assignments_arguments_returns_and_match_expect_their_type() {
     );
 
     assert_eq!(labels(&nullable)[2], "null", "{:?}", labels(&nullable));
-
     assert_eq!(
         first(
             "<?php\nuse App\\Data\\Ticket;\nfunction f(Ticket $t) {\n    $t->mark(App\\Data\\ScanStatus::Pending, $0);\n}\n"
@@ -696,7 +680,6 @@ fn completes_the_keys_of_a_shape() {
     let nested = run(tickets(), nested_code);
     assert_eq!(labels(&nested), vec!["value"]);
     assert_eq!(item(&nested, "value").detail.as_deref(), Some("float"));
-
     assert_eq!(
         applied(nested_code, item(&nested, "value")),
         nested_code.replace("['va$0']", "['value']")
@@ -705,7 +688,6 @@ fn completes_the_keys_of_a_shape() {
     let bare_code = "<?php\nuse App\\Data\\Ticket;\nfunction f() {\n    Ticket::chart()[$0];\n}\n";
     let bare = run(tickets(), bare_code);
     assert_eq!(labels(&bare)[..3], ["current", "previous", "total"]);
-
     assert_eq!(
         applied(bare_code, item(&bare, "current")),
         bare_code.replace("[$0]", "['current']")
@@ -789,7 +771,6 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
             CallInsert::SnippetWithParameters
         )
     );
-
     assert_eq!(
         at("with_default"),
         (
@@ -797,14 +778,11 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
             CallInsert::SnippetWithParameters
         )
     );
-
     assert_eq!(
         at("only_optional"),
         ("only_optional($1)$0".into(), CallInsert::SnippetWithParameters)
     );
-
     assert_eq!(at("nothing"), ("nothing()$0".into(), CallInsert::Snippet));
-
     assert_eq!(
         at("by_reference"),
         (
@@ -812,17 +790,14 @@ fn a_function_call_writes_its_required_arguments_as_placeholders() {
             CallInsert::SnippetWithParameters
         )
     );
-
     assert_eq!(
         at("printf"),
         ("printf(${1:\\$format})$0".into(), CallInsert::SnippetWithParameters)
     );
-
     assert_eq!(
         at("sort"),
         ("sort(${1:\\$array})$0".into(), CallInsert::SnippetWithParameters)
     );
-
     assert_eq!(at("time"), ("time()$0".into(), CallInsert::Snippet));
 }
 
@@ -847,7 +822,6 @@ fn methods_get_arguments_after_arrows_and_scope_operators() {
         call_text(&format!("{instance}ru$0\n}}\n"), "run").0,
         "run(${1:\\$times})$0"
     );
-
     assert_eq!(
         call_text(&format!("{instance}res$0\n}}\n"), "reset"),
         ("reset()$0".into(), CallInsert::Snippet)
@@ -872,7 +846,6 @@ fn a_constructor_gets_its_arguments_after_new() {
         new("Service"),
         ("Service(${1:\\$id})$0".into(), CallInsert::SnippetWithParameters)
     );
-
     assert_eq!(new("Bare"), ("Bare()$0".into(), CallInsert::Snippet));
     let qualified = call_text("<?php\nfunction f() {\n    new \\App\\Serv$0\n}\n", "Service");
     assert_eq!(qualified.0, "\\\\App\\\\Service(${1:\\$id})$0");

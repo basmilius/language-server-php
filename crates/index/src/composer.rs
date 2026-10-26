@@ -537,12 +537,10 @@ mod tests {
         assert_eq!(composer.php_level, Some(PhpVersion::V8_3));
         assert_eq!(composer.extensions, vec!["mbstring", "pcov", "redis"]);
         assert_eq!(composer.autoload.psr4.len(), 4);
-
         assert_eq!(
             composer.autoload.psr4[0],
             ("App\\".to_string(), PathBuf::from("/p/src"))
         );
-
         assert_eq!(composer.autoload.psr4[1].0, "Lib\\");
         assert_eq!(composer.autoload.files, vec![PathBuf::from("/p/src/helpers.php")]);
         let without_platform = Composer::from_json(Path::new("/p"), &json!({ "require": { "php": "^8.1" } }));
@@ -586,7 +584,6 @@ mod tests {
                 PathBuf::from("/p/src/Models/User.php")
             ]
         );
-
         assert_eq!(
             composer.class_candidates("Old_Thing_Here"),
             vec![PathBuf::from("/p/vendor/old/lib/src/Old/Thing/Here.php")]
@@ -656,7 +653,6 @@ mod tests {
             composer.class_candidates("App\\Legacy\\Thing"),
             vec![root.join("lib/thing.inc"), root.join("src/Legacy/Thing.php")]
         );
-
         assert_eq!(
             composer.class_candidates("acme\\tool"),
             vec![root.join("vendor/acme/tool/Tool.php")]
@@ -668,7 +664,6 @@ mod tests {
             authoritative.class_candidates("App\\Legacy\\Thing"),
             vec![root.join("lib/thing.inc")]
         );
-
         assert!(authoritative.class_candidates("App\\Models\\User").is_empty());
     }
 }

@@ -102,7 +102,6 @@ fn imports_a_class_from_the_only_place_it_lives() {
 
     assert!(import.preferred, "the only candidate is the preferred fix");
     assert_eq!(import.kind, ActionKind::QuickFix);
-
     assert_eq!(
         import.text,
         "<?php\nnamespace App;\n\nuse Lib\\Tool;\n\nclass A\n{\n    public function f()\n    {\n        return new Tool();\n    }\n}\n"
@@ -136,7 +135,6 @@ fn a_global_class_can_be_imported_or_written_in_full() {
         applied(&[], source, "Import 'Exception'"),
         "<?php\nnamespace App;\n\nuse Exception;\n\n$e = new Exception();\n"
     );
-
     assert_eq!(
         applied(&[], source, "Write '\\Exception' in full"),
         "<?php\nnamespace App;\n\n$e = new \\Exception();\n"

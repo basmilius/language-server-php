@@ -499,17 +499,14 @@ mod tests {
             method_return(&index, "App\\AppTeam", "scans").as_deref(),
             Some("QueryInterface<Scan>")
         );
-
         assert_eq!(
             method_return(&index, "App\\AppTeam", "event").as_deref(),
             Some("QueryInterface<Event>")
         );
-
         assert_eq!(
             method_return(&index, "App\\SpecialTeam", "products").as_deref(),
             Some("QueryInterface<Product>")
         );
-
         assert_eq!(method_return(&index, "App\\AppTeam", "name"), None);
         assert_eq!(method_return(&index, "App\\AppTeam", "label"), None);
     }
@@ -530,7 +527,6 @@ mod tests {
         assert_eq!(names("id"), ["id", "id", "id"]);
         assert_eq!(names("createdOn"), ["createdOn", "createdOn", "created_on"]);
         assert_eq!(names("badge"), ["badge", "badge"]);
-
         assert!(
             properties
                 .iter()
@@ -543,7 +539,6 @@ mod tests {
             models.get("App\\AppTeam").and_then(|info| info.table.as_deref()),
             Some("app_team")
         );
-
         assert_eq!(
             model_of(
                 &index,

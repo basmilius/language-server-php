@@ -842,7 +842,6 @@ class Model {}
         );
 
         assert!(index.find_property(&Type::class("Model"), "magic").is_some());
-
         assert!(
             index
                 .find_method(&Type::class("Model"), "make")
@@ -850,7 +849,6 @@ class Model {}
                 .member
                 .is_static
         );
-
         assert!(index.find_method(&Type::class("Model"), "help").is_some());
     }
 

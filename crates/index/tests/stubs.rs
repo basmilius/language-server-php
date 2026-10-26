@@ -56,12 +56,10 @@ fn stubs_are_filtered_by_the_language_level() {
     assert!(old.function("array_find").is_none(), "array_find is new in 8.4");
     assert!(new.function("array_find").is_some());
     assert!(old.function("str_contains").is_some());
-
     assert!(
         old.class("Random\\Randomizer").is_none(),
         "Random\\Randomizer is new in 8.2"
     );
-
     assert!(new.class("Random\\Randomizer").is_some());
     assert!(old.class("Stringable").is_some());
 

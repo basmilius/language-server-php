@@ -928,7 +928,6 @@ function &helper(string $x): void {}
             ),
             "(PHP 5 >=5.5.0)\n\nReturns **FALSE** or an _int_.\n\nNext, a list of array<int> values"
         );
-
         assert_eq!(
             inline_tags("Formats like {@link https://php.net/date date()} does"),
             "Formats like [date()](https://php.net/date) does"
@@ -951,19 +950,15 @@ function &helper(string $x): void {}
             html_to_markdown("a<b>bold</b> <strong>s</strong> <i>i</i> <em>e</em>"),
             "a**bold** **s** _i_ _e_"
         );
-
         assert_eq!(html_to_markdown("use <code>foo()</code> now"), "use `foo()` now");
-
         assert_eq!(
             html_to_markdown(
                 r#"see <a href="https://php.net/x?a=1&amp;b=2">the manual</a> and <a name="x">anchor</a>"#
             ),
             "see [the manual](https://php.net/x?a=1&b=2) and anchor"
         );
-
         assert_eq!(html_to_markdown("one<br>two<br />three"), "one\ntwo\nthree");
         assert_eq!(html_to_markdown("<p>one</p><p>two</p>"), "one\n\ntwo");
-
         assert_eq!(
             html_to_markdown(r#"<span class="x">kept</span> <blink>text</blink>"#),
             "kept <blink>text</blink>"
@@ -976,7 +971,6 @@ function &helper(string $x): void {}
             html_to_markdown("a &lt; b &amp;&amp; c &gt; d &quot;q&quot; &#39;s&#39; &#x41;&#66;&nbsp;x"),
             "a < b && c > d \"q\" 's' AB x"
         );
-
         assert_eq!(html_to_markdown("&lt;b&gt; &unknown; &#xZZ;"), "\\<b> &unknown; &#xZZ;");
     }
 

@@ -297,12 +297,10 @@ return [
             keys.find("app.name").and_then(|entry| entry.value.clone()).as_deref(),
             Some("env('APP_NAME', 'Laravel')")
         );
-
         assert!(keys.find("app").is_some_and(|entry| entry.group));
         assert!(keys.find("app.aliases.Foo").is_some());
         assert!(keys.find("app.nested.a.b").is_some());
         assert!(keys.find("nested.more.k").is_some(), "a folder is part of the key");
-
         assert_eq!(
             keys.find("app.locale").map(|entry| entry.span.end - entry.span.start),
             Some(6)
@@ -313,26 +311,21 @@ return [
     fn a_key_is_missing_only_when_every_array_on_the_way_is_written_out() {
         let (index, keys) = keys(&[]);
         assert!(keys.is_missing(&index, "app.nam"));
-
         assert!(
             keys.is_missing(&index, "app.locale.deeper"),
             "below a scalar nothing exists"
         );
-
         assert!(keys.is_missing(&index, "app.nested.a.c"));
         assert!(!keys.is_missing(&index, "app.name"));
         assert!(!keys.is_missing(&index, "app.providers.0"), "a list is not enumerated");
-
         assert!(
             !keys.is_missing(&index, "app.nested.computed.y"),
             "a computed value may hold anything"
         );
-
         assert!(
             !keys.is_missing(&index, "other.name"),
             "a file that is not there may come from a package"
         );
-
         assert!(!keys.is_missing(&index, "app"));
     }
 
@@ -352,7 +345,6 @@ return [
         assert!(!keys.is_missing(&index, "app.frontend_url"));
         assert!(!keys.is_missing(&index, "view.compiled"));
         assert!(keys.is_missing(&index, "view.nope"));
-
         assert_eq!(
             keys.find("app.name").and_then(|entry| entry.value.clone()).as_deref(),
             Some("env('APP_NAME', 'Laravel')"),
@@ -374,7 +366,6 @@ return [
         ]);
 
         assert!(!keys.is_missing(&index, "app.nam"), "the project writes into app");
-
         assert!(
             keys.is_missing(&index, "nested.more.nope"),
             "nothing writes into the nested file"

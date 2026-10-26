@@ -457,13 +457,11 @@ mod tests {
             repository_of(&index, "App\\Entity\\User").as_deref(),
             Some("App\\Repository\\UserRepository")
         );
-
         assert_eq!(repository_of(&index, "App\\Entity\\Post"), None);
         let entities = index.section::<Entities>();
         let user = entities.find("App\\Entity\\User").expect("an entity");
         let names: Vec<&str> = user.fields.iter().map(|field| field.name.as_str()).collect();
         assert_eq!(names, ["id", "email", "firstName", "posts"]);
-
         assert_eq!(
             user.fields[3].kind,
             FieldKind::Relation {

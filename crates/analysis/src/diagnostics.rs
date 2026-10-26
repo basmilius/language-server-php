@@ -72,7 +72,6 @@ mod tests {
         let found = diagnostics(&parsed, PhpVersion::V8_4);
         let codes: Vec<_> = found.iter().map(|found| found.code).collect();
         assert_eq!(codes, ["pipe-operator", "syntax"]);
-
         assert!(
             diagnostics(&parsed, PhpVersion::DEFAULT)
                 .iter()

@@ -887,31 +887,25 @@ mod tests {
     fn reads_expressions_by_precedence() {
         assert_eq!(shape(&parse_one("a + b * c ~ d")), "(a + ((b * c) ~ d))");
         assert_eq!(shape(&parse_one("not a and b or c")), "(((not a) and b) or c)");
-
         assert_eq!(
             shape(&parse_one("post.author.name|upper|slice(0, 3)")),
             "((post.author.name|upper())|slice(1, 1))"
         );
-
         assert_eq!(
             shape(&parse_one("path('blog', {page: 1, tag})")),
             "path('blog', {page: 1, tag: tag})"
         );
-
         assert_eq!(
             shape(&parse_one("x is not defined ? y : z")),
             "((not (x is defined)) ? y : z)"
         );
-
         assert_eq!(
             shape(&parse_one("items|filter(i => i.ok)|map((k, v) => v)")),
             "((items|filter((i) => i.ok))|map((k, v) => v))"
         );
-
         assert_eq!(shape(&parse_one("a['b'].c(d: 1) ?? 'e'")), "(a['b'].c(d: 1) ?? 'e')");
         assert_eq!(shape(&parse_one("1..5")), "(1 .. 1)");
         assert_eq!(shape(&parse_one("x is divisible by(3)")), "(x is divisible by)");
-
         assert_eq!(
             shape(&parse_one("x is not same as null and y")),
             "((not (x is same as)) and y)"

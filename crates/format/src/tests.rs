@@ -323,12 +323,10 @@ fn keeps_the_line_endings_the_file_has() {
 fn leaves_what_it_cannot_lay_out() {
     let options = FormatOptions::default();
     assert_eq!(try_format("<?php\nfoo(", &options), Err(Refusal::SyntaxErrors));
-
     assert_eq!(
         try_format("<div><?php echo 1; ?></div>", &options),
         Err(Refusal::Markup)
     );
-
     assert_eq!(try_format("  \n", &options), Err(Refusal::Empty));
     assert_eq!(try_format("<?php", &options).as_deref(), Ok("<?php"));
 }

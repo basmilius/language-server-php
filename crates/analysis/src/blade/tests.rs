@@ -56,17 +56,14 @@ fn directives_name_views_and_translations() {
         places("@extends('layouts.a$0pp')\n"),
         ["resources/views/layouts/app.blade.php"]
     );
-
     assert_eq!(
         places("<div>@include('wel$0come', ['a' => 1])</div>"),
         ["resources/views/welcome.blade.php"]
     );
-
     assert_eq!(
         places("@includeWhen($x, 'wel$0come')"),
         ["resources/views/welcome.blade.php"]
     );
-
     assert_eq!(places("@lang('messages.wel$0come')"), ["lang/en/messages.php"]);
 }
 
@@ -76,12 +73,10 @@ fn a_component_tag_leads_to_its_template() {
         places("<x-al$0ert type=\"error\" />"),
         ["resources/views/components/alert.blade.php"]
     );
-
     assert_eq!(
         places("<div></x-al$0ert>"),
         ["resources/views/components/alert.blade.php"]
     );
-
     assert!(places("<x-slot:ti$0tle>").is_empty());
 }
 
@@ -91,19 +86,15 @@ fn php_in_the_template_is_followed() {
         places("<p>{{ route('x') }}{{ config('app.na$0me') }}</p>"),
         ["config/app.php"]
     );
-
     assert_eq!(places("{!! __('messages.wel$0come') !!}"), ["lang/en/messages.php"]);
-
     assert_eq!(
         places("@php $total = \\App\\Models\\Us$0er::count(); @endphp"),
         ["app/Models/User.php"]
     );
-
     assert_eq!(
         places("@if (\\App\\Models\\Us$0er::count() > 1) x @endif"),
         ["app/Models/User.php"]
     );
-
     assert!(places("{{-- {{ config('app.na$0me') }} --}}").is_empty());
     assert!(places("<p>plain wor$0ds</p>").is_empty());
 }
@@ -123,7 +114,6 @@ fn a_template_in_words_with_accents_is_read() {
         places("<p>Dé prijs: {{ config('app.na$0me') }} €5</p>"),
         ["config/app.php"]
     );
-
     assert_eq!(
         places("<p>één</p> @include('wel$0come')"),
         ["resources/views/welcome.blade.php"]
@@ -160,7 +150,6 @@ fn hovers_the_php_in_a_template() {
     let (offset, text) = lsc_text::testing::cursor(template);
     let hover = hover_at(&fixture().index, None, &text, &[], offset).expect("a hover");
     assert!(hover.markdown.contains("count"), "{}", hover.markdown);
-
     assert_eq!(
         &text[usize::from(hover.range.start())..usize::from(hover.range.end())],
         "count"
@@ -232,17 +221,14 @@ fn a_foreach_types_its_variable_and_gives_a_loop() {
 #[test]
 fn props_use_inject_and_error_declare_what_they_name() {
     assert!(hover("@props(['type' => 'info', 'message'])\n{{ $ty$0pe }}").contains("string"));
-
     assert_eq!(
         places("@use('App\\Models\\User')\n{{ Us$0er::count() }}"),
         ["app/Models/User.php"]
     );
-
     assert_eq!(
         places("@inject('people', 'App\\Models\\User')\n{{ $people->na$0me() }}"),
         ["app/Models/User.php"]
     );
-
     assert!(hover("@error('email') {{ $mess$0age }} @enderror").contains("string"));
 }
 
@@ -275,12 +261,10 @@ fn blocks_that_do_not_match_are_noted() {
     assert!(
         read("@if($a) @foreach($b as $c) @endforeach @else @endif @section('x', 'y') @section('z') @show").is_empty()
     );
-
     assert_eq!(
         read("@if($a) @foreach($b as $c) @endif"),
         ["unopened endif", "unclosed foreach", "unclosed if"]
     );
-
     assert_eq!(read("@endpush @else"), ["unopened endpush", "unopened else"]);
     assert!(read("@verbatim @if @endverbatim {{-- @endif --}} @php if (1) { @endphp").is_empty());
 }
@@ -426,7 +410,6 @@ fn a_variable_and_a_method_are_renamed_from_a_template() {
         &view[usize::from(prepared.range.start())..usize::from(prepared.range.end())],
         "name"
     );
-
     assert!(prepare_rename(&fixture.index, Some(&path), view, &[], 3).is_err());
 }
 
@@ -504,7 +487,6 @@ mod given {
             given_to("resources/views/components/badge.blade.php"),
             ["label: string", "person: ?User", "showCount: bool"]
         );
-
         assert_eq!(given_to("resources/views/components/alert.blade.php"), ["type: string"]);
     }
 }
@@ -577,14 +559,11 @@ mod layouts {
             completions("@extends('layouts.app') @section('$0')"),
             ["sidebar", "title"]
         );
-
         assert_eq!(
             places("@section('ti$0tle', 'Home')"),
             ["resources/views/layouts/app.blade.php: title"]
         );
-
         assert_eq!(completions("@push('$0')"), ["scripts"]);
-
         assert_eq!(
             places("@pushIf($x, 'scr$0ipts') @endPushIf"),
             ["resources/views/layouts/app.blade.php: scripts"]
@@ -595,26 +574,20 @@ mod layouts {
     fn attributes_and_slots_belong_to_their_component() {
         assert_eq!(completions("<x-card $0"), ["show-count", "title"]);
         assert_eq!(completions("<x-card :title=\"$t\" sh$0 />"), ["show-count"]);
-
         assert_eq!(
             places("<x-card show-co$0unt />"),
             ["resources/views/components/card.blade.php: showCount"]
         );
-
         assert_eq!(completions("<x-card><x-slot:$0"), ["footer", "title"]);
-
         assert_eq!(
             places("<x-card><x-slot:foo$0ter>Hi</x-slot></x-card>"),
             ["resources/views/components/card.blade.php: footer"]
         );
-
         assert_eq!(
             places("<x-card><x-slot name=\"foo$0ter\">Hi</x-slot></x-card>"),
             ["resources/views/components/card.blade.php: footer"]
         );
-
         assert_eq!(completions("<x-alert $0 />"), ["dismissible", "type"]);
-
         assert_eq!(
             places("<x-alert ty$0pe=\"error\" />"),
             ["app/View/Components/Alert.php: public string $type"]
@@ -804,12 +777,10 @@ mod livewire {
     fn a_component_tag_leads_to_its_class_and_attributes_to_what_they_fill() {
         let fixture = fixture();
         assert_eq!(places(&fixture, None, "<livewire:forum.edit-r$0eply />"), ["EditReply"]);
-
         assert_eq!(
             places(&fixture, None, "<livewire:forum.edit-reply :reply-i$0d=\"1\" />"),
             ["int $replyId"]
         );
-
         assert_eq!(places(&fixture, None, "@livewire('forum.edit-re$0ply')"), ["EditReply"]);
         assert_eq!(labels(&fixture, None, "<livewire:for$0"), ["forum.edit-reply"]);
     }
@@ -823,12 +794,10 @@ mod livewire {
         assert_eq!(at("<input wire:model=\"form.ti$0tle\">"), ["$title"]);
         assert_eq!(at("<button wire:click=\"sa$0ve\">"), ["save"]);
         assert_eq!(labels(&fixture, Some(&path), "<button wire:click=\"$0\">"), ["save"]);
-
         assert_eq!(
             labels(&fixture, Some(&path), "<input wire:model=\"$0\">"),
             ["body", "form"]
         );
-
         assert!(places(&fixture, None, "<button wire:click=\"sa$0ve\">").is_empty());
     }
 

@@ -48,6 +48,7 @@ pub fn decode_version(version: u16) -> PhpVersion {
 pub enum Visibility {
     #[default]
     Public,
+
     Protected,
     Private,
 }

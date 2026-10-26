@@ -422,34 +422,27 @@ mod tests {
             services.class_of(&index, "app.mailer").as_deref(),
             Some("App\\Service\\Mailer")
         );
-
         assert_eq!(
             services.class_of(&index, "app.alias").as_deref(),
             Some("App\\Service\\Mailer")
         );
-
         assert_eq!(
             services.class_of(&index, "App\\Contract\\Notifier").as_deref(),
             Some("App\\Service\\Plain")
         );
-
         assert_eq!(
             services.class_of(&index, "App\\Service\\Plain").as_deref(),
             Some("App\\Service\\Plain")
         );
-
         assert_eq!(services.class_of(&index, "app.dev").as_deref(), Some("App\\Dev"));
-
         assert_eq!(
             services.class_of(&index, "app.php").as_deref(),
             Some("App\\Service\\Other")
         );
-
         assert_eq!(
             services.class_of(&index, "app.php2").as_deref(),
             Some("App\\Service\\Other")
         );
-
         assert_eq!(services.class_of(&index, "nope"), None);
         assert!(services.parameter("app.admin").is_some());
         assert!(services.parameter("app.limit").is_some());
@@ -469,7 +462,6 @@ mod tests {
             services.class_of(&index, "App\\Service\\Other").as_deref(),
             Some("App\\Service\\Other")
         );
-
         assert_eq!(services.class_of(&index, "App\\Entity\\User"), None, "excluded");
     }
 }

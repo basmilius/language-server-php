@@ -68,9 +68,7 @@ mod tests {
             function.callable.doc_ret.as_ref().unwrap().display(false),
             "array<TKey, TResult>"
         );
-
         assert_eq!(function.doc.as_ref().unwrap().templates.len(), 3);
-
         assert_eq!(
             function.callable.params[0].doc_ty.as_ref().unwrap().display(false),
             "callable(TValue): TResult|null"

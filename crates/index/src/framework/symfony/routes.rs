@@ -521,20 +521,16 @@ class HealthController { public function __invoke() {} }
                 .as_deref(),
             Some("/blog/")
         );
-
         assert_eq!(
             routes.find("blog_show").and_then(|route| route.path.clone()).as_deref(),
             Some("/blog/{slug}")
         );
-
         assert!(routes.find("health").is_some());
-
         assert!(
             routes.find("blog_app_blog_unnamed").is_some(),
             "{:?}",
             routes.routes.iter().map(|route| &route.name).collect::<Vec<_>>()
         );
-
         assert!(!routes.incomplete);
         assert!(routes.is_missing("nope"));
     }
@@ -545,12 +541,10 @@ class HealthController { public function __invoke() {} }
             default_name("App\\Controller\\BlogController", "index"),
             "app_blog_index"
         );
-
         assert_eq!(
             default_name("App\\Controller\\Admin\\UserController", "editAction"),
             "app_admin_user_edit"
         );
-
         assert_eq!(
             default_name("Acme\\DemoBundle\\Controller\\PostController", "show"),
             "acme_demo_post_show"

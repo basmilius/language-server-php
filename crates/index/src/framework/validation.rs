@@ -105,7 +105,6 @@ mod tests {
             names("App\\Http\\Requests\\StoreUserRequest"),
             ["name", "email", "items.*.id"]
         );
-
         assert_eq!(names("App\\Http\\Requests\\UpdateUserRequest"), ["nickname"]);
     }
 }

@@ -166,12 +166,10 @@ mod tests {
         assert!(translations.is_missing("messages.welcom"));
         assert!(translations.is_missing("messages.nested.nope"));
         assert!(!translations.is_missing("messages.welcome"));
-
         assert!(
             !translations.is_missing("Welcome back."),
             "words are their own translation"
         );
-
         assert!(!translations.is_missing("Hello. How are you?"));
         assert!(!translations.is_missing("other.key"), "no such group file");
         assert!(!translations.is_missing("auth.custom"), "a json key may hold dots");

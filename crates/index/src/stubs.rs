@@ -203,12 +203,10 @@ mod tests {
             extension_of(root, Path::new("/s/Zend OPcache/x.php")).as_deref(),
             Some("zendopcache")
         );
-
         assert_eq!(
             extension_of(root, Path::new("/s/standard/basic.php")).as_deref(),
             Some("standard")
         );
-
         assert_eq!(extension_of(root, Path::new("/s/PhpStormStubsMap.php")), None);
     }
 

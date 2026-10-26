@@ -602,7 +602,6 @@ mod tests {
                 "class App\\Service\\Missing"
             ]
         );
-
         assert_eq!(
             shown(
                 "blog_show:\n    controller: App\\Controller\\BlogController::show\n",

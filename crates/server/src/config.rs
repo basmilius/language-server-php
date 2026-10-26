@@ -207,7 +207,6 @@ mod tests {
         let nested = Settings::from_value(&json!({ "phpLanguageServer": { "phpVersion": "^8.1" } }));
         assert_eq!(nested.php_version, Some(PhpVersion::V8_1));
         assert_eq!(Settings::from_value(&json!(null)).php_version, None);
-
         assert_eq!(
             Settings::from_value(&json!({ "phpVersion": "nonsense" })).php_version,
             None

@@ -187,12 +187,10 @@ mod tests {
     fn functions_and_constants_fall_back_to_the_global_namespace() {
         let resolver = resolver();
         assert_eq!(resolver.function_candidates("helper"), vec!["Foo\\helper"]);
-
         assert_eq!(
             resolver.function_candidates("strlen"),
             vec!["App\\Http\\strlen", "strlen"]
         );
-
         assert_eq!(resolver.function_candidates("\\strlen"), vec!["strlen"]);
         assert_eq!(resolver.constant_candidates("LIMIT"), vec!["Foo\\LIMIT"]);
         assert_eq!(resolver.constant_candidates("limit"), vec!["App\\Http\\limit", "limit"]);

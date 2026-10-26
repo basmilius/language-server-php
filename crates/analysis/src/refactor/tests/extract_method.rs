@@ -39,7 +39,6 @@ fn a_variable_that_is_set_and_read_again_is_passed_in_and_back() {
     );
 
     assert!(found.contains("$a = $this->getA($a, $b);"), "{found}");
-
     assert!(
         found.contains(
             "private function getA(int $a, int $b): int\n    {\n        $a = $a + $b;\n        return $a;\n    }"
@@ -55,12 +54,10 @@ fn several_results_come_back_as_a_list() {
     );
 
     assert!(found.contains("[$min, $max] = $this->extracted($items);"), "{found}");
-
     assert!(
         found.contains("        $max = max($items);\n        return [$min, $max];\n    }"),
         "{found}"
     );
-
     assert!(
         found.contains("private function extracted(array $items): array"),
         "{found}"
@@ -74,7 +71,6 @@ fn code_that_hands_nothing_back_is_void() {
     );
 
     assert!(found.contains("        $this->extracted($a);\n    }"), "{found}");
-
     assert!(
         found.contains(
             "private function extracted(int $a): void\n    {\n        $this->total += $a;\n        echo $a;\n    }"
@@ -103,7 +99,6 @@ fn a_bare_return_stays_a_return() {
         found.contains("        $this->extracted($a);\n        return;\n    }"),
         "{found}"
     );
-
     assert!(found.contains("private function extracted(int $a): void"), "{found}");
 }
 
@@ -119,7 +114,6 @@ fn a_function_gets_a_function() {
     let source = "<?php\nfunction run(int $a): int\n{\n    return strlen(«(string) $a»);\n}\n";
     let found = applied(&[], source, "Extract method");
     assert!(found.contains("return strlen(getString($a));"), "{found}");
-
     assert!(
         found.contains("function getString(int $a): string\n{\n    return (string) $a;\n}"),
         "{found}"
@@ -140,7 +134,6 @@ fn a_generator_part_is_delegated_to() {
         found.contains("        yield from $this->extracted($a);\n        yield 3;"),
         "{found}"
     );
-
     assert!(
         found.contains("private function extracted(int $a): \\Generator"),
         "{found}"
@@ -151,7 +144,6 @@ fn a_generator_part_is_delegated_to() {
 fn a_parameter_taken_by_reference_stays_one() {
     let found = extract("    public function run(array &$items): void\n    {\n        «$items[] = 1;»\n    }\n");
     assert!(found.contains("$this->extracted($items);"), "{found}");
-
     assert!(
         found.contains("private function extracted(array &$items): void"),
         "{found}"
@@ -165,7 +157,6 @@ fn loops_inside_the_selection_may_break() {
     );
 
     assert!(found.contains("$sum = $this->getSum($items, $sum);"), "{found}");
-
     assert!(
         found.contains("private function getSum(array $items, int $sum): int"),
         "{found}"
@@ -265,7 +256,6 @@ fn a_dead_write_to_a_parameter_goes_along() {
 
     let found = outcome.result.expect("offered").expect("done").text;
     assert!(found.contains("$this->extracted($a);"), "{found}");
-
     assert!(
         found.contains("private function extracted(int $a): void\n    {\n        $n = $a + 1;\n    }"),
         "{found}"

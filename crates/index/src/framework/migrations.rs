@@ -511,7 +511,6 @@ return new class extends Migration {
                 "updated_at"
             ]
         );
-
         assert_eq!(users.column("id").map(|column| column.ty), Some(ColumnType::Int));
         assert!(users.column("email_verified_at").is_some_and(|column| column.nullable));
         assert!(!users.column("name").is_some_and(|column| column.nullable));
@@ -530,12 +529,10 @@ return new class extends Migration {
         assert!(users.column("full_name").is_some());
         assert!(users.column("team_id").is_none());
         assert!(users.column("nickname").is_some_and(|column| column.nullable));
-
         assert_eq!(
             users.column("settings").map(|column| column.ty),
             Some(ColumnType::Array)
         );
-
         assert!(users.column("email").is_some_and(|column| column.nullable));
     }
 
@@ -567,24 +564,19 @@ return new class extends Migration {
                 "slug"
             ]
         );
-
         assert_eq!(
             threads.column("id").map(|column| (column.ty, column.nullable)),
             Some((ColumnType::Int, false))
         );
-
         assert_eq!(
             threads.column("solution_reply_id").map(|column| column.nullable),
             Some(true)
         );
-
         assert_eq!(
             threads.column("is_open").map(|column| column.ty),
             Some(ColumnType::Bool)
         );
-
         assert_eq!(threads.column("meta").map(|column| column.ty), Some(ColumnType::Array));
-
         assert_eq!(
             threads.column("created_at").map(|column| column.ty),
             Some(ColumnType::Datetime)

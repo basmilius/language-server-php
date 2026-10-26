@@ -647,12 +647,10 @@ fn a_function_snippet_survives_a_single_and_a_double_quoted_string_and_asks_for_
         );
 
         assert_eq!(item["insertTextFormat"], 2, "{item}");
-
         assert_eq!(
             item["textEdit"]["newText"], "date_format(${1:date}, ${2:format})$0",
             "{quote}: {item}"
         );
-
         assert_eq!(item["command"]["command"], "editor.action.triggerParameterHints");
     }
 }

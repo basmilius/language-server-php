@@ -473,7 +473,6 @@ mod tests {
                 default_name: None
             })
         );
-
         assert_eq!(
             rules.get("id"),
             Some(&SchemaRule::Column {
@@ -482,7 +481,6 @@ mod tests {
                 default_name: Some("id".to_string())
             })
         );
-
         assert_eq!(
             rules.get("softdeletes"),
             Some(&SchemaRule::Column {
@@ -491,9 +489,7 @@ mod tests {
                 default_name: Some("deleted_at".to_string())
             })
         );
-
         assert!(matches!(rules.get("timestamps"), Some(SchemaRule::Columns(columns)) if columns.len() == 2));
-
         assert_eq!(
             rules.get("morphs"),
             Some(&SchemaRule::Morphs {
@@ -501,7 +497,6 @@ mod tests {
                 nullable: false
             })
         );
-
         assert_eq!(rules.get("renamecolumn"), Some(&SchemaRule::Rename));
         assert!(rules.len() > 70, "{}", rules.len());
     }

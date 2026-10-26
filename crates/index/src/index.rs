@@ -835,13 +835,11 @@ mod tests {
         }
 
         assert_eq!(index.loaded_count(), 0, "indexing a warm cache reads no declarations");
-
         assert_eq!(
             index.all_subtypes("Base").len(),
             6,
             "subtypes come from the names alone"
         );
-
         assert_eq!(index.loaded_count(), 6);
         assert!(index.class("C3").is_some());
         index.trim(2);

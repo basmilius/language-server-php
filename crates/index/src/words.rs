@@ -460,7 +460,6 @@ mod tests {
             index.build(paths.clone(), Some(&kept)),
             BuildCounts { kept: 0, read: 2 }
         );
-
         assert_eq!(index.candidates("home.page"), vec![first.clone()]);
 
         let mut again = WordIndex::default();
@@ -469,7 +468,6 @@ mod tests {
             again.build(paths.clone(), Some(&kept)),
             BuildCounts { kept: 2, read: 0 }
         );
-
         assert_eq!(again.candidates("app.name"), vec![second.clone()]);
 
         fs::write(&second, "<?php config('app.timezone'); // longer").expect("written");

@@ -113,21 +113,18 @@ mod tests {
     #[test]
     fn reads_the_language_of_a_comment() {
         assert_eq!(comment_marker("/* language=SQL */"), Some(Marker { dialect: None }));
-
         assert_eq!(
             comment_marker("// Language=PostgreSQL"),
             Some(Marker {
                 dialect: Some(Dialect::Postgres)
             })
         );
-
         assert_eq!(
             comment_marker("/** @lang x language=mariadb */"),
             Some(Marker {
                 dialect: Some(Dialect::Mariadb)
             })
         );
-
         assert_eq!(comment_marker("// language=HTML"), None);
         assert_eq!(comment_marker("// select a file"), None);
         assert_eq!(label_marker("SQL"), Some(Marker { dialect: None }));

@@ -153,7 +153,6 @@ mod tests {
 
         names.sort();
         assert_eq!(names, ["edit-settings", "update", "view"]);
-
         assert_eq!(
             abilities.find_all("update")[0].policy.as_deref(),
             Some("App\\Policies\\PostPolicy")

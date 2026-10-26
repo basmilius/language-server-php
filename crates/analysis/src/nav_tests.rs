@@ -204,9 +204,7 @@ function f(Items $items) { $items->sh$0ow([]); }
         text.contains("Makes the keys visible.\n\nHidden keys stay hidden."),
         "{text}"
     );
-
     assert!(text.contains("_@param_ `list<string> $keys` The keys"), "{text}");
-
     assert!(
         text.contains("1.0.17") && !text.contains("1.0.0") && !text.contains("inheritdoc"),
         "{text}"
@@ -340,7 +338,6 @@ fn names_in_doc_comments_lead_to_their_declarations() {
         places("<?php\nnamespace App;\n/** @return Fo$0o */\nfunction f() {}\n"),
         ["Foo"]
     );
-
     assert_eq!(
         places("<?php\nnamespace App;\n/** @see Shapes::si$0ze() */\nfunction f() {}\n"),
         ["size"]
@@ -426,17 +423,14 @@ fn named_arguments_hover_and_lead_to_their_parameter() {
     };
 
     assert_eq!(definition("make(n$0: 2);"), vec!["/project/src/User.php int $n = 1"]);
-
     assert_eq!(
         definition("User::find(i$0d: 2);"),
         vec!["/project/src/User.php int $id"]
     );
-
     assert_eq!(
         definition("new Route(pri$0ority: 1);"),
         vec!["/project/current.php int $priority = 0"]
     );
-
     assert_eq!(
         definition("#[Route(pri$0ority: 1)]\nfunction f() {}"),
         vec!["/project/current.php int $priority = 0"]

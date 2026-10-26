@@ -34,17 +34,14 @@ fn lists_what_a_phpunit_file_can_run_as_a_request_and_as_code_lenses() {
     assert_eq!(listed[0]["filter"], "/^Tests\\\\Unit\\\\FooTest::/");
     assert_eq!(listed[0]["range"]["start"], json!({ "line": 6, "character": 12 }));
     assert_eq!(listed[1]["label"], "FooTest::testIt");
-
     assert_eq!(
         listed[1]["filter"],
         "/^Tests\\\\Unit\\\\FooTest::testIt( with data set .*)?$/"
     );
-
     assert_eq!(
         listed[1]["file"],
         disk.path("project/tests/Unit/FooTest.php").to_str().unwrap()
     );
-
     assert_eq!(
         listed[1]["configFile"],
         disk.path("project/phpunit.xml").to_str().unwrap()

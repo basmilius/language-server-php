@@ -49,7 +49,6 @@ fn the_names_come_from_the_expression() {
 fn offers_the_inner_expressions_as_well() {
     let titles = offered(&[], &method("        return strlen($this->repo->name$0()) + 1;\n"));
     assert!(titles.contains(&"Extract variable".to_string()), "{titles:?}");
-
     assert!(
         titles.iter().any(|title| title.starts_with("Extract variable from '")),
         "{titles:?}"
@@ -65,7 +64,6 @@ fn replaces_every_equal_expression_in_reach() {
         titles.contains(&"Extract variable, replacing all 2 occurrences".to_string()),
         "{titles:?}"
     );
-
     assert_eq!(
         applied(&[], &source, "Extract variable, replacing all 2 occurrences"),
         method("        $int = $a * $b;\n        $x = $int + 1;\n        $y = $int + 2;\n        return $x + $y;\n")
@@ -209,7 +207,6 @@ fn keeps_comments_and_neighbors_as_they_are() {
         found.contains("        // first\n        $x = 1;   // trailing\n"),
         "{found}"
     );
-
     assert!(
         found.contains("/* about this */\n        $int = $a + $b;\n        return ($int) * $x; // done"),
         "{found}"
@@ -225,7 +222,6 @@ fn keeps_the_line_endings_the_file_has() {
         found.contains("$int = $a + $b;\r\n        return ($int) * 2;"),
         "{found:?}"
     );
-
     assert!(
         !found.replace("\r\n", "").contains('\n'),
         "a bare line feed came in: {found:?}"

@@ -1447,12 +1447,10 @@ mod tests {
         assert_eq!(ty("array<int>"), "array<int>");
         assert_eq!(ty("list<Foo>"), "list<App\\Foo>");
         assert_eq!(ty("Foo[]"), "list<App\\Foo>");
-
         assert_eq!(
             ty("Collection<int, User>"),
             "Illuminate\\Support\\Collection<int, App\\User>"
         );
-
         assert_eq!(ty("iterable<K, T>"), "iterable<K, T>");
         assert_eq!(ty("class-string<T>"), "class-string<T>");
         assert_eq!(ty("int<0, max>"), "int");

@@ -669,7 +669,6 @@ mod tests {
         fs::write(touched, "<?php class Changed {}").expect("written");
         let (indexed, stats) = collect(files, Some(&cache));
         assert_eq!(stats.parsed, 1);
-
         assert!(
             indexed
                 .iter()

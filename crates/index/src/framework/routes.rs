@@ -651,7 +651,6 @@ Route::group(['as' => 'legacy.'], function () {
                 "legacy.old"
             ]
         );
-
         assert!(!routes.incomplete);
     }
 

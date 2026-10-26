@@ -313,7 +313,6 @@ mod tests {
                 "POST /merchants/$merchant/events/$event"
             ]
         );
-
         assert_eq!(
             controllers.above("App\\MerchantEventController"),
             ["App\\MerchantController"]
@@ -326,7 +325,6 @@ mod tests {
             path_parameters("/a/$event/b/$delivery_id.json"),
             [(3, "event"), (12, "delivery_id")]
         );
-
         assert_eq!(path_parameters("price/$5"), []);
     }
 }

@@ -646,7 +646,6 @@ mod tests {
             sql(r#"<?php $x = 'SELECT * FROM t WHERE a = \'x\' AND id = ' . $id;"#, None),
             "SELECT * FROM t WHERE a = 'x' AND id = ?"
         );
-
         assert_eq!(
             sql(
                 r#"<?php $x = "SELECT * FROM {$prefix}users WHERE id = {$user->id} AND n = \"$name\"";"#,
@@ -654,7 +653,6 @@ mod tests {
             ),
             r#"SELECT * FROM hole__1users WHERE id = ? AND n = "?""#
         );
-
         assert_eq!(
             sql(
                 "<?php $x = 'SELECT * FROM t WHERE id IN (' . implode(',', $ids) . ')';",
@@ -662,7 +660,6 @@ mod tests {
             ),
             "SELECT * FROM t WHERE id IN (hole__1)"
         );
-
         assert_eq!(sql("<?php $x = b'SELECT 1';", None), "SELECT 1");
     }
 
@@ -685,7 +682,6 @@ mod tests {
             ),
             "SELECT * FROM hole__1 WHERE id = ? AND p LIKE '%x'"
         );
-
         assert_eq!(
             sql(
                 "<?php $wpdb->prepare('SELECT * FROM %i WHERE a = %s AND b = %1$d', $t, $a);",
@@ -701,31 +697,24 @@ mod tests {
             by_context("SELECT * FROM t WHERE id = ", "", false, false),
             HoleKind::Value
         );
-
         assert_eq!(
             by_context("SELECT * FROM ", "users", false, false),
             HoleKind::Identifier
         );
-
         assert_eq!(
             by_context("SELECT * FROM t_", " WHERE", false, false),
             HoleKind::Identifier
         );
-
         assert_eq!(
             by_context("SELECT * FROM t WHERE a = '", "'", false, false),
             HoleKind::Value
         );
-
         assert_eq!(by_context("SELECT * FROM `", "`", false, false), HoleKind::Identifier);
-
         assert_eq!(
             by_context("SELECT * FROM t WHERE a IN (", ")", false, false),
             HoleKind::List
         );
-
         assert_eq!(by_context("SELECT * FROM t LIMIT ", "", false, false), HoleKind::Value);
-
         assert_eq!(
             by_context("SELECT * FROM t ", " ORDER BY a", false, false),
             HoleKind::Unknown

@@ -78,23 +78,19 @@ fn templates_and_blocks_lead_to_their_files() {
         places("{% extends 'ba$0se.html.twig' %}"),
         ["templates/base.html.twig: "]
     );
-
     assert_eq!(
         places("{{ include('blog/_po$0st.html.twig', {post: p}) }}"),
         ["templates/blog/_post.html.twig: "]
     );
-
     assert_eq!(
         places("{% extends 'base.html.twig' %}{% block ti$0tle %}Home{% endblock %}"),
         ["templates/base.html.twig: title"]
     );
-
     assert_eq!(
         completions("{% extends 'base.html.twig' %}{% block $0 %}"),
         Vec::<String>::new(),
         "an empty name is not a name yet"
     );
-
     assert_eq!(completions("{% extends 'base.html.twig' %}{% block b$0 %}"), ["body"]);
     assert_eq!(completions("{% include 'blog/$0' %}"), ["blog/_post.html.twig"]);
 }
@@ -105,9 +101,7 @@ fn strings_of_functions_and_filters_name_what_their_php_takes() {
         places("<a href=\"{{ path('blog_in$0dex') }}\">"),
         ["src/Controller/BlogController.php: index"]
     );
-
     assert_eq!(completions("{{ path('blog$0') }}"), ["blog_index"]);
-
     assert_eq!(
         places("{{ 'post.ti$0tle'|trans }}"),
         ["translations/messages.en.yaml: title"]
@@ -119,7 +113,6 @@ fn functions_filters_and_tests_come_from_the_extensions() {
     assert_eq!(completions("{{ name|up$0 }}"), ["upper"]);
     assert_eq!(completions("{{ pa$0 }}"), ["path"]);
     assert_eq!(completions("{% if x is ev$0 %}"), ["even"]);
-
     assert_eq!(
         places("{{ name|len$0gth }}"),
         ["vendor/symfony/twig/CoreExtension.php: length"]
@@ -223,7 +216,6 @@ mod variables {
             "{}",
             hover("{{ post.ti$0tle }}")
         );
-
         assert!(hover("{% for item in posts %}{{ item.author.na$0me }}{% endfor %}").contains("getName"));
         assert!(hover("{% set first = post %}{{ fi$0rst }}").contains("Post"));
 
@@ -247,7 +239,6 @@ mod variables {
         };
 
         assert_eq!(complete("{{ post.$0 }}"), ["author", "published", "slug", "title"]);
-
         assert_eq!(
             complete("{% for item in posts %}{{ loop.$0 }}{% endfor %}"),
             [
@@ -261,7 +252,6 @@ mod variables {
                 "revindex0"
             ]
         );
-
         assert!(complete("{{ po$0 }}").contains(&"post".to_string()));
         let (text, offset) = at("{{ post.ti$0tle }}");
         let places = definitions_at(&fixture.index, path, &text, &given, offset);
@@ -370,7 +360,6 @@ fn blocks_that_do_not_close_are_reported() {
             "unbalanced-directive `{% endif %}`"
         ]
     );
-
     assert_eq!(findings("{% else %}"), ["unbalanced-directive `{% else %}`"]);
     assert!(findings("{% block a 'x' %}{% set b = 1 %}{% set c %}d{% endset %}{% for e in f %}{% else %}{% endfor %}{% cache 'k' %}{% endcache %}").is_empty());
 }
@@ -389,7 +378,6 @@ fn names_the_project_and_its_extensions_lack_are_reported() {
             "unknown-twig-test `notatest`"
         ]
     );
-
     assert!(findings("{% from 'macros.html.twig' import input %}{{ input() }}{% macro own() %}{% endmacro %}{{ parent() }}{% include '@Bundle/x.html.twig' %}").len() == 1, "only the template is unknown");
 }
 

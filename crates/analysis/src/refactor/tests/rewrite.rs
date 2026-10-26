@@ -17,12 +17,10 @@ fn array_long_and_short_syntax() {
         ),
         body("    $v = [1, [2, 3]];\n    return $v;\n")
     );
-
     assert_eq!(
         rewritten("    $v = [1, [2$0, 3]];\n    return $v;\n", "Convert [] to array()"),
         body("    $v = [1, array(2, 3)];\n    return $v;\n")
     );
-
     assert!(
         !offered(&[], &body("    [$q$0, $r] = $x;\n    return 1;\n")).contains(&"Convert [] to array()".to_string())
     );
@@ -37,7 +35,6 @@ fn if_else_and_ternary() {
         ),
         body("    return $a > 1 ? 'big' : 'small';\n")
     );
-
     assert_eq!(
         rewritten(
             "    i$0f ($a) $r = 1; else $r = 2;\n    return $r;\n",
@@ -45,7 +42,6 @@ fn if_else_and_ternary() {
         ),
         body("    $r = $a ? 1 : 2;\n    return $r;\n")
     );
-
     assert!(
         !offered(
             &[],
@@ -53,12 +49,10 @@ fn if_else_and_ternary() {
         )
         .contains(&"Replace if/else with a ternary".to_string())
     );
-
     assert_eq!(
         rewritten("    return $a ?$0 'x' : 'y';\n", "Replace the ternary with if/else"),
         body("    if ($a) {\n        return 'x';\n    } else {\n        return 'y';\n    }\n")
     );
-
     assert_eq!(
         rewritten(
             "    $r = $a ? 1$0 : 2;\n    return $r;\n",
@@ -66,7 +60,6 @@ fn if_else_and_ternary() {
         ),
         body("    if ($a) {\n        $r = 1;\n    } else {\n        $r = 2;\n    }\n    return $r;\n")
     );
-
     assert!(!offered(&[], &body("    return $a ?$0: 2;\n")).contains(&"Replace the ternary with if/else".to_string()));
 }
 
@@ -123,7 +116,6 @@ fn concatenation_interpolation_and_sprintf() {
             .replace("{$s}", "$s")
             .replace("{$a}!", "$a!")
     );
-
     assert_eq!(
         rewritten(
             "    return 'x' . $s$0 . 'y';\n",
@@ -131,7 +123,6 @@ fn concatenation_interpolation_and_sprintf() {
         ),
         body("    return \"x{$s}y\";\n")
     );
-
     assert_eq!(
         rewritten(
             "    return 'a %d' . $s$0 . \"it's\";\n",
@@ -140,7 +131,6 @@ fn concatenation_interpolation_and_sprintf() {
         body("    return sprintf('a %%d%s' . \"it's\", $s);\n")
             .replace("sprintf('a %%d%s' . \"it's\", $s)", "sprintf('a %%d%sit\\'s', $s)")
     );
-
     assert!(
         !offered(&[], &body("    return 'a' . strlen($s$0);\n"))
             .contains(&"Convert concatenation to an interpolated string".to_string())
@@ -156,7 +146,6 @@ fn an_interpolated_string_and_sprintf_become_concatenations() {
         ),
         body("    return 'hello ' . $s . ', you are ' . $a . '!';\n")
     );
-
     assert_eq!(
         rewritten(
             "    return sprintf$0('%s is %s%%', $s, $a);\n",
@@ -164,7 +153,6 @@ fn an_interpolated_string_and_sprintf_become_concatenations() {
         ),
         body("    return $s . ' is ' . $a . '%';\n")
     );
-
     assert_eq!(
         rewritten(
             "    return sprintf$0('%s is %s', $s, $a);\n",
@@ -172,7 +160,6 @@ fn an_interpolated_string_and_sprintf_become_concatenations() {
         ),
         body("    return \"$s is $a\";\n")
     );
-
     assert!(
         !offered(&[], &body("    return sprintf$0('%d', $a);\n"))
             .iter()
@@ -186,12 +173,10 @@ fn braces_are_added_and_removed() {
         rewritten("    i$0f ($a) return 1;\n    else return 2;\n", "Add braces"),
         body("    if ($a) {\n        return 1;\n    } else {\n        return 2;\n    }\n")
     );
-
     assert_eq!(
         rewritten("    foreach ([1] as $y$0) echo $y;\n    return 1;\n", "Add braces"),
         body("    foreach ([1] as $y) {\n        echo $y;\n    }\n    return 1;\n")
     );
-
     assert_eq!(
         rewritten(
             "    i$0f ($a) {\n        return 1;\n    }\n    return 2;\n",
@@ -199,7 +184,6 @@ fn braces_are_added_and_removed() {
         ),
         body("    if ($a) return 1;\n    return 2;\n")
     );
-
     assert!(
         !offered(
             &[],
@@ -257,12 +241,10 @@ fn comparisons_flip() {
         rewritten("    return $a <$0 5;\n", "Flip the comparison"),
         body("    return 5 > $a;\n")
     );
-
     assert_eq!(
         rewritten("    return $a !==$0 5;\n", "Flip the comparison"),
         body("    return 5 !== $a;\n")
     );
-
     assert!(!offered(&[], &body("    return foo($a)$0 === foo($s);\n")).contains(&"Flip the comparison".to_string()));
 }
 
@@ -275,7 +257,6 @@ fn an_if_is_inverted() {
         ),
         body("    if ($a !== 1) {\n        return 'other';\n    } else {\n        return 'one';\n    }\n")
     );
-
     assert_eq!(
         rewritten(
             "    i$0f (!$a) {\n        return 1;\n    } else {\n        return 2;\n    }\n",
@@ -283,7 +264,6 @@ fn an_if_is_inverted() {
         ),
         body("    if ($a) {\n        return 2;\n    } else {\n        return 1;\n    }\n")
     );
-
     assert_eq!(
         rewritten(
             "    i$0f ($a > 1 && $s) {\n        return 1;\n    } else {\n        return 2;\n    }\n",
@@ -291,7 +271,6 @@ fn an_if_is_inverted() {
         ),
         body("    if (!($a > 1 && $s)) {\n        return 2;\n    } else {\n        return 1;\n    }\n")
     );
-
     assert!(
         !offered(&[], &body("    i$0f ($a) {\n        return 1;\n    }\n    return 2;\n"))
             .contains(&"Invert the if".to_string())

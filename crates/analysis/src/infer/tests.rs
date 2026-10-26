@@ -498,7 +498,6 @@ fn type_aliases_are_read_where_they_are_declared_and_imported() {
         var(&fixture, &canvas, "segment"),
         "array{from: array{x: int, y: int}, to: array{x: int, y: int}}"
     );
-
     assert_eq!(var(&fixture, &canvas, "end"), "array{x: int, y: int}");
     let code = "<?php\nnamespace App;\nfunction f(Shapes $shapes, Canvas $canvas) {\n    $line = $shapes->line();\n    $origin = $canvas->origin();\n    $0\n}\n";
 
@@ -506,7 +505,6 @@ fn type_aliases_are_read_where_they_are_declared_and_imported() {
         var(&fixture, code, "line"),
         "array{from: array{x: int, y: int}, to: array{x: int, y: int}}"
     );
-
     assert_eq!(var(&fixture, code, "origin"), "array{x: int, y: int}");
 }
 

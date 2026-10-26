@@ -276,7 +276,6 @@ mod tests {
                 "BlockEnd -%}",
             ]
         );
-
         assert_eq!(
             shown("{% verbatim %}{{ x }}{% endverbatim %}"),
             [
@@ -289,12 +288,10 @@ mod tests {
                 "BlockEnd %}",
             ]
         );
-
         assert_eq!(
             shown("{{ 'a }}' ~ \"b\" }}"),
             ["VarStart {{", "Str 'a }}'", "Punct ~", "Str \"b\"", "VarEnd }}"]
         );
-
         assert_eq!(
             shown("{% for i in 1..5 %}"),
             [

@@ -1437,7 +1437,6 @@ final class User extends Base implements \JsonSerializable {
         assert_eq!(class.constants[0].ty.as_ref().unwrap().display(false), "int");
         let posts = class.property("posts").unwrap();
         assert_eq!(posts.visibility, Visibility::Protected);
-
         assert_eq!(
             posts.doc_ty.as_ref().unwrap().display(false),
             "Illuminate\\Support\\Collection<int, App\\Models\\Post>"
@@ -1445,7 +1444,6 @@ final class User extends Base implements \JsonSerializable {
 
         let name = class.property("name").unwrap();
         assert!(name.promoted && name.is_readonly);
-
         assert_eq!(
             class.property("id").unwrap().ty.as_ref().unwrap().display(true),
             "int|string"
@@ -1567,7 +1565,6 @@ class C {
             prop.effective_type(PhpVersion::V8_1).unwrap().display(false),
             "string|false"
         );
-
         assert_eq!(prop.effective_type(PhpVersion::V7_4).unwrap().display(false), "string");
         let method = class.method("m").unwrap();
 
@@ -1579,7 +1576,6 @@ class C {
                 .display(false),
             "static"
         );
-
         assert_eq!(
             method
                 .callable
@@ -1588,7 +1584,6 @@ class C {
                 .display(false),
             "C"
         );
-
         assert_eq!(
             class.method("n").unwrap().doc.as_ref().unwrap().deprecated.as_deref(),
             Some("use n")

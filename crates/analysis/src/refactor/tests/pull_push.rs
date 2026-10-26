@@ -11,7 +11,6 @@ fn pulls_a_method_up_into_the_parent() {
         result.files["current.php"],
         "<?php\nnamespace App;\n\nclass Child extends Base\n{\n    public function other(): void {}\n}\n"
     );
-
     assert!(
         result.files["Base.php"].ends_with("    public function name(): string\n    {\n        return 'base';\n    }\n\n    public function greet(string $who): string\n    {\n        return 'hello ' . $who . $this->name();\n    }\n}\n"),
         "{}",
@@ -103,7 +102,6 @@ fn declares_a_method_in_an_interface_and_keeps_it() {
     );
 
     assert!(!result.files.contains_key("current.php"), "the class keeps its method");
-
     assert_eq!(
         result.files["Greets.php"],
         "<?php\nnamespace App;\n\ninterface Greets\n{\n    public function greet(string $who, int $times = 1): string;\n}\n"
@@ -156,12 +154,10 @@ fn pushes_a_method_down_to_every_subclass() {
         result.files["current.php"],
         "<?php\nnamespace App;\n\nclass Base\n{\n    public function keep(): void {}\n}\n"
     );
-
     assert_eq!(
         result.files["One.php"],
         "<?php\nnamespace App;\n\nclass One extends Base\n{\n    public function share(int $a): int\n    {\n        return $a + 1;\n    }\n}\n"
     );
-
     assert!(result.files["Two.php"].ends_with("    public function mine(): void {}\n\n    public function share(int $a): int\n    {\n        return $a + 1;\n    }\n}\n"), "{}", result.files["Two.php"]);
 }
 

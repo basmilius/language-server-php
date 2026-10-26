@@ -26,12 +26,10 @@ fn initializes_with_the_capabilities_it_has() {
     assert_eq!(capabilities["foldingRangeProvider"], true);
     assert_eq!(capabilities["selectionRangeProvider"], true);
     assert_eq!(capabilities["positionEncoding"], "utf-16");
-
     assert!(
         capabilities["diagnosticProvider"].is_null(),
         "no pull diagnostics for a client that cannot pull"
     );
-
     assert_eq!(result["serverInfo"]["name"], "php-language-server");
     client.shutdown();
 }
@@ -55,7 +53,6 @@ fn publishes_syntax_errors_and_fixes_them_after_an_incremental_change() {
     assert_eq!(messages(&found), ["Expression expected"]);
     assert_eq!(found[0]["severity"], 1);
     assert_eq!(found[0]["source"], "php");
-
     assert_eq!(
         found[0]["range"]["start"],
         json!({ "line": 1, "character": 3 }),
@@ -219,12 +216,10 @@ fn answers_with_pulled_diagnostics_for_a_client_that_pulls() {
     client.open(URI, "<?php\n$a = ;\n");
     let report = client.request("textDocument/diagnostic", json!({ "textDocument": { "uri": URI } }));
     assert_eq!(report["kind"], "full");
-
     assert_eq!(
         messages(report["items"].as_array().expect("items")),
         ["Expression expected"]
     );
-
     assert!(
         !client.backlog.iter().any(
             |message| matches!(message, Message::Notification(n) if n.method == "textDocument/publishDiagnostics")
@@ -446,12 +441,10 @@ fn completes_a_vendor_class_with_an_import_and_hides_newer_stubs() {
     assert_eq!(widget["kind"], 7);
     assert_eq!(widget["labelDetails"]["description"], "Acme\\Lib");
     assert_eq!(widget["textEdit"]["newText"], "Widget");
-
     assert_eq!(
         widget["additionalTextEdits"][0]["newText"],
         "\nuse Acme\\Lib\\Widget;\n"
     );
-
     assert_eq!(
         widget["additionalTextEdits"][0]["range"]["start"],
         json!({ "line": 2, "character": 0 })
@@ -499,7 +492,6 @@ fn completes_a_vendor_class_with_an_import_and_hides_newer_stubs() {
         .expect("strlen");
 
     assert_eq!(strlen["detail"], "(string $string): int");
-
     assert!(
         strlen["additionalTextEdits"].is_null(),
         "global functions need no import"
@@ -580,7 +572,6 @@ fn hovers_and_navigates_across_files() {
         ),
         "{text}"
     );
-
     assert!(!text.contains("Defined in"), "{text}");
     assert_eq!(hover["range"]["start"]["line"], 3);
 
@@ -1131,12 +1122,10 @@ fn a_client_without_documentchanges_gets_plain_changes() {
     assert!(edit["documentChanges"].is_null());
     let changes = edit["changes"].as_object().expect("changes");
     assert_eq!(changes.len(), 2);
-
     assert_eq!(
         changes[&disk.uri("project/src/Models/User.php")][0]["newText"],
         "$length"
     );
-
     assert_eq!(changes[&page][0]["newText"], "length");
     client.shutdown();
 }
@@ -1201,7 +1190,6 @@ fn walks_call_and_type_hierarchies() {
     let incoming = client.request("callHierarchy/incomingCalls", json!({ "item": item }));
     assert_eq!(incoming[0]["from"]["name"], "show");
     assert_eq!(incoming[0]["from"]["detail"], "App\\Controller");
-
     assert_eq!(
         incoming[0]["fromRanges"][0]["start"],
         json!({ "line": 9, "character": 21 })
@@ -1456,12 +1444,10 @@ fn completes_the_methods_a_class_can_override() {
     let items = result["items"].as_array().expect("items");
     let posts = items.iter().find(|item| item["label"] == "posts").expect("posts");
     assert_eq!(posts["kind"], 2);
-
     assert_eq!(
         posts["textEdit"]["newText"],
         "posts(): array\n    {\n        return parent::posts();\n    }"
     );
-
     assert_eq!(
         posts["textEdit"]["range"]["start"],
         json!({ "line": 7, "character": 20 })
@@ -1501,10 +1487,8 @@ fn reports_inspections_once_the_project_is_indexed() {
         ],
         "{found:?}"
     );
-
     assert_eq!(found[0]["tags"], json!([1]), "an unused import is unnecessary");
     assert_eq!(found[1]["severity"], 1);
-
     assert_eq!(
         found[3]["message"], "Undefined class 'Redis'",
         "a global class needs a backslash in a namespace"
@@ -1568,7 +1552,6 @@ fn inspection_settings_switch_and_move_severities() {
             "undefined-method"
         ]
     );
-
     assert_eq!(found[0]["severity"], 4);
     client.shutdown();
 }
@@ -1691,7 +1674,6 @@ fn writes_the_doc_block_after_an_opened_comment_and_enter() {
     );
 
     assert_eq!(edits[0]["range"]["start"], json!({ "line": 4, "character": 0 }));
-
     assert_eq!(
         edits[0]["newText"],
         "     * @param int $a\n     * @param string $b\n     * @return bool\n     */\n"
@@ -1825,7 +1807,6 @@ fn a_package_in_two_roots_is_listed_once() {
         .count();
 
     assert_eq!(count, 1);
-
     assert_eq!(
         symbol_uris(&mut client, "strlen").len(),
         1,
@@ -1848,7 +1829,6 @@ fn project_files_stay_with_the_project_that_holds_them() {
 
     let loose = symbol_uris(&mut client, "LooseHelper");
     assert_eq!(loose, [disk.uri("work/tools/Helper.php")]);
-
     assert_eq!(
         symbol_uris(&mut client, "OldBackup").len(),
         1,
@@ -1872,7 +1852,6 @@ fn a_folder_with_its_own_composer_json_stays_one_project() {
         hover.is_null(),
         "backend/vendor is not read for a folder that has a composer.json: {hover}"
     );
-
     assert_eq!(symbol_uris(&mut client, "DeepInBackend").len(), 1);
     client.shutdown();
 }
@@ -1917,7 +1896,6 @@ fn a_composer_json_that_appears_below_the_folder_becomes_a_project() {
         symbol_uris(&mut client, "Gadget"),
         [disk.uri("work/tools/src/Gadget.php")]
     );
-
     assert!(
         symbol_uris(&mut client, "LooseHelper").len() == 1,
         "files of the folder that are not in a project stay in the folder's own"

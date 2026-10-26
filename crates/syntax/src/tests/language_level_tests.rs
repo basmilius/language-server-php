@@ -75,7 +75,6 @@ fn deprecations_are_warnings_with_the_tag() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].1, LevelSeverity::Warning);
     assert!(found[0].2);
-
     assert_eq!(
         found[0].0,
         "The ${...} form of string interpolation is deprecated since PHP 8.2"
@@ -112,7 +111,6 @@ fn every_feature_row_has_a_working_example() {
                 "{} must be reported below {since}",
                 feature.id
             );
-
             assert!(!found_at(since), "{} must be accepted at {since}", feature.id);
         }
 
@@ -122,7 +120,6 @@ fn every_feature_row_has_a_working_example() {
                 "{} must be accepted below {removed}",
                 feature.id
             );
-
             assert!(found_at(removed), "{} must be reported from {removed}", feature.id);
         }
 
@@ -132,7 +129,6 @@ fn every_feature_row_has_a_working_example() {
                 "{} must be quiet below {deprecated}",
                 feature.id
             );
-
             assert!(found_at(deprecated), "{} must warn from {deprecated}", feature.id);
         }
 
@@ -173,7 +169,6 @@ fn partial_application_parses_and_is_new_in_8_6() {
 fn what_php_8_6_allows_is_reported_before_it() {
     let text = "readonly class R { public int $y = 2; }\nclass A { public readonly int $x = 1; public int $z = 3; #[\\Override] const C = 1; }\nenum E { public function __debugInfo(): array { return []; } }\nFOO->bar = 1;\n$o->bar = 2;";
     assert!(features_found(text, PhpVersion::V8_6).is_empty());
-
     assert_eq!(
         features_found(text, PhpVersion::V8_5),
         [

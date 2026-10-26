@@ -158,17 +158,14 @@ mod tests {
         assert_eq!(dialect_of_driver("pgsql"), Some(Dialect::Postgres));
         assert_eq!(dialect_of_driver("pdo_mysql"), Some(Dialect::Mysql));
         assert_eq!(dialect_of_driver("sqlsrv"), None);
-
         assert_eq!(
             dialect_of_url("postgresql://app:secret@127.0.0.1:5432/app?serverVersion=16&charset=utf8"),
             Some(Dialect::Postgres)
         );
-
         assert_eq!(
             dialect_of_url("mysql://app:secret@127.0.0.1:3306/app?serverVersion=10.11.2-MariaDB"),
             Some(Dialect::Mariadb)
         );
-
         assert_eq!(dialect_of_url("not a url"), None);
     }
 

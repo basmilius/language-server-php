@@ -281,17 +281,14 @@ fn finds_trait_members_in_the_classes_that_use_them() {
         found.contains(&"current.php:2:hello:Declaration".to_string()),
         "{found:?}"
     );
-
     assert!(
         found.contains(&"current.php:3:hello:Reference".to_string()),
         "{found:?}"
     );
-
     assert!(
         found.contains(&"current.php:5:hello:Reference".to_string()),
         "{found:?}"
     );
-
     assert!(
         found.contains(&"current.php:4:hello:Reference".to_string()),
         "the trait alias line: {found:?}"
@@ -385,7 +382,6 @@ fn a_method_takes_the_parameter_types_its_interface_documents() {
         found.contains(&"current.php:7:merchantId:Reference".to_string()),
         "{found:?}"
     );
-
     assert!(!found.iter().any(|hit| hit.starts_with("current.php:11")), "{found:?}");
 }
 

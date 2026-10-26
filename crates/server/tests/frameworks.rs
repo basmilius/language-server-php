@@ -197,7 +197,6 @@ fn strings_that_name_things_complete_navigate_and_are_checked() {
         .collect();
 
     assert_eq!(lines, [2], "a key still being typed is not reported: {diagnostics:?}");
-
     assert!(
         unknown
             .iter()
@@ -485,7 +484,6 @@ fn a_facade_leads_to_the_class_behind_it_and_abilities_complete() {
         ability[0]["uri"],
         disk.uri("project/app/Providers/AuthServiceProvider.php")
     );
-
     assert_eq!(complete_at(&mut client, &uri, 5, 15), ["edit-settings"]);
     let diagnostics = client.diagnostics(&uri);
 
@@ -658,7 +656,6 @@ fn a_route_name_has_usages_in_code_and_templates_and_keeps_its_words() {
         places(&ask(&mut client, true)),
         ["HomeController.php:7", "nav.blade.php:1", "web.php:3"]
     );
-
     assert_eq!(
         places(&ask(&mut client, false)),
         ["HomeController.php:7", "nav.blade.php:1"]
@@ -1043,7 +1040,6 @@ fn a_cast_key_leads_to_its_column_and_an_unknown_cast_is_reported() {
         disk.uri("project/database/migrations/2020_01_01_000000_create_users_table.php"),
         "{found}"
     );
-
     assert_eq!(found[0]["range"]["start"]["line"], 6, "{found}");
     let items = complete_at(&mut client, &uri, 9, 36);
     assert!(items.contains(&"boolean".to_string()), "{items:?}");
@@ -1396,7 +1392,6 @@ fn a_workflow_transition_leads_to_its_configuration() {
         disk.uri("project/config/packages/workflow.yaml"),
         "{found}"
     );
-
     assert_eq!(found[0]["range"]["start"]["line"], 5, "{found}");
     let diagnostics = client.diagnostics(&uri);
 

@@ -51,7 +51,6 @@ fn statements_replace_a_call_that_is_a_statement() {
         found.contains("        $copy = 1;\n        $n = $a + 1;\n        $copy2 = $n * 2;\n        $this->total += $copy2;\n        echo $copy;"),
         "{found}"
     );
-
     assert!(!found.contains("private function add"), "{found}");
 }
 

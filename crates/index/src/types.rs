@@ -558,7 +558,6 @@ mod tests {
         assert_eq!(Type::class("App\\User").nullable().display(false), "?App\\User");
         assert_eq!(Type::plain_array().display(true), "array");
         assert_eq!(Type::List(Box::new(Type::Int)).display(true), "list<int>");
-
         assert_eq!(
             Type::Union(vec![Type::Int, Type::String, Type::Null]).display(true),
             "int|string|null"
@@ -571,7 +570,6 @@ mod tests {
         map.insert("T".to_string(), Type::class("Foo"));
         let ty = Type::Array(Box::new(Type::Int), Box::new(Type::Template("T".into())));
         assert_eq!(ty.substitute(&map, None, None).display(true), "array<int, Foo>");
-
         assert_eq!(
             Type::Static.substitute(&map, Some(&Type::class("Bar")), None),
             Type::class("Bar")

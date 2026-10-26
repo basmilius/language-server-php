@@ -187,7 +187,6 @@ fn php_src_tests_with_valid_syntax_parse_without_errors() {
     }
 
     assert!(checked > 3000);
-
     assert!(
         failures.is_empty(),
         "{} php-src tests have syntax errors:\n{}",

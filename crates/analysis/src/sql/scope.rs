@@ -375,12 +375,10 @@ mod tests {
     fn reads_a_table_as_a_builder_writes_it() {
         assert_eq!(table_named("users"), Some(ScopeTable::new("users")));
         assert_eq!(table_named("users u"), Some(ScopeTable::new("users").with_alias("u")));
-
         assert_eq!(
             table_named("app.users AS u"),
             Some(ScopeTable::new("users").with_schema("app").with_alias("u"))
         );
-
         assert_eq!(table_named("`users`"), Some(ScopeTable::new("users")));
         assert_eq!(table_named("select * from users"), None);
         assert_eq!(table_named(""), None);

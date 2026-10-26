@@ -317,7 +317,6 @@ mod tests {
             apply(text, text.len(), "App\\Beta"),
             "<?php\n\nnamespace App;\n\nuse App\\Alpha;\nuse App\\Beta;\nuse App\\Gamma;\n\nclass A {}\n"
         );
-
         assert_eq!(
             apply(text, text.len(), "App\\Zed"),
             "<?php\n\nnamespace App;\n\nuse App\\Alpha;\nuse App\\Gamma;\nuse App\\Zed;\n\nclass A {}\n"
@@ -332,7 +331,6 @@ mod tests {
             apply(text, text.len(), "App\\Models\\Post"),
             "<?php\n\nuse Illuminate\\Support\\Str;\n\nuse App\\Models\\Post;\nuse App\\Models\\User;\n\nclass A {}\n"
         );
-
         assert_eq!(
             apply(text, text.len(), "Illuminate\\Http\\Request"),
             "<?php\n\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Support\\Str;\n\nuse App\\Models\\User;\n\nclass A {}\n"
@@ -383,32 +381,26 @@ mod tests {
             plan_import(&resolver, "App\\Http\\Local", UseKind::Class, free),
             ImportPlan::Plain("Local".into())
         );
-
         assert_eq!(
             plan_import(&resolver, "Foo\\Thing", UseKind::Class, free),
             ImportPlan::Plain("Thing".into())
         );
-
         assert_eq!(
             plan_import(&resolver, "Bar\\Thing", UseKind::Class, free),
             ImportPlan::Qualified("Bar\\Thing".into())
         );
-
         assert_eq!(
             plan_import(&resolver, "Bar\\Other", UseKind::Class, free),
             ImportPlan::Import("Other".into())
         );
-
         assert_eq!(
             plan_import(&resolver, "DateTime", UseKind::Class, free),
             ImportPlan::Import("DateTime".into())
         );
-
         assert_eq!(
             plan_import(&resolver, "strlen", UseKind::Function, free),
             ImportPlan::Plain("strlen".into())
         );
-
         assert_eq!(
             plan_import(&resolver, "Bar\\Other", UseKind::Class, |name| name == "Other"),
             ImportPlan::Qualified("Bar\\Other".into())

@@ -12,12 +12,10 @@ fn adds_a_parameter_with_a_default_everywhere_it_is_declared() {
         result.files["current.php"],
         "<?php\nnamespace App;\n\nclass Impl extends Base\n{\n    public function run(int $a, string $b = 'x', $parameter = null): int\n    {\n        return $a;\n    }\n}\n"
     );
-
     assert!(
         result.files["Base.php"]
             .contains("abstract public function run(int $a, string $b = 'x', $parameter = null): int;")
     );
-
     assert!(!result.files.contains_key("User.php"), "no call needs to change");
     assert!(result.change.focus.is_some());
 }

@@ -720,7 +720,6 @@ mod tests {
                     ..
                 }
             )));
-
         assert!(items.iter().any(|(written, kind)| written == "prop"
             && matches!(
                 kind,
@@ -729,7 +728,6 @@ mod tests {
                     ..
                 }
             )));
-
         assert!(items.contains(&("helper".to_string(), DocItemKind::Function("helper".to_string()))));
         assert_eq!(classes(text), vec!["Foo", "Foo"]);
     }
@@ -786,7 +784,6 @@ mod tests {
                     text.is_char_boundary(item.start as usize - 7) && text.is_char_boundary(item.end as usize - 7),
                     "{text:?}"
                 );
-
                 assert!(item.start <= item.end);
             }
         }

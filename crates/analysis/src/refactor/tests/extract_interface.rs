@@ -34,7 +34,6 @@ fn makes_an_interface_of_the_public_methods_that_the_class_implements() {
         result.files["src/Models/UserInterface.php"],
         "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Models;\n\nuse App\\Support\\Name;\n\ninterface UserInterface\n{\n    /**\n     * The name, as written.\n     */\n    public function name(): Name;\n\n    public static function make(string $name = 'x'): static;\n}\n"
     );
-
     assert!(
         result
             .text

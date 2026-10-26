@@ -440,12 +440,10 @@ final class FooTest extends TestCase {
         parts("mock"),
         vec!["App\\Mailer", "PHPUnit\\Framework\\MockObject\\MockObject"]
     );
-
     assert_eq!(
         parts("stub"),
         vec!["App\\Mailer", "PHPUnit\\Framework\\MockObject\\Stub"]
     );
-
     assert_eq!(
         parts("built"),
         vec!["App\\Mailer", "PHPUnit\\Framework\\MockObject\\MockObject"]
@@ -581,7 +579,6 @@ final class FooTest extends TestCase {
             "assertTrue"
         ]
     );
-
     assert!(labels.contains(&"aaaHelper".to_string()));
 
     let plain = r#"<?php

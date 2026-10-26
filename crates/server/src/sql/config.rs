@@ -155,7 +155,6 @@ mod tests {
         assert!(!top.settings.inspections.is_empty());
         let legacy = resolve(Some(&value), Some(Path::new("/work/legacy/A.php")), Some(base));
         assert_eq!(legacy.settings.dialect, Dialect::Mariadb);
-
         assert_eq!(
             legacy.settings.version, None,
             "a MySQL version says nothing about MariaDB"

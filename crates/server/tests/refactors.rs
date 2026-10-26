@@ -44,7 +44,6 @@ fn extracts_a_variable_and_points_at_its_name() {
     assert_eq!(edits[0]["range"]["start"], json!({ "line": 5, "character": 0 }));
     assert_eq!(edits[1]["newText"], "$int");
     assert_eq!(extract["command"]["command"], "php.rename");
-
     assert_eq!(
         extract["command"]["arguments"][0]["position"],
         json!({ "line": 5, "character": 9 }),
@@ -102,7 +101,6 @@ fn a_client_that_resolves_gets_the_edit_of_a_refactor_late() {
         resolved["edit"]["changes"][uri][0]["newText"],
         "        $int = $a + $b;\n"
     );
-
     assert!(resolved["data"].is_null());
     client.shutdown();
 }
@@ -302,12 +300,10 @@ fn a_moved_folder_moves_every_class_in_it() {
         touched.contains(&disk.uri("project/src/Models/User.php").as_str()),
         "{touched:?}"
     );
-
     assert!(
         touched.contains(&disk.uri("project/src/Models/Team.php").as_str()),
         "{touched:?}"
     );
-
     assert!(
         touched.contains(&disk.uri("project/src/Services/Billing.php").as_str()),
         "{touched:?}"
@@ -373,7 +369,6 @@ fn the_editorconfig_of_a_project_sets_the_indent_and_the_line_length() {
         .collect();
 
     assert!(texts.iter().any(|text| text.contains('\t')), "{texts:?}");
-
     assert!(
         texts.iter().any(|text| text.contains('\n')),
         "the long line is broken: {texts:?}"

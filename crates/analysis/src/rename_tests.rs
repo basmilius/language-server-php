@@ -101,17 +101,14 @@ fn renames_a_class_with_its_imports_docs_and_file() {
     assert_eq!(moved.from, PathBuf::from("/project/Models/User.php"));
     assert_eq!(moved.to, PathBuf::from("/project/Models/Member.php"));
     assert_eq!(moved.class, "App\\Models\\User");
-
     assert_eq!(
         outcome.texts["User.php"],
         "<?php\nnamespace App\\Models;\n\nclass Member {}\n"
     );
-
     assert_eq!(
         outcome.texts["service.php"],
         "<?php\nnamespace App\\Services;\n\nuse App\\Models\\Member;\nuse App\\Models\\Member as Person;\n\n/** @param Member $user */\nfunction f(Member $user, Person $other): ?Member { return new Member(); }\n"
     );
-
     assert_eq!(
         outcome.texts["current.php"],
         "<?php\nnamespace App\\Models;\n\nclass Admin extends Member {}\n"
@@ -149,12 +146,10 @@ fn renames_a_method_across_its_hierarchy_and_its_callers() {
     assert!(outcome.texts["first.php"].contains("function process("));
     assert!(outcome.texts["caller.php"].contains("$h->process(1);"));
     assert!(outcome.texts["caller.php"].contains("$f->process(2);"));
-
     assert!(
         outcome.texts["caller.php"].contains("$o->handle(3);"),
         "an unrelated class keeps its method"
     );
-
     assert!(!outcome.texts.contains_key("other.php"));
     assert!(outcome.texts["current.php"].contains("function process(int $x): void { parent::process($x); }"));
 }
@@ -179,7 +174,6 @@ fn renames_a_promoted_property_with_its_named_arguments_and_uses() {
         outcome.texts["point.php"],
         "<?php\nnamespace App;\n\nclass Point {\n    /** @property-read int $length */\n    public function __construct(private int $x, public int $height = 0) {\n        echo $x;\n    }\n    public function sum(): int { return $this->x + $this->height; }\n}\n"
     );
-
     assert_eq!(
         outcome.texts["usage.php"],
         "<?php\nnamespace App;\n\n$p = new Point(x: 1, height: 2);\necho $p->height;\n"
@@ -203,7 +197,6 @@ fn renaming_a_promoted_parameter_renames_the_property_too() {
         outcome.texts["current.php"],
         "<?php\nclass Point {\n    public function __construct(private int $left) { echo $left; }\n    public function get(): int { return $this->left; }\n}\n"
     );
-
     assert_eq!(outcome.texts["usage.php"], "<?php\n$p = new Point(left: 1);\n");
 }
 
@@ -218,7 +211,6 @@ fn renames_a_parameter_with_its_doc_and_named_arguments() {
         outcome.texts["lib.php"],
         "<?php\n/**\n * @param int $times How many\n */\nfunction repeat(string $text, int $times) { return str_repeat($text, $times); }\nrepeat(text: 'a', times: 2);\n"
     );
-
     assert_eq!(outcome.texts["current.php"], "<?php\nrepeat(text: 'b', times: 3);\n");
 }
 
@@ -259,7 +251,6 @@ fn renames_functions_constants_class_constants_and_enum_cases() {
         outcome.texts["current.php"],
         "<?php\nuse function Lib\\assist;\nuse const Lib\\LIMIT;\nuse Lib\\{Suit, K};\n\necho assist() + LIMIT + K::MAX;\n$s = Suit::Hearts;\n"
     );
-
     assert!(outcome.texts["lib.php"].contains("function assist(): int"));
 
     let outcome = run(&[("lib.php", lib)], &usage.replace("K::MAX", "K::MA$0X"), "CEILING");
@@ -285,17 +276,14 @@ fn validates_the_new_name() {
         run(&[], current, "1abc").result.unwrap_err(),
         "'1abc' is not a valid name"
     );
-
     assert_eq!(
         run(&[], current, "class").result.unwrap_err(),
         "'class' is a reserved word"
     );
-
     assert_eq!(
         run(&[], current, "string").result.unwrap_err(),
         "'string' is a reserved word"
     );
-
     assert_eq!(
         run(&[("bar.php", "<?php\nclass Bar {}\n")], current, "Bar")
             .result
@@ -360,12 +348,10 @@ fn renames_a_namespace_in_declarations_imports_and_qualified_names() {
         outcome.texts["user.php"],
         "<?php\nnamespace App\\Entities;\n\nclass User {}\n"
     );
-
     assert_eq!(
         outcome.texts["service.php"],
         "<?php\nnamespace App\\Services;\n\nuse App\\Entities\\User;\nuse App\\Entities\\{Post, Tag as T};\nuse App\\Models\\Sub\\Deep;\n\n$a = new \\App\\Entities\\User();\n"
     );
-
     assert_eq!(
         outcome.texts["current.php"],
         "<?php\nnamespace App\\Entities;\n\nclass Post {}\n"
@@ -383,7 +369,6 @@ fn renames_a_class_imported_through_a_group() {
         outcome.texts["usage.php"],
         "<?php\nuse Lib\\{Fresh, Keep};\nuse Lib\\{Fresh as Legacy};\n\n$a = new Fresh();\n$b = new Legacy();\n"
     );
-
     assert_eq!(
         outcome.texts["current.php"],
         "<?php\nuse Lib\\Fresh;\n$x = new Fresh();\n"
@@ -408,7 +393,6 @@ fn renaming_a_class_or_a_method_renames_the_strings_that_hold_it() {
 
     outcome.result.expect("renamed");
     assert!(!outcome.texts.contains_key("2020_01_01_000000_types.php"));
-
     assert_eq!(
         outcome.texts["routes.php"],
         "<?php\n$routes = ['App\\Http\\Start', 'App\\Http\\Start@show', 'App\\Http\\Start::show', 'Home'];\n"
@@ -439,7 +423,6 @@ fn renames_the_named_arguments_of_an_attribute() {
         outcome.texts["lib.php"],
         "<?php\n#[\\Attribute]\nclass Route { public function __construct(public string $uri = '/') {} }\n"
     );
-
     assert_eq!(
         outcome.texts["current.php"],
         "<?php\n#[Route(uri: '/home')]\nfunction home() {}\n"

@@ -133,12 +133,10 @@ mod tests {
         let events = index.section::<EventNames>();
         let request = events.find("kernel.request").expect("an event");
         assert_eq!(request.constant.as_deref(), Some("KernelEvents::REQUEST"));
-
         assert_eq!(
             request.event_class.as_deref(),
             Some("Symfony\\Component\\HttpKernel\\Event\\RequestEvent")
         );
-
         assert!(events.find("x").is_none());
         assert!(events.find("App\\Event\\OrderPlaced").is_some());
     }

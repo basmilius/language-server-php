@@ -34,14 +34,11 @@ fn walks_a_class_up_and_down() {
         names(supertypes(&fixture.index, "App\\Base")),
         ["App\\Shape", "App\\Colored"]
     );
-
     assert_eq!(names(supertypes(&fixture.index, "App\\Circle")), ["App\\Base"]);
-
     assert_eq!(
         names(subtypes(&fixture.index, "App\\Base")),
         ["App\\Circle", "App\\Square"]
     );
-
     assert_eq!(names(subtypes(&fixture.index, "App\\Shape")), ["App\\Base"]);
     let (_, root, offset) = split_cursor("<?php\nnamespace App;\n$x = new Cir$0cle();\n");
     let fixture = Fixture::new(&[("shapes.php", SHAPES)]).with_current("<?php\nnamespace App;\n$x = new Circle();\n");

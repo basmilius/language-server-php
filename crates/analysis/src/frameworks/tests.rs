@@ -283,17 +283,14 @@ mod keys {
             completions("<?php config('app.$0');"),
             ["app.locale", "app.name", "app.nested", "app.nested.a"]
         );
-
         assert_eq!(completions("<?php route('$0');"), ["about", "home"]);
         assert_eq!(completions("<?php view('mail.$0');"), ["mail.invoice"]);
         assert_eq!(completions("<?php __('messages.$0');"), ["messages.welcome"]);
         assert_eq!(completions("<?php env('APP_$0');"), ["APP_DEBUG", "APP_NAME"]);
-
         assert_eq!(
             completions("<?php Illuminate\\Support\\Facades\\Config::get('app.na$0');"),
             ["app.name"]
         );
-
         assert_eq!(
             completions("<?php Illuminate\\Support\\Facades\\View::make('wel$0');"),
             ["welcome"]
@@ -331,7 +328,6 @@ mod keys {
         let (_, root, offset) = split_cursor(code);
         let places = Analyzer::new(&fixture.index, &root, offset).definitions(offset);
         assert_eq!(places.len(), 1);
-
         assert!(
             places[0]
                 .path
@@ -361,17 +357,14 @@ mod keys {
             definitions("<?php config('app.na$0me');"),
             [("config/app.php".to_string(), "name".to_string())]
         );
-
         assert_eq!(
             definitions("<?php route('ho$0me');"),
             [("routes/web.php".to_string(), "home".to_string())]
         );
-
         assert_eq!(
             definitions("<?php view('mail.inv$0oice');"),
             [("resources/views/mail/invoice.blade.php".to_string(), String::new())]
         );
-
         assert_eq!(
             definitions("<?php env('APP_DE$0BUG');"),
             [(".env".to_string(), "APP_DEBUG".to_string())]
@@ -609,17 +602,14 @@ mod symfony {
         let code = |call: &str| format!("{CONTROLLER_PREFIX}{call}\n    }}\n}}");
         assert_eq!(completions(&code("$this->generateUrl('$0');")), ["blog_index"]);
         assert_eq!(completions(&code("$this->redirectToRoute('blog_$0');")), ["blog_index"]);
-
         assert_eq!(
             completions(&code("$this->render('blog/$0');")),
             ["blog/index.html.twig"]
         );
-
         assert_eq!(
             places(&code("$this->render('blog/in$0dex.html.twig');")),
             ["templates/blog/index.html.twig:"]
         );
-
         assert_eq!(
             places(&code("$this->generateUrl('blog_ind$0ex');")),
             ["src/Controller/BlogController.php:index"]
@@ -630,7 +620,6 @@ mod symfony {
     fn parameters_services_and_environment_variables_come_from_the_container_configuration() {
         let code = |call: &str| format!("{CONTROLLER_PREFIX}{call}\n    }}\n}}");
         assert_eq!(completions(&code("$this->getParameter('app.$0');")), ["app.admin"]);
-
         assert_eq!(
             places(&code("$this->getParameter('app.ad$0min');")),
             ["config/services.yaml:app.admin"]
@@ -669,13 +658,11 @@ mod symfony {
         let code = "<?php use Symfony\\Component\\DependencyInjection\\ContainerInterface;\nfunction f(ContainerInterface $container) { $a = $container->get('app.alias'); $b = $container->get('app.mailer'); $c = $container->get(\\App\\Service\\Mailer::class); $d = $container->get('nope'); $0 }";
         assert_eq!(var(code, "a"), "Mailer");
         assert_eq!(var(code, "b"), "Mailer");
-
         assert_eq!(
             var(code, "c"),
             "Mailer|object",
             "the declared type says the service may be another object"
         );
-
         assert_eq!(var(code, "d"), "object");
     }
 
@@ -692,7 +679,6 @@ mod symfony {
     fn the_fields_of_an_entity_complete_in_the_criteria_of_a_finder() {
         let code = "<?php use App\\Entity\\User;\nfunction f(\\App\\Repository\\UserRepository $repo) { $repo->findBy(['$0' => 1]); }";
         assert_eq!(completions(code), ["email", "firstName"]);
-
         assert_eq!(
             places(
                 "<?php function f(\\App\\Repository\\UserRepository $repo) { $repo->findOneBy(['first$0Name' => 1]); }"
@@ -926,7 +912,6 @@ mod usages {
                 "resources/views/layout.blade.php: home",
             ]
         );
-
         assert_eq!(declared, ["routes/web.php: home"]);
     }
 
@@ -949,7 +934,6 @@ mod usages {
                 "tests/ConfigTest.php: app.name",
             ]
         );
-
         assert_eq!(declared, ["config/app.php: name"]);
         let (from_file, _) = usages("config/app.php", "name");
         assert_eq!(from_file, hits);
@@ -1004,7 +988,6 @@ mod usages {
             format!("{:?}", found.symbols),
             "[Key { kind: Route, name: \"blog_index\", scope: None }]"
         );
-
         assert_eq!(found.files.iter().map(|file| file.hits.len()).sum::<usize>(), 1);
     }
 
@@ -1082,7 +1065,6 @@ mod relation_strings {
             complete("<?php\nuse App\\Models\\User;\nUser::with('$0');\n"),
             ["posts"]
         );
-
         assert_eq!(
             complete("<?php\nuse App\\Models\\User;\nUser::with('posts.$0');\n"),
             ["comments"]
@@ -1228,12 +1210,10 @@ mod validation_rules {
         let rules = complete("<?php\nvalidator([], ['a' => 'required|em$0']);\n");
         assert_eq!(rules, ["email"]);
         assert_eq!(complete("<?php\nvalidator([], ['a' => 'exists:$0']);\n"), ["users"]);
-
         assert_eq!(
             complete("<?php\nvalidator([], ['a' => 'exists:users,$0']);\n"),
             ["email", "id"]
         );
-
         assert_eq!(
             complete("<?php\nvalidator([], ['a' => 'x', 'b' => 'same:$0']);\n"),
             ["a", "b"]
@@ -1321,7 +1301,6 @@ mod casts {
         };
 
         assert_eq!(complete(&USER.replace("['email' =>", "['em$0' =>")), ["email"]);
-
         assert_eq!(
             complete(&USER.replace("'flag' => 'Bool'", "'flag' => 'boo$0'")),
             ["bool", "boolean"]
@@ -1702,7 +1681,6 @@ mod pennant {
             at("'new-api'", "'new-a$0pi'"),
             ["/project/app/Providers/AppServiceProvider.php"]
         );
-
         assert_eq!(
             at("active('beta')", "active('be$0ta')"),
             ["/project/app/Features/Beta.php"]
@@ -1964,7 +1942,6 @@ mod workflow {
     fn transitions_and_workflows_lead_to_their_configuration() {
         let fixture = fixture();
         assert_eq!(places(&fixture, "'publish'", "'pub$0lish'"), ["publish"]);
-
         assert_eq!(
             places(
                 &fixture,
@@ -1973,7 +1950,6 @@ mod workflow {
             ),
             ["blog_publishing"]
         );
-
         assert_eq!(places(&fixture, "'to_review'", "'to_re$0view'"), ["to_review"]);
 
         let code =
@@ -2086,17 +2062,14 @@ mod raxos {
     #[test]
     fn completes_the_keys_of_the_model() {
         assert_eq!(completions("Order::col('$0');"), ["created_on", "id"]);
-
         assert_eq!(
             completions("$order->only(['id', '$0']);"),
             ["buyer", "createdOn", "id", "lines"]
         );
-
         assert_eq!(
             completions("$order->only(['buyer' => ['$0']]);"),
             ["email", "firstName"]
         );
-
         assert_eq!(completions("Order::select()->eagerLoad(['$0']);"), ["buyer", "lines"]);
         assert_eq!(completions("$order->lines->makeVisible(['$0']);"), ["quantity"]);
     }
@@ -2247,7 +2220,6 @@ mod raxos {
         assert!(
             found.contains(&"No parameter of the constructor is named '$id', so the path keeps it as text".to_string())
         );
-
         assert!(
             found.contains(&"Neither this controller nor one above has a constructor parameter '$shop'".to_string())
         );

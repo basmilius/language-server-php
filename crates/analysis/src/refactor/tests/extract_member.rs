@@ -29,7 +29,6 @@ fn the_first_constant_goes_above_the_properties_and_methods() {
         found.contains("{\n    private const VALUE = 60 * 60;\n\n    private int $x = 0;"),
         "{found}"
     );
-
     assert!(found.contains("return self::VALUE;"), "{found}");
 }
 
@@ -99,7 +98,6 @@ fn a_field_is_added_to_the_end_of_the_constructor_it_has() {
         found.contains("        $this->total = $a;\n        $this->string = 'x' . PHP_EOL;\n    }"),
         "{found}"
     );
-
     assert!(
         found.contains("private int $total = 0;\n    private string $string;"),
         "{found}"
@@ -139,7 +137,6 @@ fn a_parameter_is_added_everywhere_and_given_at_every_call() {
         "{}",
         result.files["current.php"]
     );
-
     assert!(result.files["current.php"].contains("return $a * $int;"));
     assert!(result.files["Base.php"].contains("abstract public function run(int $a, int $int): int;"));
     let user = &result.files["User.php"];
@@ -169,7 +166,6 @@ fn names_in_the_value_are_written_in_full_for_other_files() {
         "{}",
         result.files["User.php"]
     );
-
     assert!(result.files["current.php"].contains("return $a * $max;"));
 }
 
