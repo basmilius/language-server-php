@@ -9,6 +9,7 @@ pub mod hierarchy;
 pub mod index;
 pub mod indexer;
 pub mod model;
+pub mod owner;
 pub mod phpdoc;
 pub mod project;
 pub mod resolve;

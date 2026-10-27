@@ -10,6 +10,12 @@ use flate2::read::GzDecoder;
 /// The commit of phpstorm-stubs the index is built against.
 pub const STUBS_COMMIT: &str = "e4f5f6c3de39f3bab3e9f3fca4b8cdb8b061e681";
 
+/// The name of the cache file of the stubs in `dir`, apart from `cache.rs` so naming it does not
+/// change the schema of the caches.
+pub fn stubs_file_name(dir: &Path) -> String {
+    format!("stubs-{}.bin", crate::cache::path_key(dir))
+}
+
 const STUBS_URL: &str = "https://codeload.github.com/JetBrains/phpstorm-stubs/tar.gz/";
 
 /// Extension folders that are offered without a project asking for them: what a regular PHP

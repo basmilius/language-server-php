@@ -4,8 +4,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Sender;
-use php_index::cache::path_key;
 use php_index::indexer::{self, IndexEvent, IndexedFile};
+use php_index::owner;
+use php_index::stubs::stubs_file_name;
 use php_index::{Project, StubFile, stubs};
 use php_syntax::PhpVersion;
 
@@ -257,10 +258,26 @@ impl Workspace {
 
             if gone {
                 self.indexed.remove(&project.root);
+
+                // The last use of what is left in the storage, for a host that keeps a budget.
+                if let Some(storage) = &self.storage {
+                    owner::record_project(storage, &project.root, &project.folder);
+                }
             }
 
             !gone
         });
+    }
+
+    /// Notes every project in the storage once more, for the last use a host reads at shutdown.
+    pub fn record_owners(&self) {
+        let Some(storage) = &self.storage else {
+            return;
+        };
+
+        for project in &self.projects {
+            owner::record_project(storage, &project.root, &project.folder);
+        }
     }
 
     /// A new default level reaches every project that did not get its level from `composer.json`.
@@ -305,9 +322,15 @@ impl Workspace {
             .collect();
 
         let cache = self.storage.as_ref().map(|storage| project.cache_path(storage));
+        let storage = self.storage.clone();
+        let folder = project.folder.clone();
         let sender = sender.clone();
 
         std::thread::spawn(move || {
+            if let Some(storage) = &storage {
+                owner::record_project(storage, &root, &folder);
+            }
+
             let files = indexer::discover_project(&root, composer.as_ref(), &nested);
             let threads = std::thread::available_parallelism().map_or(4, usize::from);
 
@@ -317,6 +340,11 @@ impl Workspace {
                     event,
                 });
             });
+
+            // The cache is saved by now.
+            if let Some(storage) = &storage {
+                owner::record_project(storage, &root, &folder);
+            }
         });
     }
 
@@ -350,9 +378,13 @@ impl Workspace {
 
             let _ = sender.send(Internal::StubsLocated(dir.clone()));
 
+            if let Some(storage) = &storage {
+                owner::record_stubs(storage, &dir);
+            }
+
             let cache = storage
                 .as_ref()
-                .map(|storage| storage.join("cache").join(format!("stubs-{}.bin", path_key(&dir))));
+                .map(|storage| storage.join("cache").join(stubs_file_name(&dir)));
 
             let files = indexer::discover_stubs(&dir);
             let threads = std::thread::available_parallelism().map_or(4, usize::from);
@@ -360,6 +392,10 @@ impl Workspace {
             indexer::run(files, cache.as_deref(), Some(&dir), threads, &|event| {
                 let _ = sender.send(Internal::StubsEvent(event));
             });
+
+            if let Some(storage) = &storage {
+                owner::record_stubs(storage, &dir);
+            }
         });
     }
 

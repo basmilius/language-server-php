@@ -117,17 +117,12 @@ impl Project {
 
     /// Where the extracted declarations of this project are cached inside a storage folder.
     pub fn cache_path(&self, storage: &Path) -> PathBuf {
-        let name = crate::cache::path_key(&self.root);
-
-        storage.join("cache").join(format!("project-{name}.bin"))
+        storage.join("cache").join(cache_file_name(&self.root))
     }
 
     /// Where the words of the project's own files are kept, or those of its packages.
     pub fn words_path(&self, storage: &Path, packages: bool) -> PathBuf {
-        let name = crate::cache::path_key(&self.root);
-        let kind = if packages { "package-words" } else { "words" };
-
-        storage.join("cache").join(format!("{kind}-{name}.bin"))
+        storage.join("cache").join(words_file_name(&self.root, packages))
     }
 
     /// The stub folders this project shows.
@@ -147,6 +142,18 @@ impl Project {
                 .set_indexed(file.path, file.origin, file.source, file.summary);
         }
     }
+}
+
+/// The name of the declarations cache of the project at `root`.
+pub fn cache_file_name(root: &Path) -> String {
+    format!("project-{}.bin", crate::cache::path_key(root))
+}
+
+/// The name of the words file of the project at `root`, or of its packages.
+pub fn words_file_name(root: &Path, packages: bool) -> String {
+    let kind = if packages { "package-words" } else { "words" };
+
+    format!("{kind}-{}.bin", crate::cache::path_key(root))
 }
 
 fn level_for(composer: Option<&Composer>, default_level: PhpVersion) -> (PhpVersion, bool) {

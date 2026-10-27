@@ -92,6 +92,16 @@ Before 2026-10-05: every PHP file of phpstorm-stubs, the files of Passly and the
 
 ## Indexing and memory
 
+### Marveld workspace folder, 2026-10-27
+
+Writing the owner manifests adds a few small files per project and stubs job and moves none of the numbers. The folder holds 7,528 PHP files and is not a Composer root itself. Measured with `cargo run --release -p php-index --example bench -- <folder> corpus/phpstorm-stubs <cache folder>`, run twice with the same cache folder.
+
+| | Cold (no cache) | Warm (cache) |
+| --- | --- | --- |
+| Standard library stubs (547 files) | 103 ms | 8 ms |
+| The project | discover 1.05 s, index 299 ms | discover 368 ms, index 10 ms |
+| Resident memory after indexing | 66 MB | 23 MB |
+
 ### Passly, before 2026-10-05
 
 9,288 PHP files, 9,272 classes.

@@ -31,6 +31,26 @@ Without `snippetEditSupport`, a code action that writes a name carries the comma
 
 Settings come from `initializationOptions`, `workspace/configuration` (section `phpLanguageServer`, with the document as `scopeUri`) and `workspace/didChangeConfiguration`. See [configuration](./configuration.md). A client that keeps a cache between runs passes `storagePath`. Without it the standard library stubs are not downloaded and the index of words is not kept on disk.
 
+## Cache ownership
+
+With `storagePath` the server keeps caches in `<storagePath>/cache`, and beside the caches of each owner an owner manifest: `owner-<key>.json` for a project and `owner-stubs-<key>.json` for the standard library stubs.
+
+```json
+{
+  "format": 1,
+  "kind": "project",
+  "path": "/work/app",
+  "folder": "/work",
+  "files": ["project-<key>.bin", "words-<key>.bin", "package-words-<key>.bin"],
+  "lastUsedMs": 1790000000000,
+  "server": "0.8.0"
+}
+```
+
+`kind` is `project` or `stubs`. `path` is the root of the project or the folder of the stubs, and `folder` the workspace folder that brought it in (the stubs have none, so it is their folder). Every Composer root found below a workspace folder and every worktree has a manifest of its own. `files` lists every name in the cache folder that belongs to the owner, and some may not exist. `lastUsedMs` is a Unix time in milliseconds.
+
+The server writes a manifest when it starts the job of a project or the stubs, after it saves a cache or words file, when a workspace folder is removed and when it shuts down. It deletes nothing. A host that keeps a budget or removes caches of checkouts that no longer exist may unlink the files a manifest names and then the manifest, but only while no server process uses that storage path for that owner. A missing cache reads as empty and is built again. A manifest with a `format` the host does not know says nothing the host can rely on: it touches nothing for that owner.
+
 ## SQL in strings
 
 What the server answers for the SQL in strings comes through the same requests as the rest ([SQL in strings](./sql.md)); a client does nothing new for it to work. What it sees:

@@ -102,7 +102,11 @@ pub fn run(connection: Connection) -> Result<(), BoxError> {
     server.initialized()?;
     let internal = server.internal_receiver.clone();
 
-    lsc_server::main_loop(&connection, &internal, &mut server)
+    let result = lsc_server::main_loop(&connection, &internal, &mut server);
+
+    server.workspace.record_owners();
+
+    result
 }
 
 pub(crate) struct Server {

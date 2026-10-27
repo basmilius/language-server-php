@@ -13,6 +13,7 @@ use php_analysis::nav::Place;
 use php_analysis::references::{Current, FileHits, Sources, highlights_at, references_at};
 use php_analysis::refs::{Access, Hit, HitKind, Symbol};
 use php_analysis::rename::{prepare_rename, rename};
+use php_index::owner;
 use php_index::words::WordIndex;
 use php_index::{Origin, Span};
 
@@ -183,8 +184,9 @@ impl Server {
         }
 
         let kept = storage
+            .as_ref()
             .filter(|_| !project.root.as_os_str().is_empty())
-            .map(|storage| project.words_path(&storage, packages));
+            .map(|storage| project.words_path(storage, packages));
 
         let words = if packages {
             &mut project.package_words
@@ -193,6 +195,11 @@ impl Server {
         };
 
         words.build(paths, kept.as_deref());
+
+        // The words file is saved by now.
+        if let (Some(storage), Some(_)) = (&storage, &kept) {
+            owner::record_project(storage, &project.root, &project.folder);
+        }
     }
 
     pub(crate) fn references(&mut self, params: ReferenceParams) -> Option<Vec<Location>> {
