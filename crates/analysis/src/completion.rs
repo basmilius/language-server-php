@@ -176,7 +176,12 @@ fn word_before(text: &str, offset: usize) -> Word {
     }
 }
 
-/// Whether the cursor is somewhere that takes no completion: a comment, a string or markup.
+/// An open tag that no whitespace follows yet, so the caret behind it is still typing the tag.
+fn is_bare_open_tag(token: &SyntaxToken) -> bool {
+    matches!(token.kind(), OPEN_TAG | OPEN_TAG_ECHO) && !token.text().ends_with(char::is_whitespace)
+}
+
+/// Whether the cursor is somewhere that takes no completion: a comment, a string, markup or an open tag being typed.
 fn in_dead_zone(root: &SyntaxNode, offset: u32) -> bool {
     use php_syntax::TextSize;
 
@@ -184,6 +189,10 @@ fn in_dead_zone(root: &SyntaxNode, offset: u32) -> bool {
         php_syntax::TokenAtOffset::None => return false,
         php_syntax::TokenAtOffset::Single(token) => token,
         php_syntax::TokenAtOffset::Between(left, right) => {
+            if is_bare_open_tag(&left) && u32::from(left.text_range().end()) == offset {
+                return true;
+            }
+
             if matches!(left.kind(), COMMENT | INLINE_HTML) && u32::from(left.text_range().end()) == offset {
                 left
             } else {
@@ -196,9 +205,12 @@ fn in_dead_zone(root: &SyntaxNode, offset: u32) -> bool {
     let inside = u32::from(range.start()) < offset && offset <= u32::from(range.end());
 
     match token.kind() {
+        OPEN_TAG | OPEN_TAG_ECHO => is_bare_open_tag(&token) && offset == u32::from(range.end()),
+        CLOSE_TAG => u32::from(range.start()) < offset,
+        INLINE_HTML => u32::from(range.start()) <= offset && offset <= u32::from(range.end()),
         COMMENT => inside || offset == u32::from(range.end()) && !token.text().ends_with('\n'),
         BLOCK_COMMENT | DOC_COMMENT => u32::from(range.start()) < offset && offset < u32::from(range.end()),
-        STRING_LITERAL | STRING_CONTENT | HEREDOC_START | HEREDOC_END | INLINE_HTML | HALT_DATA => {
+        STRING_LITERAL | STRING_CONTENT | HEREDOC_START | HEREDOC_END | HALT_DATA => {
             u32::from(range.start()) < offset && offset < u32::from(range.end())
         }
         _ => false,

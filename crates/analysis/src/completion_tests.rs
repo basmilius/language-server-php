@@ -1037,3 +1037,37 @@ fn ranking_without_a_root_changes_nothing() {
     let rootless = crate::completion::complete_in(&fixture.index, None, &text, offset, CompletionOptions::default());
     assert_eq!(plain, rootless);
 }
+
+#[test]
+fn offers_nothing_while_the_open_tag_is_typed() {
+    for code in ["<?$0", "<?p$0", "<?ph$0", "<?php$0", "<?=$0", "<?PHP$0"] {
+        let list = run(project(), code);
+        assert!(list.items.is_empty(), "{code}: {:?}", labels(&list));
+    }
+}
+
+#[test]
+fn offers_nothing_in_markup_around_the_tags() {
+    for code in [
+        "$0<html>",
+        "<html>php$0</html>\n<?php\n",
+        "<p>$0</p><?php echo 1; ?>",
+        "<?php echo 1; ?>$0",
+        "<?php echo 1; ?>\nphp$0",
+    ] {
+        let list = run(project(), code);
+        assert!(list.items.is_empty(), "{code}: {:?}", labels(&list));
+    }
+}
+
+#[test]
+fn completes_after_the_open_tag_and_its_whitespace() {
+    let list = run(project(), "<?php\nec$0");
+    assert!(labels(&list).contains(&"echo"), "{:?}", labels(&list));
+
+    let list = run(project(), "<?php ec$0");
+    assert!(labels(&list).contains(&"echo"), "{:?}", labels(&list));
+
+    let list = run(project(), "<?php echo 1; ec$0 ?>");
+    assert!(labels(&list).contains(&"echo"), "{:?}", labels(&list));
+}
