@@ -42,7 +42,7 @@ pub enum CallInsert {
     /// The name, as typed text.
     None,
 
-    /// The name with parentheses as a snippet, for a callable without parameters.
+    /// The text as a snippet: a callable's name with parentheses, or a keyword with a caret stop.
     Snippet,
 
     /// The same for a callable with parameters, so the client may open the parameter hints.
@@ -141,6 +141,14 @@ enum Context {
     Expression {
         statement_start: bool,
     },
+
+    /// The name of a directive in `declare(`.
+    DeclareDirective,
+
+    /// The value of the named directive in `declare(name=`.
+    DeclareValue {
+        directive: String,
+    },
 }
 
 struct Word {
@@ -174,6 +182,21 @@ fn word_before(text: &str, offset: usize) -> Word {
         start,
         text: text[start..offset].to_string(),
     }
+}
+
+/// Whether the file already has a `declare(strict_types=...)`.
+fn declares_strict_types(token: &SyntaxToken) -> bool {
+    let Some(root) = token.parent_ancestors().last() else {
+        return false;
+    };
+
+    root.descendants().any(|node| {
+        node.kind() == DECLARE_DIRECTIVE
+            && node
+                .children()
+                .find(|child| child.kind() == NAME)
+                .is_some_and(|name| name.text().to_string().eq_ignore_ascii_case("strict_types"))
+    })
 }
 
 /// An open tag that no whitespace follows yet, so the caret behind it is still typing the tag.
@@ -466,10 +489,29 @@ fn classify(token: &SyntaxToken, is_variable: bool) -> Context {
         METHOD_DECLARATION => Context::Nothing,
         ERROR | CLASS_BODY => in_error(&owner),
         PARAMETER_LIST | PARAMETER => Context::Type { is_return: false },
-        _ => Context::Expression {
-            statement_start: owner.kind() == EXPR_STATEMENT,
+        DECLARE_DIRECTIVE => declare_context(&owner, is_first),
+        _ => match owner.parent().filter(|parent| parent.kind() == DECLARE_DIRECTIVE) {
+            Some(directive) => declare_context(&directive, false),
+            None => Context::Expression {
+                statement_start: owner.kind() == EXPR_STATEMENT,
+            },
         },
     }
+}
+
+/// A directive of a `declare` statement: its name when `is_name`, otherwise its value.
+fn declare_context(directive: &SyntaxNode, is_name: bool) -> Context {
+    if is_name {
+        return Context::DeclareDirective;
+    }
+
+    let name = directive
+        .children()
+        .find(|child| child.kind() == NAME)
+        .map(|child| child.text().to_string().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    Context::DeclareValue { directive: name }
 }
 
 /// A name the parser could not place: the surrounding node says what was being started.
@@ -727,6 +769,8 @@ impl Builder<'_> {
                     self.type_keywords(false);
                 }
             }
+            Context::DeclareDirective => self.declare_directives(),
+            Context::DeclareValue { directive } => self.declare_values(directive),
             Context::Expression { statement_start } => {
                 self.expected_values(token);
                 self.shape_keys(token);
@@ -1731,13 +1775,91 @@ impl Builder<'_> {
                     "final",
                     "readonly",
                     "const",
-                    "declare",
                 ]);
+
+                self.declare_items(token);
             }
         }
 
         for word in words {
             self.keyword_item(word, 4);
+        }
+    }
+
+    /// `declare` with a caret stop in its parentheses, and the strict types line when the file
+    /// opens with it and has none yet.
+    fn declare_items(&mut self, token: &SyntaxToken) {
+        let Some(score) = match_score("declare", self.typed()) else {
+            return;
+        };
+
+        let rest = self.text.get(self.offset as usize..).unwrap_or_default();
+        let continues = rest.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+
+        let (text, call) = if continues {
+            ("declare".to_string(), CallInsert::None)
+        } else {
+            ("declare($1);".to_string(), CallInsert::Snippet)
+        };
+
+        self.push(score, self.keyword_row("declare", text, call, "4declare"));
+
+        let after_open_tag = self.text[..self.word.start].trim().eq_ignore_ascii_case("<?php");
+
+        if after_open_tag && !declares_strict_types(token) {
+            let mut item = self.keyword_row(
+                "declare(strict_types=1);",
+                "declare(strict_types=1);".to_string(),
+                CallInsert::None,
+                "!0declare",
+            );
+
+            item.filter_text = Some("declare".to_string());
+            self.push(score, item);
+        }
+    }
+
+    fn declare_directives(&mut self) {
+        for (name, text, call) in [
+            ("strict_types", "strict_types=1", CallInsert::None),
+            ("ticks", "ticks=$1", CallInsert::Snippet),
+            ("encoding", "encoding='$1'", CallInsert::Snippet),
+        ] {
+            if let Some(score) = match_score(name, self.typed()) {
+                let item = self.keyword_row(name, text.to_string(), call, &format!("4{name}"));
+
+                self.push(score, item);
+            }
+        }
+    }
+
+    fn declare_values(&mut self, directive: &str) {
+        if directive != "strict_types" {
+            return;
+        }
+
+        for value in ["1", "0"] {
+            if let Some(score) = match_score(value, self.typed()) {
+                let item = self.keyword_row(value, value.to_string(), CallInsert::None, &format!("4{value}"));
+
+                self.push(score, item);
+            }
+        }
+    }
+
+    fn keyword_row(&self, label: &str, text: String, call: CallInsert, sort_text: &str) -> CompletionItem {
+        CompletionItem {
+            label: label.to_string(),
+            kind: ItemKind::Keyword,
+            detail: None,
+            description: None,
+            edit: self.range_edit(text),
+            additional_edits: Vec::new(),
+            sort_text: sort_text.to_string(),
+            filter_text: None,
+            deprecated: false,
+            call,
+            data: None,
         }
     }
 

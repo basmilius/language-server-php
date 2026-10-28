@@ -1071,3 +1071,75 @@ fn completes_after_the_open_tag_and_its_whitespace() {
     let list = run(project(), "<?php echo 1; ec$0 ?>");
     assert!(labels(&list).contains(&"echo"), "{:?}", labels(&list));
 }
+
+fn declare_edits(list: &CompletionList) -> Vec<(&str, &str)> {
+    list.items
+        .iter()
+        .map(|item| (item.label.as_str(), item.edit.new_text.as_str()))
+        .collect()
+}
+
+#[test]
+fn declare_inserts_its_parentheses_with_a_caret_stop() {
+    let list = run(project(), "<?php\necho 1;\ndecla$0");
+    let declare = item(&list, "declare");
+
+    assert_eq!(declare.edit.new_text, "declare($1);");
+    assert_eq!(declare.call, CallInsert::Snippet);
+    assert!(!labels(&list).contains(&"declare(strict_types=1);"));
+}
+
+#[test]
+fn the_strict_types_line_comes_first_right_after_the_open_tag() {
+    let list = run(project(), "<?php\ndecla$0");
+    let strict = item(&list, "declare(strict_types=1);");
+
+    assert_eq!(strict.edit.new_text, "declare(strict_types=1);");
+    assert_eq!(strict.call, CallInsert::None);
+    assert_eq!(labels(&list)[0], "declare(strict_types=1);");
+    assert_eq!(
+        applied("<?php\ndecla$0", strict).replace("$0", ""),
+        "<?php\ndeclare(strict_types=1);"
+    );
+}
+
+#[test]
+fn the_strict_types_line_is_not_offered_twice_or_inside_a_function() {
+    let twice = run(project(), "<?php\ndeclare(strict_types=1);\ndecla$0");
+    assert!(!labels(&twice).contains(&"declare(strict_types=1);"));
+
+    let later = run(project(), "<?php\nnamespace App;\ndecla$0");
+    assert!(!labels(&later).contains(&"declare(strict_types=1);"));
+
+    let inside = run(project(), "<?php\nfunction f() {\n    decla$0\n}\n");
+    assert!(!labels(&inside).contains(&"declare(strict_types=1);"));
+    assert!(!labels(&inside).contains(&"declare"));
+}
+
+#[test]
+fn declare_offers_its_directives() {
+    let list = run(project(), "<?php\ndeclare($0);");
+
+    assert_eq!(
+        declare_edits(&list),
+        [
+            ("encoding", "encoding='$1'"),
+            ("strict_types", "strict_types=1"),
+            ("ticks", "ticks=$1"),
+        ]
+    );
+
+    assert_eq!(item(&list, "ticks").call, CallInsert::Snippet);
+    assert_eq!(
+        declare_edits(&run(project(), "<?php\ndeclare(str$0);")),
+        [("strict_types", "strict_types=1")]
+    );
+}
+
+#[test]
+fn strict_types_offers_one_and_zero() {
+    let list = run(project(), "<?php\ndeclare(strict_types=$0);");
+
+    assert_eq!(declare_edits(&list), [("0", "0"), ("1", "1")]);
+    assert!(run(project(), "<?php\ndeclare(ticks=$0);").items.is_empty());
+}
