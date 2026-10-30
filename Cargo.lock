@@ -539,11 +539,11 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lsc-server"
-version = "0.1.2"
-source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
+version = "0.1.3"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.3#1700f24bf8ed2f4f0f8bea4487fdbc7ae6640f39"
 dependencies = [
  "crossbeam-channel",
- "lsc-text",
+ "lsc-text 0.1.3",
  "lsp-server",
  "lsp-types",
  "serde",
@@ -559,9 +559,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "lsc-syntax"
+version = "0.1.3"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.3#1700f24bf8ed2f4f0f8bea4487fdbc7ae6640f39"
+dependencies = [
+ "rowan",
+]
+
+[[package]]
 name = "lsc-text"
 version = "0.1.2"
 source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.2#89c4f70457e9a80bb2034f2b1499272f6d174db0"
+dependencies = [
+ "text-size",
+]
+
+[[package]]
+name = "lsc-text"
+version = "0.1.3"
+source = "git+https://github.com/basmilius/language-server-core?tag=v0.1.3#1700f24bf8ed2f4f0f8bea4487fdbc7ae6640f39"
 dependencies = [
  "text-size",
 ]
@@ -646,11 +662,11 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "php-analysis"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "criterion",
  "expect-test",
- "lsc-text",
+ "lsc-text 0.1.3",
  "php-format",
  "php-index",
  "php-syntax",
@@ -661,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "php-format"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "expect-test",
  "php-syntax",
@@ -669,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "php-index"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "criterion",
  "expect-test",
@@ -689,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "php-language-server"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "crossbeam-channel",
  "expect-test",
@@ -708,11 +724,11 @@ dependencies = [
 
 [[package]]
 name = "php-syntax"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "criterion",
  "expect-test",
- "lsc-syntax",
+ "lsc-syntax 0.1.3",
  "rowan",
 ]
 
@@ -1039,7 +1055,7 @@ name = "sql-analysis"
 version = "0.3.0"
 source = "git+https://github.com/basmilius/language-server-sql?tag=v0.3.0#26d37c692d7bd5cbd87225f5f0d3dd2846637d3d"
 dependencies = [
- "lsc-text",
+ "lsc-text 0.1.2",
  "sql-catalog",
  "sql-syntax",
 ]
@@ -1070,7 +1086,7 @@ name = "sql-syntax"
 version = "0.3.0"
 source = "git+https://github.com/basmilius/language-server-sql?tag=v0.3.0#26d37c692d7bd5cbd87225f5f0d3dd2846637d3d"
 dependencies = [
- "lsc-syntax",
+ "lsc-syntax 0.1.2",
  "rowan",
 ]
 

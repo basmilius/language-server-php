@@ -3,15 +3,15 @@ resolver = "3"
 members = ["crates/syntax", "crates/format", "crates/index", "crates/analysis", "crates/server"]
 
 [workspace.package]
-version = "0.8.1"
+version = "0.8.2"
 edition = "2024"
 rust-version = "1.85"
 license = "FSL-1.1-MIT"
 
 [workspace.dependencies]
-lsc-server = { git = "https://github.com/basmilius/language-server-core", tag = "v0.1.2" }
-lsc-syntax = { git = "https://github.com/basmilius/language-server-core", tag = "v0.1.2" }
-lsc-text = { git = "https://github.com/basmilius/language-server-core", tag = "v0.1.2" }
+lsc-server = { git = "https://github.com/basmilius/language-server-core", tag = "v0.1.3" }
+lsc-syntax = { git = "https://github.com/basmilius/language-server-core", tag = "v0.1.3" }
+lsc-text = { git = "https://github.com/basmilius/language-server-core", tag = "v0.1.3" }
 sql-embed = { git = "https://github.com/basmilius/language-server-sql", tag = "v0.3.0" }
 
 [workspace.lints.rust]
