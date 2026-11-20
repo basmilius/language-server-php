@@ -3,17 +3,21 @@
 
 use php_index::{Callable, Origin, Param};
 use php_syntax::SyntaxKind::*;
-use php_syntax::{SyntaxNode, TextRange};
+use php_syntax::{PhpVersion, SyntaxNode, TextRange, constant_object_write_range};
 
 use super::members::unreliable_receiver;
 use super::types::sure_type;
 use super::util::member_name;
 use super::{Cx, Fix};
 use crate::ast::{child_of, text_of, tokens};
-use crate::infer::{Arg, ResolvedCallable, arguments};
+use crate::infer::{Arg, ResolvedCallable, arguments, param_for};
 
 pub(super) fn run(cx: &Cx) {
-    if !(cx.on("wrong-argument-count") || cx.on("undefined-named-argument") || cx.on("argument-type-mismatch")) {
+    if !(cx.on("wrong-argument-count")
+        || cx.on("undefined-named-argument")
+        || cx.on("argument-type-mismatch")
+        || checks_constant_references(cx))
+    {
         return;
     }
 
@@ -43,7 +47,9 @@ fn check_call(cx: &Cx, call: &SyntaxNode) {
     let arguments_nodes: Vec<SyntaxNode> = list.children().filter(|child| child.kind() == ARGUMENT).collect();
     let args = arguments(call);
 
-    if args.iter().any(|arg| arg.spread) {
+    let has_unpack = args.iter().any(|arg| arg.spread);
+
+    if has_unpack && !checks_constant_references(cx) {
         return;
     }
 
@@ -82,6 +88,14 @@ fn check_call(cx: &Cx, call: &SyntaxNode) {
 
     let candidates = candidates_of(cx, callee);
     let level = cx.index.level;
+
+    if checks_constant_references(cx) {
+        check_constant_references(cx, &candidates, &args);
+    }
+
+    if has_unpack {
+        return;
+    }
 
     let positional = args.iter().filter(|arg| arg.name.is_none()).count();
     let named: Vec<String> = args.iter().filter_map(|arg| arg.name.clone()).collect();
@@ -126,6 +140,34 @@ fn check_call(cx: &Cx, call: &SyntaxNode) {
 
     if cx.on("argument-type-mismatch") {
         check_types(cx, &analyzer, &env, callee, &candidates, &args);
+    }
+}
+
+fn checks_constant_references(cx: &Cx) -> bool {
+    cx.language_level < PhpVersion::V8_6 && cx.on("constant-object-reference-argument")
+}
+
+fn check_constant_references(cx: &Cx, candidates: &[Callable], args: &[Arg]) {
+    for (position, arg) in args.iter().take_while(|arg| !arg.spread).enumerate() {
+        let Some(range) = arg.expr.clone().and_then(constant_object_write_range) else {
+            continue;
+        };
+
+        let always_by_reference = candidates.iter().all(|callable| {
+            let params: Vec<_> = callable.params_at(cx.language_level).collect();
+
+            param_for(&params, arg, position).is_some_and(|param| param.by_ref)
+        });
+
+        if always_by_reference {
+            cx.report(
+                "constant-object-reference-argument",
+                range,
+                "Passing a property of an object in a constant by reference is only available since PHP 8.6"
+                    .to_string(),
+                Fix::None,
+            );
+        }
     }
 }
 

@@ -95,9 +95,19 @@ fn leading_doc(node: &SyntaxNode) -> Option<SyntaxToken> {
     found
 }
 
-/// A doc comment before a modifier or a type, which a node that starts with attributes keeps inside.
 fn doc_of(node: &SyntaxNode) -> Option<SyntaxToken> {
-    leading_doc(node)
+    if node.kind() != EXPR_STATEMENT {
+        return leading_doc(node);
+    }
+
+    // An expression statement leaves its leading trivia outside the node.
+    let mut token = node.first_token()?.prev_token()?;
+
+    while token.kind() == WHITESPACE {
+        token = token.prev_token()?;
+    }
+
+    (token.kind() == DOC_COMMENT).then_some(token)
 }
 
 fn collapse(text: &str) -> String {

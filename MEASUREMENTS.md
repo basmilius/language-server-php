@@ -82,7 +82,7 @@ Before 2026-10-05, with the PHP on the path as the oracle.
 | php-src tests (the `--FILE--` of each `.phpt`, `php-8.5.11`) | 6,170 | no error on a file PHP accepts; the files PHP rejects are rejected too, except the ones `NATIVE.md` lists |
 | Vendor trees and applications on the author's machine | 152,511, 1.1 GB | no disagreement with `php -l` |
 
-2026-10-06, after partial function application was added: the php-src 8.5 corpus gives exactly the result of the parser before it. Of the 184 tests of php-src's `PHP-8.6` branch about partial application, readonly property defaults, `#[\Override]` on constants and `__debugInfo()` on enums, 183 parse; the one that does not (`g(foo: ...)`) is one PHP itself rejects.
+2026-11-20, on Linux ARM64 in Docker with the official PHP 8.6.0 CLI. The parser round-trips all 6,614 UTF-8 `--FILE--` sections from the `Zend/tests` and `tests` directories of `php-8.6.0`. PHP lint accepts 5,716 of those sections. The parser accepts 5,715 of them and hits its fixed nesting limit on `Zend/tests/stack_limit/stack_limit_013.phpt`. All 572 PHP files in the pinned stubs corpus pass its parser check.
 
 ## Formatting
 
@@ -159,6 +159,8 @@ Passly's workspace; the usages of an interface used in 58 files, 216 places; aga
 Before 2026-10-05: semantic tokens take about 60 ms for a 5,000-line file and 5 to 20 ms for a typical one.
 
 ## Inspections
+
+2026-11-20: `survey` on Symfony Console v7.4.0 with the pinned stubs in Docker inspected 132 PHP files at the package's Composer minimum of PHP 8.2. It reported no `unavailable-in-php-version` findings.
 
 ### Passly
 

@@ -1405,10 +1405,9 @@ fn ends_with_exit(node: Option<&SyntaxNode>) -> bool {
 
     match last.kind() {
         RETURN_STATEMENT | BREAK_STATEMENT | CONTINUE_STATEMENT | GOTO_STATEMENT => true,
-        EXPR_STATEMENT => last
-            .children()
-            .next()
-            .is_some_and(|expr| matches!(expr.kind(), THROW_EXPR | EXIT_EXPR)),
+        EXPR_STATEMENT => last.children().next().is_some_and(|expr| {
+            expr.kind() == THROW_EXPR || expr.kind() == EXIT_EXPR && !super::is_first_class_callable(&expr)
+        }),
         BLOCK | STATEMENT_LIST => ends_with_exit(Some(&last)),
         _ => false,
     }

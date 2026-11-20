@@ -106,6 +106,7 @@ fn main() {
         class: &is_class,
         function: &is_function,
         constant: &is_constant,
+        autoloads_class: &|_| false,
     };
 
     let wanted = if args.iter().any(|arg| arg == "--vendor") {

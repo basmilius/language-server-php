@@ -489,6 +489,7 @@ impl Server {
             class: &has_class,
             function: &has_function,
             constant: &has_constant,
+            autoloads_class: &|_| false,
         };
 
         let env = InspectionEnv {

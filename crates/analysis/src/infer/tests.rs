@@ -515,10 +515,13 @@ fn a_partial_application_is_a_closure() {
         "<?php\nfunction pad(string $text, int $width, string $with = ' '): string {}\n",
     )]);
 
-    let code = "<?php\n$left = pad(?, 10);\n$rest = pad('a', ...);\n$named = pad(text: 'a', width: ?);\n$0";
+    let code = "<?php\n$left = pad(?, 10);\n$rest = pad('a', ...);\n$named = pad(text: 'a', width: ?);\n$copy = clone(?);\n$copyAll = clone(...);\n$done = exit(?);\n$0";
     assert_eq!(var(&fixture, code, "left"), "Closure");
     assert_eq!(var(&fixture, code, "rest"), "Closure");
     assert_eq!(var(&fixture, code, "named"), "Closure");
+    assert_eq!(var(&fixture, code, "copy"), "Closure");
+    assert_eq!(var(&fixture, code, "copyAll"), "Closure");
+    assert_eq!(var(&fixture, code, "done"), "Closure");
 }
 
 #[test]

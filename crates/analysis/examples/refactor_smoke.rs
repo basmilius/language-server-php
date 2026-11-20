@@ -346,6 +346,7 @@ fn main() {
         class: &is_class,
         function: &is_function,
         constant: &is_constant,
+        autoloads_class: &|_| false,
     };
 
     let sample: Vec<PathBuf> = paths.iter().step_by(every.max(1)).take(max_files).cloned().collect();

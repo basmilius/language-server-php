@@ -34,7 +34,7 @@ use lsp_types::{
     TextDocumentSyncOptions, TypeDefinitionProviderCapability, Uri, WorkDoneProgressOptions,
     WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
-use php_analysis::inspections::{Externals, InspectionEnv, inspect};
+use php_analysis::inspections::{Externals, InspectionEnv, inspect_at_level};
 use php_analysis::{PositionEncoding, diagnostics, document_symbols, folding_ranges, selection_ranges};
 use php_index::StubFile;
 use php_index::indexer::{IndexEvent, index_file};
@@ -616,7 +616,11 @@ impl Server {
 
         let mut items: Vec<lsp_types::Diagnostic> = self.inspect_document(uri, |env, mapper, parse| {
             let mut found = diagnostics(parse, level);
-            found.extend(inspect(env).into_iter().map(|finding| finding.diagnostic));
+            found.extend(
+                inspect_at_level(env, level)
+                    .into_iter()
+                    .map(|finding| finding.diagnostic),
+            );
             found.sort_by_key(|diagnostic| (diagnostic.range.start(), diagnostic.range.end()));
 
             found.iter().map(|found| convert::diagnostic(mapper, found)).collect()
@@ -719,14 +723,16 @@ impl Server {
         };
 
         let names = &self.workspace.stub_names;
-        let has_class = |name: &str| names.has_class(name) || composer_loads(project, name);
+        let has_class = |name: &str| names.has_class(name);
         let has_function = |name: &str| names.has_function(name);
         let has_constant = |name: &str| names.has_constant(name);
+        let autoloads_class = |name: &str| composer_loads(project, name);
 
         let externals = Externals {
             class: &has_class,
             function: &has_function,
             constant: &has_constant,
+            autoloads_class: &autoloads_class,
         };
 
         let env = InspectionEnv {

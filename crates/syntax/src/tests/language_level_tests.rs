@@ -157,12 +157,82 @@ fn a_file_at_the_newest_level_with_old_syntax_is_quiet() {
 
 #[test]
 fn partial_application_parses_and_is_new_in_8_6() {
-    let text = "$a = str_replace('a', ?, ...);\n$b = $o->m(x: ?);\n$c = new A(?);\n$d = f(...);\n$e = f(...$args);\n$f = clone(?);";
+    let text = "$a = str_replace('a', ?, ...);\n$b = $o->m(x: ?);\n$c = new A(f(?));\n$d = f(...);\n$e = f(...$args);\n$f = clone(?);";
     let parsed = parse(&format!("<?php\n{text}\n"));
     assert!(parsed.errors().is_empty(), "{:?}", parsed.errors());
     assert!(features_found(text, PhpVersion::V8_6).is_empty());
     let at_8_5 = features_found(text, PhpVersion::V8_5);
     assert_eq!(at_8_5, ["partial-function-application"; 5]);
+}
+
+#[test]
+fn a_new_expression_or_attribute_cannot_have_its_own_placeholders() {
+    let source = "<?php new A(?, ...); new A(value: ?); new class(...) {}; #[A(...)] #[B(value: ?)] class C {}";
+    let parsed = parse(source);
+    let errors: Vec<_> = parsed.errors().iter().map(|error| error.message.as_str()).collect();
+
+    assert_eq!(
+        errors,
+        [
+            "Cannot create Closure for new expression",
+            "Cannot create Closure for new expression",
+            "Cannot create Closure for new expression",
+            "Cannot create Closure as attribute argument",
+            "Cannot create Closure as attribute argument",
+        ]
+    );
+    assert_eq!(parsed.syntax().text().to_string(), source);
+}
+
+#[test]
+fn callable_placeholders_require_a_compatible_argument_list_and_receiver() {
+    let invalid = [
+        ("f(..., 1)", "Variadic placeholder must be last"),
+        ("f(..., ...)", "Variadic placeholder may only appear once"),
+        ("f(...$args, ?)", "Cannot combine partial application and unpacking"),
+        ("f(?, ...$args)", "Cannot combine partial application and unpacking"),
+        ("$o?->m(?)", "Cannot combine nullsafe operator with Closure creation"),
+        (
+            "$o?->a::$b->m(?)",
+            "Cannot combine nullsafe operator with Closure creation",
+        ),
+        (
+            "$o?->a::m()->n(?)",
+            "Cannot combine nullsafe operator with Closure creation",
+        ),
+        (
+            "($o?->m()[0])->n(...)",
+            "Cannot combine nullsafe operator with Closure creation",
+        ),
+    ];
+
+    for (expression, message) in invalid {
+        let source = format!("<?php {expression};");
+        let parsed = parse(&source);
+        let errors: Vec<_> = parsed.errors().iter().map(|error| error.message.as_str()).collect();
+
+        assert_eq!(errors, [message], "{expression}");
+        assert_eq!(parsed.syntax().text().to_string(), source);
+    }
+
+    let source = "<?php f(x: ?, ...); f(...$args); ($o?->a)(?); $o?->a::m(?); $o?->a::CONST->m(?); $o?->m(f(?)); exit(status: ?);";
+    let parsed = parse(source);
+
+    assert!(parsed.errors().is_empty(), "{:?}", parsed.errors());
+}
+
+#[test]
+fn a_keyword_cannot_be_an_explicit_import_alias() {
+    let source = "<?php use function strlen as readonly; use function Vendor\\readonly;";
+    let parsed = parse(source);
+    let rejected: Vec<_> = parsed
+        .errors()
+        .iter()
+        .map(|error| &source[usize::from(error.range.start())..usize::from(error.range.end())])
+        .collect();
+
+    assert_eq!(rejected, ["readonly"]);
+    assert_eq!(parsed.syntax().text().to_string(), source);
 }
 
 #[test]
@@ -177,6 +247,136 @@ fn what_php_8_6_allows_is_reported_before_it() {
             "override-on-constants",
             "enum-debug-info",
             "constant-object-property-writes"
+        ]
+    );
+}
+
+#[test]
+fn constant_object_writes_are_checked_at_their_write_site() {
+    let text = r#"
+        (OBJ)->postfix++;
+        ++C::OBJ->prefix;
+        OBJ->child->values[0] += 1;
+        OBJECTS[0]->indexed = 1;
+        $ref =& OBJ->alias;
+        unset(OBJ->removed);
+        foreach ($items as OBJ->iterated) {}
+        [OBJ->assigned] = $items;
+        [$key => &OBJ->referenced];
+        function &referencedReturn() { return OBJ->returned; }
+        function &referencedYield() { yield OBJ->key => OBJ->yielded; }
+        $arrow = fn&() => OBJ->arrow;
+        class Hooks {
+            public $byRef { &get => OBJ->hookByRef; }
+            public $byValue { get => OBJ->hookByValue; }
+        }
+        function plainReturn() { return OBJ->read; }
+        function &generatorReturn() { yield 1; return OBJ->generator; }
+        function &arrayReturn() { return [OBJ->array]; }
+        $items[OBJ->offset] = 1;
+        C::create()->writable = 1;
+    "#;
+    let source = format!("<?php\n{text}");
+    let parsed = parse(&source);
+
+    let targets: Vec<_> = check_language_level(&parsed.syntax(), PhpVersion::V8_5)
+        .iter()
+        .filter(|diagnostic| diagnostic.feature == "constant-object-property-writes")
+        .map(|diagnostic| &source[usize::from(diagnostic.range.start())..usize::from(diagnostic.range.end())])
+        .collect();
+
+    assert!(parsed.errors().is_empty(), "{:?}", parsed.errors());
+    assert!(features_found(text, PhpVersion::V8_6).is_empty());
+    assert_eq!(
+        targets,
+        [
+            "(OBJ)->postfix",
+            "C::OBJ->prefix",
+            "OBJ->child",
+            "OBJECTS[0]->indexed",
+            "OBJ->alias",
+            "OBJ->removed",
+            "OBJ->iterated",
+            "OBJ->assigned",
+            "OBJ->referenced",
+            "OBJ->returned",
+            "OBJ->yielded",
+            "OBJ->arrow",
+            "OBJ->hookByRef",
+        ]
+    );
+}
+
+#[test]
+fn php_8_6_deprecations_apply_to_the_owning_declaration() {
+    let text = r#"
+        namespace Names {
+            interface is {}
+            trait let {}
+            const _ = 1;
+            const Let = 2;
+            const let = 3;
+        }
+        namespace Enums {
+            enum is { case namespace; }
+        }
+        namespace {
+            use function Vendor\call as _;
+            use Vendor\{Useful as Let, Other as _};
+            use const Vendor\VERSION as is;
+            class Is {
+                const namespace = 1;
+                const is = 1;
+                public function __debugInfo(): array|null { return []; }
+                public function __construct() {
+                    try {} finally {
+                        $inner = function () { return 8; };
+                        return 1;
+                    }
+                }
+            }
+        }
+    "#;
+    let source = format!("<?php\n{text}");
+    let parsed = parse(&source);
+    let found = check_language_level(&parsed.syntax(), PhpVersion::V8_6);
+
+    let identifiers: Vec<_> = found
+        .iter()
+        .filter(|diagnostic| diagnostic.feature == "deprecated-identifier-8-6")
+        .map(|diagnostic| &source[usize::from(diagnostic.range.start())..usize::from(diagnostic.range.end())])
+        .collect();
+
+    let others: Vec<_> = found
+        .iter()
+        .map(|diagnostic| diagnostic.feature)
+        .filter(|feature| *feature != "deprecated-identifier-8-6")
+        .collect();
+
+    assert!(parsed.errors().is_empty(), "{:?}", parsed.errors());
+    assert!(features_found(text, PhpVersion::V8_5).is_empty());
+    assert_eq!(
+        identifiers,
+        [
+            "is",
+            "let",
+            "_",
+            "let",
+            "is",
+            "namespace",
+            "Let",
+            "_",
+            "is",
+            "Is",
+            "namespace"
+        ]
+    );
+    assert_eq!(
+        others,
+        [
+            "nullable-debug-info",
+            "return-from-finally",
+            "constructor-destructor-return-value"
         ]
     );
 }

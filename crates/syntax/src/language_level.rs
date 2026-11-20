@@ -32,9 +32,8 @@ impl PhpVersion {
     /// The newest version the parser knows.
     pub const LATEST: PhpVersion = PhpVersion::V8_6;
 
-    /// The level of a file without a configured one: the newest release. PHP 8.6 is a release
-    /// candidate until November 2026, after which this follows `LATEST` again.
-    pub const DEFAULT: PhpVersion = PhpVersion::V8_5;
+    /// The level of a file without a configured one: the newest stable release.
+    pub const DEFAULT: PhpVersion = PhpVersion::V8_6;
 
     pub const fn new(major: u8, minor: u8) -> PhpVersion {
         PhpVersion { major, minor }
@@ -281,6 +280,142 @@ fn is_return_type_atom(node: &SyntaxNode) -> bool {
 
 fn cast_word(token: &SyntaxToken) -> String {
     token.text().trim_matches(['(', ')', ' ', '\t']).to_ascii_lowercase()
+}
+
+fn constant_receiver(mut node: SyntaxNode) -> bool {
+    while matches!(node.kind(), INDEX_EXPR | PAREN_EXPR) {
+        let Some(receiver) = node.first_child() else {
+            return false;
+        };
+
+        node = receiver;
+    }
+
+    matches!(node.kind(), NAME | SCOPED_ACCESS_EXPR)
+}
+
+/// The property access that needs PHP 8.6 when an expression is used as a write target.
+pub fn constant_object_write_range(mut target: SyntaxNode) -> Option<TextRange> {
+    while matches!(target.kind(), PROPERTY_FETCH_EXPR | INDEX_EXPR | PAREN_EXPR) {
+        let receiver = target.first_child()?;
+
+        if target.kind() == PROPERTY_FETCH_EXPR && constant_receiver(receiver.clone()) {
+            return Some(target.text_range());
+        }
+
+        target = receiver;
+    }
+
+    None
+}
+
+fn is_write_target(mut node: SyntaxNode) -> bool {
+    let mut array_pattern = false;
+
+    while let Some(parent) = node.parent() {
+        let first_child = parent.first_child().as_ref() == Some(&node);
+
+        match parent.kind() {
+            ASSIGN_EXPR => return first_child || token_child(&parent, AMP).is_some(),
+            PREFIX_EXPR | POSTFIX_EXPR => {
+                return token_child(&parent, INC).is_some() || token_child(&parent, DEC).is_some();
+            }
+            UNSET_STATEMENT => return true,
+            FOREACH_STATEMENT => return !first_child,
+            RETURN_STATEMENT if !array_pattern => {
+                return callable_owner(&parent)
+                    .is_some_and(|owner| token_child(&owner, AMP).is_some() && !has_yield(&owner));
+            }
+            YIELD_EXPR if !array_pattern && parent.last_child().as_ref() == Some(&node) => {
+                return callable_owner(&parent).is_some_and(|owner| token_child(&owner, AMP).is_some());
+            }
+            ARROW_FUNCTION_EXPR | PROPERTY_HOOK if !array_pattern && parent.last_child().as_ref() == Some(&node) => {
+                return token_child(&parent, AMP).is_some();
+            }
+            INDEX_EXPR | PROPERTY_FETCH_EXPR | PAREN_EXPR if first_child => {}
+            ARRAY_ITEM if parent.last_child().as_ref() == Some(&node) => {
+                if token_child(&parent, AMP).is_some() {
+                    return true;
+                }
+
+                array_pattern = true;
+            }
+            ARRAY_EXPR | LIST_EXPR => array_pattern = true,
+            _ => return false,
+        }
+
+        node = parent;
+    }
+
+    false
+}
+
+fn has_yield(owner: &SyntaxNode) -> bool {
+    owner.descendants().any(|node| {
+        matches!(node.kind(), YIELD_EXPR | YIELD_FROM_EXPR) && callable_owner(&node).as_ref() == Some(owner)
+    })
+}
+
+fn callable_owner(node: &SyntaxNode) -> Option<SyntaxNode> {
+    node.ancestors().skip(1).find(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            FUNCTION_DECLARATION | METHOD_DECLARATION | CLOSURE_EXPR | ARROW_FUNCTION_EXPR | PROPERTY_HOOK
+        )
+    })
+}
+
+fn in_constructor_or_destructor(node: &SyntaxNode) -> bool {
+    callable_owner(node)
+        .filter(|owner| owner.kind() == METHOD_DECLARATION)
+        .and_then(|method| node_child(&method, NAME))
+        .is_some_and(|name| type_text_is(&name, "__construct") || type_text_is(&name, "__destruct"))
+}
+
+fn deprecated_identifier(element: &SyntaxElement) -> Option<TextRange> {
+    let declaration = node_of(element)?;
+    let name = node_child(declaration, NAME)?;
+    let name = if declaration.kind() == USE_CLAUSE {
+        name.next_sibling().unwrap_or(name)
+    } else {
+        name
+    };
+
+    let written = name.text().to_string();
+    let short = written.rsplit('\\').next()?;
+
+    let deprecated = match declaration.kind() {
+        FUNCTION_DECLARATION => short.eq_ignore_ascii_case("readonly"),
+        CONST_ELEMENT if parent_kind(declaration) == Some(CLASS_CONST_DECLARATION) => {
+            return short.eq_ignore_ascii_case("namespace").then(|| name.text_range());
+        }
+        ENUM_CASE => return short.eq_ignore_ascii_case("namespace").then(|| name.text_range()),
+        CONST_ELEMENT => {
+            let namespaced = declaration
+                .ancestors()
+                .find(|ancestor| ancestor.kind() == NAMESPACE_DECLARATION)
+                .is_some_and(|namespace| node_child(&namespace, NAME).is_some());
+
+            if namespaced {
+                return matches!(short, "_" | "is" | "let").then(|| name.text_range());
+            }
+
+            short == "_"
+        }
+        USE_CLAUSE => {
+            let function_import = token_child(declaration, FUNCTION_KW).is_some()
+                || token_child(declaration, CONST_KW).is_none()
+                    && declaration
+                        .ancestors()
+                        .find(|ancestor| ancestor.kind() == USE_STATEMENT)
+                        .is_some_and(|statement| token_child(&statement, FUNCTION_KW).is_some());
+
+            short == "_" && !function_import
+        }
+        _ => false,
+    };
+
+    (deprecated || short.eq_ignore_ascii_case("is") || short.eq_ignore_ascii_case("let")).then(|| name.text_range())
 }
 
 /// The syntax PHP versions added, deprecated or removed, oldest first. This table is all that changes
@@ -991,18 +1126,12 @@ pub static FEATURES: &[Feature] = &[
         since: Some(PhpVersion::V8_6),
         deprecated: None,
         removed: None,
-        kinds: &[ASSIGN_EXPR],
+        kinds: &[PROPERTY_FETCH_EXPR],
         detect: |element| {
-            let assign = node_of(element)?;
+            let property = node_of(element)?;
+            let receiver = property.first_child()?;
 
-            let target = assign
-                .children()
-                .next()
-                .filter(|node| node.kind() == PROPERTY_FETCH_EXPR)?;
-
-            let object = target.children().next()?;
-
-            matches!(object.kind(), NAME | SCOPED_ACCESS_EXPR).then(|| target.text_range())
+            (constant_receiver(receiver) && is_write_target(property.clone())).then(|| property.text_range())
         },
         example: "FOO->bar = 1;",
     },
@@ -1062,5 +1191,112 @@ pub static FEATURES: &[Feature] = &[
             (in_enum && name.text().to_string().eq_ignore_ascii_case("__debugInfo")).then(|| name.text_range())
         },
         example: "enum E { public function __debugInfo(): array { return []; } }",
+    },
+    Feature {
+        id: "deprecated-identifier-8-6",
+        name: "This declaration or import name",
+        plural: false,
+        since: None,
+        deprecated: Some(PhpVersion::V8_6),
+        removed: None,
+        kinds: &[
+            CLASS_DECLARATION,
+            INTERFACE_DECLARATION,
+            TRAIT_DECLARATION,
+            ENUM_DECLARATION,
+            FUNCTION_DECLARATION,
+            CONST_ELEMENT,
+            ENUM_CASE,
+            USE_CLAUSE,
+        ],
+        detect: deprecated_identifier,
+        example: "function readonly() {}",
+    },
+    Feature {
+        id: "return-from-finally",
+        name: "Returning from a finally block",
+        plural: false,
+        since: None,
+        deprecated: Some(PhpVersion::V8_6),
+        removed: None,
+        kinds: &[RETURN_STATEMENT],
+        detect: |element| {
+            let node = node_of(element)?;
+            let owner = callable_owner(node);
+
+            let in_finally = node
+                .ancestors()
+                .take_while(|ancestor| Some(ancestor) != owner.as_ref())
+                .any(|ancestor| ancestor.kind() == FINALLY_CLAUSE);
+
+            if !in_finally {
+                return None;
+            }
+
+            token_child(node, RETURN_KW).map(|token| token.text_range())
+        },
+        example: "function f() { try {} finally { return; } }",
+    },
+    Feature {
+        id: "nullable-debug-info",
+        name: "A nullable array return type on __debugInfo()",
+        plural: false,
+        since: None,
+        deprecated: Some(PhpVersion::V8_6),
+        removed: None,
+        kinds: &[METHOD_DECLARATION],
+        detect: |element| {
+            let method = node_of(element)?;
+            let name = node_child(method, NAME)?;
+
+            if !type_text_is(&name, "__debugInfo") {
+                return None;
+            }
+
+            let ty = node_child(method, RETURN_TYPE)?.first_child()?;
+
+            let nullable = match ty.kind() {
+                NULLABLE_TYPE => ty.first_child().is_some_and(|inner| type_text_is(&inner, "array")),
+                UNION_TYPE => {
+                    ty.children().any(|inner| type_text_is(&inner, "array"))
+                        && ty.children().any(|inner| type_text_is(&inner, "null"))
+                }
+                _ => false,
+            };
+
+            nullable.then(|| ty.text_range())
+        },
+        example: "class C { public function __debugInfo(): ?array { return []; } }",
+    },
+    Feature {
+        id: "constructor-destructor-return-value",
+        name: "Returning a value from a constructor or destructor",
+        plural: false,
+        since: None,
+        deprecated: Some(PhpVersion::V8_6),
+        removed: None,
+        kinds: &[RETURN_STATEMENT],
+        detect: |element| {
+            let node = node_of(element)?;
+            let value = node.first_child()?;
+
+            in_constructor_or_destructor(node).then(|| value.text_range())
+        },
+        example: "class C { public function __construct() { return 1; } }",
+    },
+    Feature {
+        id: "constructor-destructor-generator",
+        name: "Using yield in a constructor or destructor",
+        plural: false,
+        since: None,
+        deprecated: Some(PhpVersion::V8_6),
+        removed: None,
+        kinds: &[YIELD_EXPR, YIELD_FROM_EXPR],
+        detect: |element| {
+            let node = node_of(element)?;
+
+            in_constructor_or_destructor(node).then(|| node.text_range())
+        },
+        example: "class C { public function __destruct() { yield 1; } }",
     },
 ];

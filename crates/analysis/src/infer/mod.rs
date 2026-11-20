@@ -28,6 +28,7 @@ use php_syntax::SyntaxNode;
 
 use crate::ast::{self, child_of, node_at, text_of};
 
+pub(crate) use calls::param_for;
 pub use calls::{Arg, DeclRef, ResolvedCallable, arguments, is_first_class_callable, is_placeholder};
 pub use expr::literal_string;
 pub use unify::template_names;

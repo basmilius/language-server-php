@@ -128,9 +128,9 @@ fn reports_syntax_newer_than_the_language_level() {
 }
 
 #[test]
-fn php_8_6_syntax_needs_the_8_6_level_until_it_is_released() {
+fn php_8_6_syntax_is_enabled_by_default_and_reported_at_8_5() {
     let text = "<?php\n$pad = str_pad(?, 10);\n";
-    let (mut client, _) = Client::start(json!({}), Value::Null);
+    let (mut client, _) = Client::start(json!({}), json!({ "phpVersion": "8.5" }));
     client.open(URI, text);
 
     assert_eq!(
@@ -140,7 +140,7 @@ fn php_8_6_syntax_needs_the_8_6_level_until_it_is_released() {
 
     client.shutdown();
 
-    let (mut client, _) = Client::start(json!({}), json!({ "phpVersion": "8.6" }));
+    let (mut client, _) = Client::start(json!({}), Value::Null);
     client.open(URI, text);
     assert!(client.diagnostics(URI).is_empty());
     client.shutdown();
@@ -423,6 +423,100 @@ fn a_second_run_reads_the_cache() {
 
     assert!(log.contains("0 parsed"), "{log}");
     client.shutdown();
+}
+
+#[test]
+fn php_8_6_stubs_follow_the_composer_platform_in_completion_and_diagnostics() {
+    for (platform, available) in [("8.5.13", false), ("8.6.0", true)] {
+        let disk = Disk::new();
+
+        disk.write(
+            "project/composer.json",
+            &json!({ "require": { "php": "^8.5" }, "config": { "platform": { "php": platform } } }).to_string(),
+        );
+        disk.write(
+            "stubs/standard/php86.php",
+            "<?php\n/** @since 8.6 */ function clamp($value, $min, $max) {}\n/** @since 8.6 */ define('ARRAY_FILTER_USE_VALUE', 0);\nfunction function_exists(string $function): bool {}\nconst PHP_VERSION_ID = 80600;",
+        );
+        disk.write(
+            "stubs/io/io.php",
+            "<?php\nnamespace Io\\Poll;\n/** @since 8.6 */ class Context {}",
+        );
+
+        let mut client = indexed_server(&disk);
+        let completion_uri = disk.uri("project/complete.php");
+        client.open(&completion_uri, "<?php\nclam");
+        let result = client.at("textDocument/completion", &completion_uri, 1, 4);
+        let items = result["items"].as_array().expect("items");
+
+        assert_eq!(
+            items.iter().any(|item| item["label"] == "clamp"),
+            available,
+            "{platform}"
+        );
+
+        let usage_uri = disk.uri("project/use.php");
+        client.open(
+            &usage_uri,
+            r#"<?php
+use function clamp as restrict;
+restrict(1, 0, 2);
+new \Io\Poll\Context();
+echo ARRAY_FILTER_USE_VALUE;
+
+function guardedByVersion() {
+    if (PHP_VERSION_ID < 80600) { return; }
+    restrict(1, 0, 2);
+}
+
+function guardedByExistence() {
+    if (!function_exists('clamp')) { return; }
+    restrict(1, 0, 2);
+}
+
+function stillRequires86() {
+    if (PHP_VERSION_ID >= 80600) { return; }
+    restrict(1, 0, 2);
+}
+"#,
+        );
+        let found = client.diagnostics(&usage_uri);
+
+        if available {
+            assert!(found.is_empty(), "{found:?}");
+        } else {
+            assert!(
+                found
+                    .iter()
+                    .all(|diagnostic| diagnostic["code"] == "unavailable-in-php-version")
+            );
+            let lines: Vec<_> = found
+                .iter()
+                .map(|item| item["range"]["start"]["line"].as_u64())
+                .collect();
+
+            assert_eq!(lines, [Some(2), Some(3), Some(4), Some(18)]);
+            assert_eq!(
+                messages(&found),
+                [
+                    "Function 'clamp' is only available since PHP 8.6",
+                    "Class 'Io\\Poll\\Context' is only available since PHP 8.6",
+                    "Constant 'ARRAY_FILTER_USE_VALUE' is only available since PHP 8.6",
+                    "Function 'clamp' is only available since PHP 8.6",
+                ]
+            );
+        }
+
+        let polyfill_uri = disk.uri("project/polyfill.php");
+        client.open(
+            &polyfill_uri,
+            "<?php\nnamespace App;\nfunction clamp($value, $min, $max) { return $value; }\necho clamp(1, 0, 2);",
+        );
+        let polyfill_diagnostics = client.diagnostics(&polyfill_uri);
+
+        assert!(polyfill_diagnostics.is_empty(), "{polyfill_diagnostics:?}");
+        client.shutdown();
+    }
 }
 
 #[test]

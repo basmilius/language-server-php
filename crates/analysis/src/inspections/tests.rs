@@ -13,6 +13,7 @@ use crate::DiagnosticSeverity;
 pub(crate) const STUBS: &str = r#"<?php
 namespace {
     function strlen(string $string): int {}
+    function sort(array &$array, int $flags = SORT_REGULAR): true {}
     function count(Countable|array $value, int $mode = COUNT_NORMAL): int {}
     function array_map(?callable $callback, array $array, array ...$arrays): array {}
     function preg_match(string $pattern, string $subject, &$matches = null, int $flags = 0, int $offset = 0): int|false {}
@@ -82,7 +83,12 @@ pub(crate) fn index_with(files: &[(&str, &str)], current: &str) -> Index {
 }
 
 pub(super) fn run_with(files: &[(&str, &str)], source: &str, settings: &InspectionSettings) -> Vec<Found> {
-    let index = index_with(files, source);
+    run_at_level(files, source, settings, PhpVersion::V8_4)
+}
+
+fn run_at_level(files: &[(&str, &str)], source: &str, settings: &InspectionSettings, level: PhpVersion) -> Vec<Found> {
+    let mut index = index_with(files, source);
+    index.level = level;
     let tree = parse(source);
     let root = tree.syntax();
     let externals = Externals::none();
@@ -229,6 +235,7 @@ fn names_held_back_by_an_extension_are_not_undefined() {
         class: &is_redis,
         function: &is_redis,
         constant: &is_redis,
+        autoloads_class: &|_| false,
     };
 
     let settings = InspectionSettings::default();
@@ -820,4 +827,70 @@ fn a_partial_application_is_no_call_with_too_few_arguments() {
 
     let source = "<?php\n$left = pad(?, 10);\n$rest = pad(...);\n$one = pad(?);\n";
     assert_eq!(only_in(&files, "wrong-argument-count", source), Vec::<String>::new());
+}
+
+#[test]
+fn deprecated_php_8_6_type_names_follow_namespace_and_import_resolution() {
+    let source = r#"<?php
+        namespace {
+            use Vendor\Is as Safe;
+            use \Let as Alias;
+            function reserved(Is $value, Safe $safe): Alias {}
+        }
+        namespace Example {
+            function qualified(Is $value): \Is {}
+            function lowerCase(let $value): Vendor\Let {}
+            try {} catch (\Is $error) {}
+        }
+    "#;
+
+    let deprecated = |level| {
+        run_at_level(&[], source, &InspectionSettings::default(), level)
+            .into_iter()
+            .filter(|finding| finding.code == "deprecated")
+            .map(|finding| finding.text)
+            .collect::<Vec<_>>()
+    };
+
+    assert!(deprecated(PhpVersion::V8_5).is_empty());
+    assert_eq!(deprecated(PhpVersion::V8_6), ["Is", "Alias", "\\Is", "let"]);
+}
+
+#[test]
+fn only_known_reference_arguments_require_php_8_6_for_constant_objects() {
+    let source = r#"<?php
+        function see(mixed $value) {}
+        class Receiver {
+            public function __construct(mixed &$value) {}
+            public static function read(mixed &$value) {}
+        }
+        sort(OBJ->positional);
+        sort(array: OBJ->named[0]);
+        sort(OBJ->beforeSpread, ...$rest);
+        sort(...$rest, array: OBJ->afterSpread);
+        new Receiver(OBJ->constructor);
+        Receiver::read(OBJ->method);
+        see(OBJ->read);
+        $callback(OBJ->unknown);
+    "#;
+
+    let reported = |level| {
+        run_at_level(&[], source, &InspectionSettings::default(), level)
+            .into_iter()
+            .filter(|finding| finding.code == "constant-object-reference-argument")
+            .map(|finding| finding.text)
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        reported(PhpVersion::V8_5),
+        [
+            "OBJ->positional",
+            "OBJ->named",
+            "OBJ->beforeSpread",
+            "OBJ->constructor",
+            "OBJ->method"
+        ]
+    );
+    assert!(reported(PhpVersion::V8_6).is_empty());
 }

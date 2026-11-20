@@ -14,7 +14,10 @@ use std::sync::{Arc, OnceLock};
 use php_syntax::PhpVersion;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{ClassDecl, ClassSummary, ConstDecl, FileSummary, FileSymbols, Function, NameSummary};
+use crate::model::{
+    ClassDecl, ClassSummary, ConstDecl, FileSummary, FileSymbols, Function, NameSummary, decode_version,
+};
+use crate::resolve::UseKind;
 use crate::store::SymbolSource;
 use crate::types::Name;
 
@@ -600,6 +603,57 @@ impl Index {
 
     pub fn first_constant(&self, candidates: &[Name]) -> Option<ConstRef<'_>> {
         candidates.iter().find_map(|name| self.constant(name))
+    }
+
+    /// The earliest later version providing an unresolved name in the selected stubs.
+    pub fn stub_introduced_after_level<'a>(
+        &self,
+        candidates: &'a [Name],
+        kind: UseKind,
+        level: PhpVersion,
+    ) -> Option<(&'a str, PhpVersion)> {
+        let mut first_later: Option<(&str, PhpVersion)> = None;
+
+        for name in candidates {
+            let name = name.trim_start_matches('\\');
+
+            let slots = match kind {
+                UseKind::Class => self.classes.get(&class_key(name)),
+                UseKind::Function => self.functions.get(&class_key(name)),
+                UseKind::Constant => self.constants.get(&constant_key(name)),
+            };
+
+            for &(file, slot) in slots.into_iter().flatten() {
+                let Some(entry) = self.files.get(file as usize).and_then(Option::as_ref) else {
+                    continue;
+                };
+
+                let slot = slot as usize;
+                let availability = match kind {
+                    UseKind::Class => entry.summary.classes.get(slot).map(|decl| decl.availability),
+                    UseKind::Function => entry.summary.functions.get(slot).map(|decl| decl.availability),
+                    UseKind::Constant => entry.summary.constants.get(slot).map(|decl| decl.availability),
+                };
+
+                let Some(availability) = availability else {
+                    continue;
+                };
+
+                if availability.contains(level) {
+                    return None;
+                }
+
+                if entry.origin == Origin::Stub {
+                    if let Some(since) = availability.from.map(decode_version).filter(|since| *since > level) {
+                        if first_later.is_none_or(|(_, previous)| since < previous) {
+                            first_later = Some((name, since));
+                        }
+                    }
+                }
+            }
+        }
+
+        first_later
     }
 
     /// The classes that exist at the level, by name. Nothing is read until [`ClassName::load`].

@@ -8,7 +8,9 @@ mod parser;
 
 pub use dump::{DumpOptions, dump, dump_compact};
 pub use kind::{PhpLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
-pub use language_level::{FEATURES, Feature, LevelDiagnostic, LevelSeverity, PhpVersion, check_language_level};
+pub use language_level::{
+    FEATURES, Feature, LevelDiagnostic, LevelSeverity, PhpVersion, check_language_level, constant_object_write_range,
+};
 pub use parser::{Parse, SyntaxError, parse};
 pub use rowan::{Direction, TextRange, TextSize, TokenAtOffset, WalkEvent};
 

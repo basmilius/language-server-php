@@ -52,7 +52,7 @@ pub(crate) fn attribute_lists(p: &mut Parser) {
                 name(p);
 
                 if p.at(LPAREN) {
-                    expr::argument_list(p);
+                    expr::argument_list(p, Some("Cannot create Closure as attribute argument"));
                 }
 
                 p.finish_node();
@@ -286,7 +286,7 @@ pub(crate) fn anonymous_class(p: &mut Parser) {
     p.bump();
 
     if p.at(LPAREN) {
-        expr::argument_list(p);
+        expr::argument_list(p, Some(expr::NEW_CALLABLE_ERROR));
     }
 
     class_heads(p, CLASS_DECLARATION);

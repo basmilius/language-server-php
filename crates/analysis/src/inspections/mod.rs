@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use php_index::{Index, UseKind};
-use php_syntax::{SyntaxKind, SyntaxNode, TextRange};
+use php_syntax::{PhpVersion, SyntaxKind, SyntaxNode, TextRange};
 
 use crate::context::FileContext;
 use crate::diagnostics::{Diagnostic, DiagnosticSeverity};
@@ -61,6 +61,18 @@ pub const INSPECTIONS: &[InspectionInfo] = &[
     ),
     info("undefined-function", Error, true, "A function that does not exist"),
     info("undefined-constant", Error, true, "A constant that does not exist"),
+    info(
+        "unavailable-in-php-version",
+        Error,
+        true,
+        "A standard library symbol from a newer PHP version",
+    ),
+    info(
+        "constant-object-reference-argument",
+        Error,
+        true,
+        "Passing a property of an object in a constant by reference requires PHP 8.6",
+    ),
     info(
         "undefined-class-constant",
         Error,
@@ -420,12 +432,12 @@ impl InspectionSettings {
     }
 }
 
-/// Which declarations of the standard library a project cannot see because its extension is not
-/// required, so that a name only they hold is not reported as undefined.
+/// Declarations that may exist outside the project's index, through extensions or autoloading.
 pub struct Externals<'a> {
     pub class: &'a dyn Fn(&str) -> bool,
     pub function: &'a dyn Fn(&str) -> bool,
     pub constant: &'a dyn Fn(&str) -> bool,
+    pub autoloads_class: &'a dyn Fn(&str) -> bool,
 }
 
 fn never(_: &str) -> bool {
@@ -439,6 +451,7 @@ impl Externals<'_> {
             class: &never,
             function: &never,
             constant: &never,
+            autoloads_class: &never,
         }
     }
 }
@@ -536,6 +549,7 @@ pub struct Finding {
 /// findings go.
 pub(crate) struct Cx<'a> {
     pub index: &'a Index,
+    pub language_level: PhpVersion,
     pub text: &'a str,
     pub root: SyntaxNode,
     pub file: FileContext<'a>,
@@ -568,6 +582,7 @@ impl<'a> Cx<'a> {
 
         Cx {
             index: env.index,
+            language_level: env.index.level,
             text: env.text,
             root: env.root.clone(),
             file: FileContext::new(env.index, env.root),
@@ -636,7 +651,13 @@ pub(crate) fn declares_strict_types(root: &SyntaxNode) -> bool {
 
 /// Runs the inspections the settings leave on over a file.
 pub fn inspect(env: &InspectionEnv) -> Vec<Finding> {
-    let cx = Cx::new(env);
+    inspect_at_level(env, env.index.level)
+}
+
+/// Runs inspections with a document-specific language level when the client provides one.
+pub fn inspect_at_level(env: &InspectionEnv, level: PhpVersion) -> Vec<Finding> {
+    let mut cx = Cx::new(env);
+    cx.language_level = level;
     names::run(&cx);
     members::run(&cx);
     scopes::run(&cx);

@@ -5,7 +5,7 @@ use php_index::types::ShapeField;
 use php_syntax::SyntaxKind::*;
 use php_syntax::{SyntaxKind, SyntaxNode};
 
-use super::{Analyzer, Env};
+use super::{Analyzer, Env, is_first_class_callable};
 use crate::ast::{child_of, first_token, has_token, text_of, tokens};
 
 impl Analyzer<'_> {
@@ -20,6 +20,7 @@ impl Analyzer<'_> {
             LITERAL => literal_type(node),
             NAME => self.constant_type(&text_of(node)),
             ARRAY_EXPR | LIST_EXPR => self.array_type(node, env),
+            CLONE_EXPR | EXIT_EXPR if is_first_class_callable(node) => Type::class("Closure"),
             NEW_EXPR => self.new_type(node, env),
             CALL_EXPR => self.call_type(node, env),
             PROPERTY_FETCH_EXPR => self.property_type(node, env),

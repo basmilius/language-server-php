@@ -204,7 +204,8 @@ fn expression_end(cx: &Cx, statement: &SyntaxNode) -> End {
     };
 
     match expression.kind() {
-        THROW_EXPR | EXIT_EXPR => End::Terminates,
+        THROW_EXPR => End::Terminates,
+        EXIT_EXPR if !crate::infer::is_first_class_callable(&expression) => End::Terminates,
         CALL_EXPR => call_end(cx, &expression),
         _ => End::Completes,
     }

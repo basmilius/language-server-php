@@ -769,6 +769,10 @@ fn use_clause(p: &mut Parser, in_group: bool, group_is_typed: bool) -> bool {
 
     if p.eat(AS_KW) {
         if is_identifier_like(p.current()) {
+            if !p.at(IDENT) {
+                p.error_here("Expected an identifier as an import alias");
+            }
+
             name(p);
         } else {
             p.error_expected("Alias");

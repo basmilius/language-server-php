@@ -710,7 +710,7 @@ enum ArgPass {
 }
 
 /// The parameter a call's argument is for.
-fn param_for<'p>(params: &[&'p Param], arg: &Arg, position: usize) -> Option<&'p Param> {
+pub(crate) fn param_for<'p>(params: &[&'p Param], arg: &Arg, position: usize) -> Option<&'p Param> {
     match &arg.name {
         Some(name) => params.iter().find(|param| &param.name == name).copied(),
         None => params

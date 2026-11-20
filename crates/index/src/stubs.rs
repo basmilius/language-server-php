@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use flate2::read::GzDecoder;
 
 /// The commit of phpstorm-stubs the index is built against.
-pub const STUBS_COMMIT: &str = "e4f5f6c3de39f3bab3e9f3fca4b8cdb8b061e681";
+pub const STUBS_COMMIT: &str = "5f84a9c87737addd09ad6cc4ad9bd4afb6f794a1";
 
 /// The name of the cache file of the stubs in `dir`, apart from `cache.rs` so naming it does not
 /// change the schema of the caches.
@@ -33,6 +33,7 @@ const DEFAULT_EXTENSIONS: &[&str] = &[
     "ctype",
     "filter",
     "iconv",
+    "io",
     "mbstring",
     "libxml",
     "dom",
@@ -222,6 +223,7 @@ mod tests {
         assert!(selected.contains(&"redis".to_string()));
         assert!(selected.contains(&"libsodium".to_string()));
         assert!(selected.contains(&"standard".to_string()));
+        assert!(selected.contains(&"io".to_string()));
         assert!(!selected.contains(&"swoole".to_string()));
     }
 

@@ -1,7 +1,7 @@
 //! Expressions: a Pratt parser over PHP's operator table, with the postfix chain (calls, indexes,
 //! member access) folded into the primary.
 
-use rowan::Checkpoint;
+use rowan::{Checkpoint, TextRange};
 
 use super::{Parser, is_identifier_like, is_name_token, item, stmt, string};
 use crate::SyntaxKind::{self, *};
@@ -148,6 +148,21 @@ fn infix(kind: SyntaxKind) -> Option<(u8, u8)> {
 }
 
 pub(crate) fn expr_bp(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
+    expression(p, min_bp).map(|expression| expression.kind)
+}
+
+struct Expression {
+    kind: SyntaxKind,
+    nullsafe: bool,
+}
+
+impl From<SyntaxKind> for Expression {
+    fn from(kind: SyntaxKind) -> Self {
+        Self { kind, nullsafe: false }
+    }
+}
+
+fn expression(p: &mut Parser, min_bp: u8) -> Option<Expression> {
     if !p.enter() {
         return None;
     }
@@ -158,14 +173,14 @@ pub(crate) fn expr_bp(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
     result
 }
 
-fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
+fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<Expression> {
     let checkpoint = p.checkpoint();
     let mut lhs = unary_or_primary(p, checkpoint)?;
 
     loop {
         let op = p.current();
 
-        if is_assign_op(op) && is_assignable(lhs) {
+        if is_assign_op(op) && is_assignable(lhs.kind) {
             p.start_at(checkpoint, ASSIGN_EXPR);
             p.bump();
 
@@ -180,16 +195,16 @@ fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
             }
 
             p.finish_node();
-            lhs = ASSIGN_EXPR;
+            lhs = ASSIGN_EXPR.into();
 
             continue;
         }
 
-        if matches!(op, INC | DEC) && is_assignable(lhs) {
+        if matches!(op, INC | DEC) && is_assignable(lhs.kind) {
             p.start_at(checkpoint, POSTFIX_EXPR);
             p.bump();
             p.finish_node();
-            lhs = POSTFIX_EXPR;
+            lhs = POSTFIX_EXPR.into();
 
             continue;
         }
@@ -209,7 +224,7 @@ fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
             p.expect(COLON, "':'");
             expr_required_bp(p, TERNARY_BP + 1);
             p.finish_node();
-            lhs = TERNARY_EXPR;
+            lhs = TERNARY_EXPR.into();
 
             continue;
         }
@@ -223,7 +238,7 @@ fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
             p.bump();
             class_reference_for_instanceof(p);
             p.finish_node();
-            lhs = BINARY_EXPR;
+            lhs = BINARY_EXPR.into();
 
             continue;
         }
@@ -240,7 +255,7 @@ fn expr_bp_inner(p: &mut Parser, min_bp: u8) -> Option<SyntaxKind> {
         p.bump();
         expr_required_bp(p, right_bp);
         p.finish_node();
-        lhs = BINARY_EXPR;
+        lhs = BINARY_EXPR.into();
     }
 
     Some(lhs)
@@ -289,10 +304,10 @@ fn class_reference_for_instanceof(p: &mut Parser) {
     }
 }
 
-fn unary_or_primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
-    match p.current() {
-        BANG => Some(prefix(p, checkpoint, BANG_BP)),
-        PLUS | MINUS | TILDE | AT | INC | DEC => Some(prefix(p, checkpoint, UNARY_BP)),
+fn unary_or_primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<Expression> {
+    let kind = match p.current() {
+        BANG => prefix(p, checkpoint, BANG_BP),
+        PLUS | MINUS | TILDE | AT | INC | DEC => prefix(p, checkpoint, UNARY_BP),
         CAST => {
             let is_void = p
                 .current_text()
@@ -308,17 +323,17 @@ fn unary_or_primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind
             expr_required_bp(p, UNARY_BP);
             p.finish_node();
 
-            Some(CAST_EXPR)
+            CAST_EXPR
         }
-        PRINT_KW => Some(keyword_operand(p, checkpoint, PRINT_EXPR, ASSIGN_BP)),
-        THROW_KW => Some(keyword_operand(p, checkpoint, THROW_EXPR, 0)),
-        INCLUDE_KW | INCLUDE_ONCE_KW | REQUIRE_KW | REQUIRE_ONCE_KW => {
-            Some(keyword_operand(p, checkpoint, INCLUDE_EXPR, 0))
-        }
-        YIELD_KW => Some(yield_expr(p, checkpoint)),
-        CLONE_KW => Some(clone_expr(p, checkpoint)),
-        _ => primary(p, checkpoint),
-    }
+        PRINT_KW => keyword_operand(p, checkpoint, PRINT_EXPR, ASSIGN_BP),
+        THROW_KW => keyword_operand(p, checkpoint, THROW_EXPR, 0),
+        INCLUDE_KW | INCLUDE_ONCE_KW | REQUIRE_KW | REQUIRE_ONCE_KW => keyword_operand(p, checkpoint, INCLUDE_EXPR, 0),
+        YIELD_KW => yield_expr(p, checkpoint),
+        CLONE_KW => clone_expr(p, checkpoint),
+        _ => return primary(p, checkpoint),
+    };
+
+    Some(kind.into())
 }
 
 fn prefix(p: &mut Parser, checkpoint: Checkpoint, bp: u8) -> SyntaxKind {
@@ -371,7 +386,7 @@ fn clone_expr(p: &mut Parser, checkpoint: Checkpoint) -> SyntaxKind {
     p.bump();
 
     if p.at(LPAREN) && clone_is_call(p) {
-        argument_list(p);
+        argument_list(p, None);
     } else {
         expr_required_bp(p, CLONE_BP);
     }
@@ -419,7 +434,9 @@ fn paren_has_top_level_comma(p: &Parser) -> bool {
     }
 }
 
-fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
+fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<Expression> {
+    let mut nullsafe = false;
+
     let kind = match p.current() {
         VARIABLE | DOLLAR => variable(p),
         INT_LITERAL | FLOAT_LITERAL | STRING_LITERAL | MAGIC_CONSTANT => {
@@ -452,7 +469,13 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
         LPAREN => {
             p.start(PAREN_EXPR);
             p.bump();
-            expr_required(p);
+
+            if let Some(inner) = expression(p, 0) {
+                nullsafe = inner.nullsafe;
+            } else {
+                p.error_expected("Expression");
+            }
+
             p.expect(RPAREN, "')'");
             p.finish_node();
 
@@ -473,29 +496,29 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
         }
         STATIC_KW => {
             if matches!(p.nth(1), FUNCTION_KW | FN_KW) {
-                return Some(closure(p, checkpoint));
+                return Some(closure(p, checkpoint).into());
             }
 
             name(p);
 
             NAME
         }
-        FUNCTION_KW | FN_KW => return Some(closure(p, checkpoint)),
+        FUNCTION_KW | FN_KW => return Some(closure(p, checkpoint).into()),
         HASH_BRACKET => {
             item::attribute_lists(p);
 
             if matches!(p.current(), FUNCTION_KW | FN_KW | STATIC_KW) {
-                return Some(closure(p, checkpoint));
+                return Some(closure(p, checkpoint).into());
             }
 
             p.error_expected("Function");
 
-            return Some(ERROR);
+            return Some(ERROR.into());
         }
         MATCH_KW => match_expr(p),
         NEW_KW => {
             if !new_expr(p) {
-                return Some(NEW_EXPR);
+                return Some(NEW_EXPR.into());
             }
 
             NEW_EXPR
@@ -519,8 +542,8 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
             p.start(EXIT_EXPR);
             p.bump();
 
-            if p.at(LPAREN) && p.nth(1) == ELLIPSIS {
-                argument_list(p);
+            if p.at(LPAREN) && (matches!(p.nth(1), ELLIPSIS | QUESTION) || p.nth(2) == COLON) {
+                argument_list(p, None);
             } else if p.at(LPAREN) {
                 p.bump();
 
@@ -538,7 +561,7 @@ fn primary(p: &mut Parser, checkpoint: Checkpoint) -> Option<SyntaxKind> {
         _ => return None,
     };
 
-    Some(postfix(p, checkpoint, kind))
+    Some(postfix(p, checkpoint, Expression { kind, nullsafe }))
 }
 
 /// `isset(...)`, `empty(...)` and `eval(...)`.
@@ -555,7 +578,7 @@ fn parenthesized_list(p: &mut Parser, kind: SyntaxKind) {
 }
 
 /// Calls, indexes and member access after an operand.
-fn postfix(p: &mut Parser, checkpoint: Checkpoint, mut kind: SyntaxKind) -> SyntaxKind {
+fn postfix(p: &mut Parser, checkpoint: Checkpoint, mut expression: Expression) -> Expression {
     loop {
         match p.current() {
             LBRACKET => {
@@ -568,25 +591,26 @@ fn postfix(p: &mut Parser, checkpoint: Checkpoint, mut kind: SyntaxKind) -> Synt
 
                 p.expect(RBRACKET, "']'");
                 p.finish_node();
-                kind = INDEX_EXPR;
+                expression.kind = INDEX_EXPR;
             }
             ARROW | NULLSAFE_ARROW => {
+                expression.nullsafe |= p.at(NULLSAFE_ARROW);
                 p.start_at(checkpoint, PROPERTY_FETCH_EXPR);
                 p.bump();
                 member_name(p, "Property name");
                 p.finish_node();
-                kind = PROPERTY_FETCH_EXPR;
+                expression.kind = PROPERTY_FETCH_EXPR;
             }
             DOUBLE_COLON => {
                 let is_static_property = matches!(p.nth(1), VARIABLE | DOLLAR);
 
-                kind = if is_static_property {
+                expression.kind = if is_static_property {
                     STATIC_PROPERTY_EXPR
                 } else {
                     SCOPED_ACCESS_EXPR
                 };
 
-                p.start_at(checkpoint, kind);
+                p.start_at(checkpoint, expression.kind);
                 p.bump();
 
                 if p.at(CLASS_KW) {
@@ -596,14 +620,19 @@ fn postfix(p: &mut Parser, checkpoint: Checkpoint, mut kind: SyntaxKind) -> Synt
                 }
 
                 p.finish_node();
+                expression.nullsafe &= is_static_property || p.at(LPAREN);
             }
             LPAREN => {
+                let callable_error = (expression.nullsafe && expression.kind == PROPERTY_FETCH_EXPR)
+                    .then_some("Cannot combine nullsafe operator with Closure creation");
+
+                expression.nullsafe &= matches!(expression.kind, PROPERTY_FETCH_EXPR | SCOPED_ACCESS_EXPR);
                 p.start_at(checkpoint, CALL_EXPR);
-                argument_list(p);
+                argument_list(p, callable_error);
                 p.finish_node();
-                kind = CALL_EXPR;
+                expression.kind = CALL_EXPR;
             }
-            _ => return kind,
+            _ => return expression,
         }
     }
 }
@@ -683,20 +712,94 @@ pub(crate) fn comma_list(
     }
 }
 
-pub(crate) fn argument_list(p: &mut Parser) {
+pub(crate) const NEW_CALLABLE_ERROR: &str = "Cannot create Closure for new expression";
+
+#[derive(Default)]
+struct CallArguments {
+    placeholder: Option<TextRange>,
+    unpack: Option<TextRange>,
+    variadic: bool,
+    order_error: Option<(TextRange, &'static str)>,
+}
+
+enum ArgumentKind {
+    Value,
+    Placeholder,
+    VariadicPlaceholder,
+    Unpack,
+}
+
+impl CallArguments {
+    fn record(&mut self, kind: ArgumentKind, range: TextRange) {
+        if matches!(kind, ArgumentKind::Unpack) {
+            self.unpack.get_or_insert(range);
+
+            return;
+        }
+
+        if self.variadic {
+            let message = if matches!(kind, ArgumentKind::VariadicPlaceholder) {
+                "Variadic placeholder may only appear once"
+            } else {
+                "Variadic placeholder must be last"
+            };
+
+            self.order_error.get_or_insert((range, message));
+        }
+
+        if matches!(kind, ArgumentKind::Placeholder | ArgumentKind::VariadicPlaceholder) {
+            self.placeholder.get_or_insert(range);
+        }
+
+        self.variadic |= matches!(kind, ArgumentKind::VariadicPlaceholder);
+    }
+
+    fn check(&self, p: &mut Parser, callable_error: Option<&str>) {
+        let Some(placeholder) = self.placeholder else {
+            return;
+        };
+
+        if let Some(message) = callable_error {
+            p.error_at(placeholder, message);
+
+            return;
+        }
+
+        let unpack_error = self
+            .unpack
+            .map(|range| (range, "Cannot combine partial application and unpacking"));
+
+        if let Some((range, message)) = self
+            .order_error
+            .into_iter()
+            .chain(unpack_error)
+            .min_by_key(|(range, _)| range.start())
+        {
+            p.error_at(range, message);
+        }
+    }
+}
+
+pub(crate) fn argument_list(p: &mut Parser, callable_error: Option<&str>) {
     p.start(ARGUMENT_LIST);
     p.expect(LPAREN, "'('");
+    let mut arguments = CallArguments::default();
 
     if p.at(ELLIPSIS) && p.nth(1) == RPAREN {
+        arguments.record(ArgumentKind::VariadicPlaceholder, p.current_range());
         p.bump();
     } else {
-        comma_list(p, RPAREN, argument, |kind| {
-            can_start_expr(kind) || matches!(kind, ELLIPSIS | QUESTION)
-        });
+        comma_list(
+            p,
+            RPAREN,
+            |p| argument(p, &mut arguments),
+            |kind| can_start_expr(kind) || matches!(kind, ELLIPSIS | QUESTION),
+        );
     }
 
     p.expect(RPAREN, "')'");
     p.finish_node();
+    arguments.check(p, callable_error);
 }
 
 /// Whether the token after the cursor ends an argument, as it does after a placeholder.
@@ -704,7 +807,7 @@ fn ends_argument(p: &Parser, ahead: usize) -> bool {
     matches!(p.nth(ahead), COMMA | RPAREN)
 }
 
-fn argument(p: &mut Parser) -> bool {
+fn argument(p: &mut Parser, arguments: &mut CallArguments) -> bool {
     let named = is_identifier_like(p.current()) && p.nth(1) == COLON;
     let placeholder = p.at(QUESTION) && ends_argument(p, 1);
 
@@ -714,28 +817,28 @@ fn argument(p: &mut Parser) -> bool {
 
     p.start(ARGUMENT);
 
-    if placeholder {
-        // `f(1, ?)`: partial application leaves the argument to the call of the closure it makes.
+    if named {
         p.bump();
-    } else if p.at(ELLIPSIS) {
         p.bump();
+    }
 
-        if !ends_argument(p, 0) {
-            expr_required(p);
-        }
-    } else if named {
-        p.bump();
-        p.bump();
+    let range = p.current_range();
+    let kind = match p.current() {
+        QUESTION if ends_argument(p, 1) => ArgumentKind::Placeholder,
+        ELLIPSIS if !named && ends_argument(p, 1) => ArgumentKind::VariadicPlaceholder,
+        ELLIPSIS if !named => ArgumentKind::Unpack,
+        _ => ArgumentKind::Value,
+    };
 
-        if p.at(QUESTION) && ends_argument(p, 1) {
-            p.bump();
-        } else {
-            expr_required(p);
-        }
-    } else {
+    if !matches!(kind, ArgumentKind::Value) {
+        p.bump();
+    }
+
+    if matches!(kind, ArgumentKind::Value | ArgumentKind::Unpack) {
         expr_required(p);
     }
 
+    arguments.record(kind, range);
     p.finish_node();
 
     true
@@ -968,7 +1071,7 @@ fn new_expr(p: &mut Parser) -> bool {
         class_name_reference(p);
 
         if p.at(LPAREN) {
-            argument_list(p);
+            argument_list(p, Some(NEW_CALLABLE_ERROR));
             closed = true;
         }
     }
