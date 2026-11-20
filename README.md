@@ -3,7 +3,7 @@
     <img src=".github/logo-light.svg" alt="language-server-php" height="48" />
 </picture>
 
-# language-server-php
+# Language Server: PHP
 
 A language server for PHP 8.1 through 8.6, written in Rust, that speaks LSP over stdio. It indexes a project with its Composer packages and the standard library, and answers completion, hover, navigation, usages, rename, inspections with fixes, refactors, formatting, semantic tokens, inlay hints and the tests a file can run, with support for PHPUnit, Pest, Laravel and Symfony. The SQL in its strings is read as SQL, with diagnostics, completion against a schema and the rest. It reads code and never runs it.
 
